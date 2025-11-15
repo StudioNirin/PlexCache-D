@@ -248,6 +248,10 @@ class PlexManager:
                          users_toggle: bool) -> Generator[str, None, None]:
         """Get watched media files."""
         def fetch_user_watched_media(plex_instance: PlexServer, username: str, retries: int = 0) -> Generator[str, None, None]:
+   
+             # Delay 1 seconds per user to reduce rate limiting
+            time.sleep(1)
+
             try:
                 logging.info(f"Fetching {username}'s watched media...")
                 # Get all sections available for the user
@@ -272,7 +276,11 @@ class PlexManager:
                         yield from process_video(video)
 
             except (BadRequest, NotFound) as e:
-                if "429" in str(e) and retries < self.retry_limit:
+                # Skip remote users with 401 Unauthorized
+                if "401" in str(e) or "Unauthorized" in str(e):
+                    logging.warning(f"Skipping watched media for remote user {username} (access denied)")
+                    return
+                elif "429" in str(e) and retries < self.retry_limit:
                     logging.warning(f"Rate limit exceeded. Retrying {retries + 1}/{self.retry_limit}. Sleeping for {self.delay} seconds...")
                     time.sleep(self.delay)
                     return fetch_user_watched_media(plex_instance, username, retries + 1)
