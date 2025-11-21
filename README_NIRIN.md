@@ -14,38 +14,51 @@ An updated version of the "PlexCache-Refactored" script with various bugfixes an
 
 ## Installation
 
-1. Install dependencies:
+AlienTech42 has already done a really helpful video on the original PlexCache installation, and for now it's the best resource. 
+The install process is pretty much the same for PlexCache-R. However there are some settings in the setup.py that
+are either in a different place, or are completely removed/altered/added. So don't follow the video religiously!
+https://www.youtube.com/watch?v=9oAnJJY8NH0
+
+1. Put the files from this Repo into a known folder on your Unraid server. I use the following:
+   ```bash
+   /mnt/user/appdata/plexcache/plexcache_app.py
+   ```
+   I'll keep using this in my examples, but make sure to use your own path.
+   
+2. Open up the Unraid Terminal, and install dependencies:
 ```bash
-pip install -r requirements.txt
+cd ../mnt/user/appdata/plexcache
+pip3 install -r requirements.txt
 ```
+Note: You'll need python installed for this to work. There's a community app for that. 
 
-2. Run the setup script to configure PlexCache:
+3. Run the setup script to configure PlexCache:
 ```bash
-python plexcache_setup.py
+python3 plexcache_setup.py
 ```
+Each of the questions should pretty much explain themselves, but I'll keep working on them. 
+Or I'll add a guide list on here sometime. 
 
-3. Run the main application:
+4. Run the main application:
 ```bash
-python plexcache_app.py
+python3 plexcache_app.py
 ```
-
-## Usage
-
-### Command Line Options
-
-- `--debug`: Run in debug mode (no files will be moved)
-- `--skip-cache`: Skip using cached data and fetch fresh from Plex
-
-
-### Examples - My current UserScript in UnRaid. 
+However you wouldn't really want to run it manually every time, and the dependencies will disappear every time you reset the server. 
+So I recommend making the following UserScript:
 ```bash
 #!/bin/bash
 cd /mnt/user/appdata/plexcache
 pip3 install -r requirements.txt
 python3 /mnt/user/appdata/plexcache/plexcache_app.py --skip-cache
 ```
-Reasons for this, is that python dependencies by default don't survive past a system reboot, so you have to install them every time you reboot the system. 
-This is probably best done via a separate user script, but my way works for now. 
+And set it on a cron job to run whenever you want. I run it once a day at midnight ( 0 0 * * * )
+
+
+### Command Line Options
+
+- `--debug`: Run in debug mode (no files will be moved)
+- `--skip-cache`: Skip using cached data and fetch fresh from Plex
+
 
 
 ## Migration from Original
