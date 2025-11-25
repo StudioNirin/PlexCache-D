@@ -2,7 +2,7 @@
 ### Updated 11/25
 
 Automate Plex media management: Efficiently transfer media from the On Deck/Watchlist to the cache, and seamlessly move watched media back to their respective locations.
-An updated version of the "PlexCache-Refactored" script with various bugfixes and improvements.
+An updated version of the "PlexCache-Refactored" script with various bugfixes and improvements. Hopefully fixed and improved anyway, time will tell!
 
 ## Overview
 
