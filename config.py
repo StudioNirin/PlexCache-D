@@ -291,15 +291,6 @@ class ConfigManager:
             if value < 0:
                 errors.append(f"'{field}' must be non-negative, got {value}")
 
-        # Validate library folder lists have matching lengths
-        nas_folders = self.settings_data.get('nas_library_folders', [])
-        plex_folders = self.settings_data.get('plex_library_folders', [])
-        if len(nas_folders) != len(plex_folders):
-            errors.append(
-                f"'nas_library_folders' ({len(nas_folders)} items) and "
-                f"'plex_library_folders' ({len(plex_folders)} items) must have the same length"
-            )
-
         # Validate non-empty URL and token
         if not self.settings_data.get('PLEX_URL', '').strip():
             errors.append("'PLEX_URL' cannot be empty")
