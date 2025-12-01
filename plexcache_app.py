@@ -160,7 +160,10 @@ class PlexCacheApp:
             mover_cache_exclude_file=str(mover_exclude)
         )
         
-        self.cache_cleanup = CacheCleanup(self.config_manager.paths.cache_dir)
+        self.cache_cleanup = CacheCleanup(
+            self.config_manager.paths.cache_dir,
+            self.config_manager.paths.nas_library_folders
+        )
         logging.info("All components initialized successfully")
     
     def _check_paths(self) -> None:
