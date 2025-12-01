@@ -15,6 +15,7 @@
 5.Figure out if its possible/worthwhile to copy files from array to cache, instead of moving them. Leave behind the original file (marked filename.archive or similar). When watched, the cache would only have to delete the cached file and rename the array file, instead of needing to do a longer and more wearing second move. Will need some logic for what to do with files that were already on the cache (as in todo item 3 above) as they won't have .archive files and people may want them to remain on cache longer and be moved by the Mover due to them likely being new media etc.  
 Alternatively we could make use of .plexignore files, but I'm not sure how they would interact with series episodes. Easier with movies. 
 
+6. Files moved from cache to array seem to be getting marked as 'root' instead of 'nobody' which is what unraid usually uses for media permissions. There's a build in unraid tool to correct the ones that have already been done, but would be good to fix it going forwards. 
 
 ## Overview
 Automate Plex media management: Efficiently transfer media from the On Deck/Watchlist to the cache, and seamlessly move watched media back to their respective locations.
