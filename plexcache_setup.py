@@ -1,10 +1,10 @@
-import json, os, requests, ntpath, posixpath
+import json, os, requests, ntpath, posixpath, subprocess, re
 from urllib.parse import urlparse
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest
 
 # Script folder and settings file
-script_folder = "."
+script_folder = os.path.dirname(os.path.abspath(__file__))
 settings_filename = os.path.join(script_folder, "plexcache_settings.json")
 
 # ensure a settings container exists early so helper functions can reference it
@@ -17,12 +17,20 @@ def check_directory_exists(folder):
         raise FileNotFoundError(f'Wrong path given, please edit the "{folder}" variable accordingly.')
 
 def read_existing_settings(filename):
-    with open(filename, 'r') as f:
-        return json.load(f)
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (IOError, OSError) as e:
+        print(f"Error reading settings file: {e}")
+        raise
 
 def write_settings(filename, data):
-    with open(filename, 'w') as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=4)
+    except (IOError, OSError) as e:
+        print(f"Error writing settings file: {e}")
+        raise
 
 def convert_path_to_posix(path):
     path = path.replace(ntpath.sep, posixpath.sep)
@@ -35,11 +43,15 @@ def convert_path_to_nt(path):
 def prompt_user_for_number(prompt_message, default_value, data_key, data_type=int):
     while True:
         user_input = input(prompt_message) or default_value
-        if user_input.isdigit():
-            settings_data[data_key] = data_type(user_input)
+        try:
+            value = data_type(user_input)
+            if value < 0:
+                print("Please enter a non-negative number")
+                continue
+            settings_data[data_key] = value
             break
-        else:
-            print("User input is not a number")
+        except ValueError:
+            print("User input is not a valid number")
 
 def is_valid_plex_url(url):
     try:
@@ -72,6 +84,84 @@ def find_common_root(paths):
         return "/" + "/".join(common_parts[1:])
     return "/" + "/".join(common_parts) if common_parts else "/"
 
+
+def is_unraid():
+    """Check if running on Unraid."""
+    return os.path.exists('/etc/unraid-version')
+
+
+def auto_detect_plex_token():
+    """
+    Auto-detect Plex token from Preferences.xml on Unraid.
+    Uses optimized search: finds appdata/apps folders first, then searches within.
+    Returns tuple of (token, preferences_path) or (None, None) if not found.
+    """
+    if not is_unraid():
+        return None, None
+
+    print("Searching for Plex installation...")
+
+    # Step 1: Find appdata/apps folders first (fast, limited scope)
+    try:
+        result = subprocess.run(
+            ['find', '/mnt', '-maxdepth', '4', '-type', 'd', '(', '-name', 'appdata', '-o', '-name', 'apps', ')'],
+            capture_output=True, text=True, timeout=30
+        )
+        app_folders = [line.strip() for line in result.stdout.strip().split('\n') if line.strip()]
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+        print(f"Error searching for app folders: {e}")
+        return None, None
+
+    # Step 2: Search for Plex Preferences.xml within those folders
+    # Use */Plex Media Server/Preferences.xml to match both native installs and Docker variants
+    preferences_path = None
+    for folder in app_folders:
+        try:
+            result = subprocess.run(
+                ['find', folder, '-maxdepth', '8', '-path', '*/Plex Media Server/Preferences.xml'],
+                capture_output=True, text=True, timeout=30
+            )
+            if result.stdout.strip():
+                preferences_path = result.stdout.strip().split('\n')[0]
+                break
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError):
+            continue
+
+    # Step 3: Fallback to broader search if not found in appdata/apps folders
+    if not preferences_path:
+        print("Not found in appdata/apps folders, searching /mnt (this may take a moment)...")
+        try:
+            result = subprocess.run(
+                ['find', '/mnt', '-maxdepth', '10', '-path', '*/Plex Media Server/Preferences.xml'],
+                capture_output=True, text=True, timeout=60
+            )
+            if result.stdout.strip():
+                preferences_path = result.stdout.strip().split('\n')[0]
+        except (subprocess.TimeoutExpired, subprocess.SubprocessError) as e:
+            print(f"Error during fallback search: {e}")
+            return None, None
+
+    if not preferences_path:
+        print("Could not find Plex Preferences.xml")
+        return None, None
+
+    print(f"Found: {preferences_path}")
+
+    # Step 4: Extract token from Preferences.xml
+    try:
+        with open(preferences_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        match = re.search(r'PlexOnlineToken="([^"]+)"', content)
+        if match:
+            return match.group(1), preferences_path
+        else:
+            print("Could not find PlexOnlineToken in Preferences.xml")
+            return None, None
+    except (IOError, OSError) as e:
+        print(f"Error reading Preferences.xml: {e}")
+        return None, None
+
+
 # ---------------- Setup Function ----------------
 
 def setup():
@@ -91,7 +181,41 @@ def setup():
 
     # ---------------- Plex Token ----------------
     while 'PLEX_TOKEN' not in settings_data:
-        token = input('\nEnter your plex token: ')
+        token = None
+
+        # Offer auto-detection on Unraid
+        if is_unraid():
+            while True:
+                auto_detect = input('\nWould you like to auto-detect your Plex token? [Y/n] ') or 'yes'
+                if auto_detect.lower() in ['y', 'yes']:
+                    detected_token, plex_path = auto_detect_plex_token()
+                    if detected_token:
+                        # Show partial token for security (first 8 and last 4 chars)
+                        if len(detected_token) > 12:
+                            masked_token = detected_token[:8] + '...' + detected_token[-4:]
+                        else:
+                            masked_token = detected_token[:4] + '...'
+                        print(f"Token found: {masked_token}")
+                        while True:
+                            use_token = input(f'Use this token? [Y/n] ') or 'yes'
+                            if use_token.lower() in ['y', 'yes']:
+                                token = detected_token
+                                break
+                            elif use_token.lower() in ['n', 'no']:
+                                print("Token not used. Please enter manually.")
+                                break
+                            else:
+                                print("Invalid choice. Please enter either yes or no")
+                    break
+                elif auto_detect.lower() in ['n', 'no']:
+                    break
+                else:
+                    print("Invalid choice. Please enter either yes or no")
+
+        # Manual entry if no token yet
+        if not token:
+            token = input('\nEnter your plex token: ')
+
         if not token.strip():
             print("Token is not valid. It cannot be empty.")
             continue
@@ -106,8 +230,10 @@ def setup():
             print(f"Plex is running on {operating_system}")
 
             valid_sections = []
+            selected_libraries = []
             plex_library_folders = []
 
+            # Step 1: Collect library selections from user
             while not valid_sections:
                 for library in libraries:
                     print(f"\nYour plex library name: {library.title}")
@@ -115,35 +241,9 @@ def setup():
                     if include.lower() in ['n', 'no']:
                         continue
                     elif include.lower() in ['y', 'yes']:
-                        valid_sections.append(library.key)
-
-                        # Compute plex_source only once
-                        if 'plex_source' not in settings_data:
-                            # Collect the root folder for every library in Plex
-                            all_locations = []
-                            for lib in plex.library.sections():
-                                try:
-                                    locs = lib.locations
-                                    if isinstance(locs, list):
-                                        all_locations.extend(locs)
-                                    elif isinstance(locs, str):
-                                        all_locations.append(locs)
-                                except Exception:
-                                    continue
-
-                            # Compute the true common directory (e.g. /media)
-                            plex_source = find_common_root(all_locations)
-                            print(f"\nPlex source path autoselected and set to: {plex_source}")
-                            settings_data['plex_source'] = plex_source
-
-                        # Append relative paths for this library (deduplicated)
-                        for location in library.locations:
-                            rel = os.path.relpath(location, settings_data['plex_source']).strip('/')
-                            rel = rel.replace('\\', '/')
-                            if rel not in plex_library_folders:
-                                plex_library_folders.append(rel)
-
-                        settings_data['plex_library_folders'] = plex_library_folders
+                        if library.key not in valid_sections:
+                            valid_sections.append(library.key)
+                            selected_libraries.append(library)
                     else:
                         print("Invalid choice. Please enter either yes or no")
 
@@ -152,13 +252,64 @@ def setup():
 
             settings_data['valid_sections'] = valid_sections
 
+            # Step 2: Compute plex_source from ONLY selected libraries (fixes Issue #12)
+            if 'plex_source' not in settings_data:
+                selected_locations = []
+                for lib in selected_libraries:
+                    try:
+                        locs = lib.locations
+                        if isinstance(locs, list):
+                            selected_locations.extend(locs)
+                        elif isinstance(locs, str):
+                            selected_locations.append(locs)
+                    except Exception as e:
+                        print(f"Warning: Could not get locations for library '{lib.title}': {e}")
+                        continue
 
-        except (BadRequest, requests.exceptions.RequestException):
-            print('Unable to connect to Plex server. Please check your token.')
-        except ValueError:
-            print('Token is not valid. It cannot be empty.')
-        except TypeError:
-            print('An unexpected error occurred.')
+                plex_source = find_common_root(selected_locations)
+
+                # Warn user if plex_source is just "/" and allow manual override
+                if plex_source == "/":
+                    print(f"\nWarning: The computed plex_source is '/' (root).")
+                    print("This usually happens when your selected libraries have different base paths.")
+                    print(f"Selected library paths: {selected_locations}")
+                    print("\nUsing '/' as plex_source will likely cause path issues.")
+
+                    while True:
+                        manual_source = input("\nEnter the correct plex_source path (e.g., '/data') or press Enter to keep '/': ").strip()
+                        if manual_source == "":
+                            print("Keeping plex_source as '/' - please verify your settings work correctly.")
+                            break
+                        elif manual_source.startswith("/"):
+                            plex_source = manual_source.rstrip("/")
+                            print(f"plex_source set to: {plex_source}")
+                            break
+                        else:
+                            print("Path must start with '/'")
+
+                # Ensure trailing slash for consistency
+                if not plex_source.endswith('/'):
+                    plex_source = plex_source + '/'
+                print(f"\nPlex source path set to: {plex_source}")
+                settings_data['plex_source'] = plex_source
+
+            # Step 3: Compute relative library folders from selected libraries
+            for lib in selected_libraries:
+                for location in lib.locations:
+                    rel = os.path.relpath(location, settings_data['plex_source']).strip('/')
+                    rel = rel.replace('\\', '/')
+                    if rel not in plex_library_folders:
+                        plex_library_folders.append(rel)
+
+            settings_data['plex_library_folders'] = plex_library_folders
+
+
+        except (BadRequest, requests.exceptions.RequestException) as e:
+            print(f'Unable to connect to Plex server. Please check your token. Error: {e}')
+        except ValueError as e:
+            print(f'Token is not valid. Error: {e}')
+        except TypeError as e:
+            print(f'An unexpected error occurred: {e}')
 
     # ---------------- OnDeck Settings ----------------
     while 'number_episodes' not in settings_data:
@@ -200,7 +351,11 @@ def setup():
                 name = user.title
                 username = getattr(user, "username", None)
                 is_local = username is None
-                token = user.get_token(plex.machineIdentifier)
+                try:
+                    token = user.get_token(plex.machineIdentifier)
+                except Exception as e:
+                    print(f"\nSkipping user '{name}' (error getting token: {e})")
+                    continue
 
                 if token is None:
                     print(f"\nSkipping user '{name}' (no token available).")
@@ -292,7 +447,7 @@ def setup():
 
     # ---------------- Cache / Array Paths ----------------
     if 'cache_dir' not in settings_data:
-        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache/media") ').replace('"', '').replace("'", '') or '/mnt/cache/media'
+        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
         while True:
             test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
             if test_path.lower() in ['y', 'yes']:
@@ -303,7 +458,7 @@ def setup():
                     print('The path appears to be invalid.')
                     edit_path = input('\nDo you want to edit the path? [y/N]  ') or 'no'
                     if edit_path.lower() in ['y', 'yes']:
-                        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache/media") ').replace('"', '').replace("'", '') or '/mnt/cache/media'
+                        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
                     elif edit_path.lower() in ['n', 'no']:
                         break
                     else:
@@ -312,10 +467,13 @@ def setup():
                 break
             else:
                 print("Invalid choice. Please enter either yes or no")
+        # Ensure trailing slash for consistency
+        if not cache_dir.endswith('/'):
+            cache_dir = cache_dir + '/'
         settings_data['cache_dir'] = cache_dir
 
     if 'real_source' not in settings_data:
-        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user/media") ').replace('"', '').replace("'", '') or '/mnt/user/media'
+        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
         while True:
             test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
             if test_path.lower() in ['y', 'yes']:
@@ -326,7 +484,7 @@ def setup():
                     print('The path appears to be invalid.')
                     edit_path = input('\nDo you want to edit the path? [y/N]  ') or 'no'
                     if edit_path.lower() in ['y', 'yes']:
-                        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user/media") ').replace('"', '').replace("'", '') or '/mnt/user/media'
+                        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
                     elif edit_path.lower() in ['n', 'no']:
                         break
                     else:
@@ -335,6 +493,9 @@ def setup():
                 break
             else:
                 print("Invalid choice. Please enter either yes or no")
+        # Ensure trailing slash for consistency
+        if not real_source.endswith('/'):
+            real_source = real_source + '/'
         settings_data['real_source'] = real_source
 
         num_folders = len(settings_data['plex_library_folders'])
@@ -389,18 +550,20 @@ if os.path.exists(settings_filename):
             setup()
         else:
             print("Configuration exists and appears to be valid, you can now run the plexcache.py script.\n")
-    except json.decoder.JSONDecodeError:
-        print("Settings file initialized successfully!\n")
+    except json.decoder.JSONDecodeError as e:
+        print(f"Settings file appears to be corrupted (JSON error: {e}). Re-initializing...\n")
         settings_data = {}
         setup()
 else:
     print(f"Settings file {settings_filename} doesn't exist, please check the path:\n")
-    creation = input("\nIf the path is correct, do you want to create the file? [Y/n] ") or 'yes'
-    if creation.lower() in ['y', 'yes']:
-        print("Settings file created successfully!\n")
-        settings_data = {}
-        setup()
-    elif creation.lower() in ['n', 'no']:
-        exit("Exiting as requested, setting file not created.")
-    else:
-        print("Invalid choice. Please enter either 'yes' or 'no'")
+    while True:
+        creation = input("\nIf the path is correct, do you want to create the file? [Y/n] ") or 'yes'
+        if creation.lower() in ['y', 'yes']:
+            print("Starting setup...\n")
+            settings_data = {}
+            setup()
+            break
+        elif creation.lower() in ['n', 'no']:
+            exit("Exiting as requested, setting file not created.")
+        else:
+            print("Invalid choice. Please enter either 'yes' or 'no'")
