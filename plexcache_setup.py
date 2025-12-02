@@ -445,6 +445,12 @@ def setup():
         else:
             print("Invalid choice. Please enter either yes or no")
 
+    # ---------------- Cache Retention Period ----------------
+    if 'cache_retention_hours' not in settings_data:
+        print('\nCache retention prevents files from being moved back to array immediately after caching.')
+        print('This protects against accidental unwatching or Plex glitches.')
+        prompt_user_for_number('How many hours should files stay on cache before they can be moved back? (default: 12) ', '12', 'cache_retention_hours')
+
     # ---------------- Cache / Array Paths ----------------
     if 'cache_dir' not in settings_data:
         cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
