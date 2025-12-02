@@ -862,17 +862,32 @@ class FileMover:
         - If file on array: return command to copy+rename
 
         For array destination:
-        - If .plexcached file exists: return command to restore+delete
+        - If .plexcached file exists: return command to restore+delete cache copy
+        - If file exists on cache but no .plexcached: return command to copy to array+delete cache copy
+        - If file already exists on array: skip (return None)
         """
         move = None
         if destination == 'array':
-            # Check if .plexcached version exists on array
+            # Check if file already exists on array (no action needed)
+            if os.path.isfile(user_file_name):
+                logging.debug(f"File already exists on array, skipping: {user_file_name}")
+                return None
+
+            # Check if .plexcached version exists on array (restore scenario)
             plexcached_file = user_file_name + PLEXCACHED_EXTENSION
             if os.path.isfile(plexcached_file):
-                # Only create directories if not in debug mode (true dry-run)
                 if not self.debug:
                     self.file_utils.create_directory_with_permissions(user_path, cache_file_name)
                 move = (cache_file_name, user_path)
+                logging.debug(f"Will restore from .plexcached: {plexcached_file}")
+            # Check if file exists on cache but has no .plexcached backup (copy scenario)
+            elif os.path.isfile(cache_file_name):
+                if not self.debug:
+                    self.file_utils.create_directory_with_permissions(user_path, cache_file_name)
+                move = (cache_file_name, user_path)
+                logging.debug(f"Will copy from cache (no .plexcached): {cache_file_name}")
+            else:
+                logging.warning(f"Cannot move to array - file not found on cache or as .plexcached: {cache_file_name}")
         elif destination == 'cache':
             # Check if file is already on cache
             if os.path.isfile(cache_file_name):
@@ -1046,29 +1061,33 @@ class FileMover:
             return 1
 
     def _move_to_array(self, cache_file: str, array_path: str, cache_file_name: str) -> int:
-        """Restore .plexcached file and delete cache copy.
+        """Move file from cache back to array.
 
-        Safety: Only deletes cache copy if the array file exists (either restored
-        from .plexcached or already present). This prevents data loss for files
-        that exist only on cache.
+        Handles two scenarios:
+        1. .plexcached exists: Rename it back to original, delete cache copy
+        2. No .plexcached: Copy from cache to array, then delete cache copy
 
         Returns:
             0: Success - array file exists and cache deleted
             1: Error - exception occurred during operation
-            2: Skipped - no .plexcached and no array file (cache preserved to prevent data loss)
         """
         try:
             # Derive the original array file path and .plexcached path
             array_file = os.path.join(array_path, os.path.basename(cache_file))
             plexcached_file = array_file + PLEXCACHED_EXTENSION
 
-            # Step 1: Rename .plexcached back to original (if it exists)
+            # Scenario 1: .plexcached exists - just rename it back (fast)
             if os.path.isfile(plexcached_file):
                 os.rename(plexcached_file, array_file)
                 logging.info(f"Restored array file: {plexcached_file} -> {array_file}")
 
-            # Step 2: Only delete cache copy if array file now exists
-            # This prevents data loss for files that only exist on cache
+            # Scenario 2: No .plexcached but file exists on cache - copy to array
+            elif os.path.isfile(cache_file) and not os.path.isfile(array_file):
+                logging.info(f"No .plexcached found, copying from cache to array: {cache_file}")
+                shutil.copy2(cache_file, array_file)
+                logging.info(f"Copied to array: {array_file}")
+
+            # Delete cache copy only if array file now exists
             if os.path.isfile(array_file):
                 if os.path.isfile(cache_file):
                     os.remove(cache_file)
@@ -1076,18 +1095,15 @@ class FileMover:
                 else:
                     logging.debug(f"Cache file already removed: {cache_file}")
 
-                # Step 3: Remove timestamp entry
+                # Remove timestamp entry
                 if self.timestamp_tracker:
                     self.timestamp_tracker.remove_entry(cache_file)
 
                 return 0
             else:
-                # No array file exists - DO NOT delete cache copy
-                logging.warning(
-                    f"No .plexcached file and no array file found. "
-                    f"Keeping cache copy to prevent data loss: {cache_file}"
-                )
-                return 2  # Skipped - cache preserved
+                # This shouldn't happen, but log it if it does
+                logging.error(f"Failed to create array file: {array_file}")
+                return 1
 
         except Exception as e:
             logging.error(f"Error restoring to array: {type(e).__name__}: {e}")
