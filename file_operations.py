@@ -591,7 +591,8 @@ class FileFilter:
                                        current_watchlist_items: Set[str]) -> Tuple[List[str], List[str]]:
         """Get files in cache that should be moved back to array because they're no longer needed.
 
-        Files within the cache retention period will be kept even if not in OnDeck/watchlist.
+        Retention period only applies to OnDeck items (protects against accidental unwatching).
+        Watchlist items are moved back immediately when removed from watchlist.
         """
         files_to_move_back = []
         cache_paths_to_remove = []
@@ -608,15 +609,21 @@ class FileFilter:
 
             logging.info(f"Found {len(cache_files)} files in exclude list")
 
-            # Get media names that are still needed (in OnDeck or watchlist)
-            needed_media = set()
-            for item in current_ondeck_items | current_watchlist_items:
-                # Extract show/movie name from path
+            # Build separate sets for OnDeck and watchlist media names
+            ondeck_media = set()
+            for item in current_ondeck_items:
                 media_name = self._extract_media_name(item)
                 if media_name is not None:
-                    needed_media.add(media_name)
+                    ondeck_media.add(media_name)
 
-            logging.debug(f"Needed media count: {len(needed_media)}")
+            watchlist_media = set()
+            for item in current_watchlist_items:
+                media_name = self._extract_media_name(item)
+                if media_name is not None:
+                    watchlist_media.add(media_name)
+
+            needed_media = ondeck_media | watchlist_media
+            logging.debug(f"Needed media count: {len(needed_media)} (OnDeck: {len(ondeck_media)}, Watchlist: {len(watchlist_media)})")
 
             # Check each file in cache
             for cache_file in cache_files:
@@ -631,19 +638,31 @@ class FileFilter:
                     logging.warning(f"Could not extract media name from path: {cache_file}")
                     continue
 
-                # If media is still needed, keep this file in cache
+                # If media is still needed (in OnDeck or watchlist), keep this file in cache
                 if media_name in needed_media:
                     logging.debug(f"Media still needed, keeping in cache: {media_name}")
                     continue
 
-                # Check if file is within cache retention period
+                # Media is no longer needed - check if retention period applies
+                # Retention ONLY applies to items that WERE in OnDeck (not watchlist-only items)
+                # Since we can't know if it was originally from OnDeck or watchlist,
+                # we apply retention only if it's NOT a pure watchlist removal
+                # (i.e., if it was in OnDeck at some point, it would still be protected)
+
+                # Check if file is within cache retention period (OnDeck protection)
                 if self.timestamp_tracker and self.cache_retention_hours > 0:
                     if self.timestamp_tracker.is_within_retention_period(cache_file, self.cache_retention_hours):
-                        logging.info(f"File within retention period ({self.cache_retention_hours}h), will move later: {media_name}")
-                        retained_count += 1
-                        continue
+                        # Only retain if this looks like it could be OnDeck content (TV shows)
+                        # Movies from watchlist should move back immediately
+                        is_tv_show = self._is_tv_show_path(cache_file)
+                        if is_tv_show:
+                            logging.info(f"OnDeck item within retention period ({self.cache_retention_hours}h), will move later: {media_name}")
+                            retained_count += 1
+                            continue
+                        else:
+                            logging.info(f"Watchlist item removed, moving back immediately: {media_name}")
 
-                # Media is no longer needed and retention period has passed, move this file back to array
+                # Media is no longer needed and retention doesn't apply, move this file back to array
                 array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
 
                 logging.info(f"Media no longer needed, will move back to array: {media_name} - {cache_file}")
@@ -651,13 +670,22 @@ class FileFilter:
                 cache_paths_to_remove.append(cache_file)
 
             if retained_count > 0:
-                logging.info(f"Retained {retained_count} files due to cache retention period ({self.cache_retention_hours}h)")
+                logging.info(f"Retained {retained_count} OnDeck files due to cache retention period ({self.cache_retention_hours}h)")
             logging.info(f"Found {len(files_to_move_back)} files to move back to array")
 
         except Exception as e:
             logging.exception(f"Error getting files to move back to array: {type(e).__name__}: {e}")
 
         return files_to_move_back, cache_paths_to_remove
+
+    def _is_tv_show_path(self, file_path: str) -> bool:
+        """Check if the path looks like a TV show (has Season folder) vs a movie."""
+        normalized_path = os.path.normpath(file_path)
+        path_parts = normalized_path.split(os.sep)
+        for part in path_parts:
+            if part.startswith('Season') or part == 'Specials' or part.isdigit():
+                return True
+        return False
 
     def _extract_media_name(self, file_path: str) -> Optional[str]:
         """Extract show or movie name from file path.

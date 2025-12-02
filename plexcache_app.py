@@ -533,13 +533,87 @@ class PlexCacheApp:
                 logging.critical(error_msg)
                 sys.exit(1)
     
-    def _check_free_space_and_move_files(self, media_files: List[str], destination: str, 
+    def _apply_cache_limit(self, media_files: List[str], cache_dir: str) -> List[str]:
+        """Apply cache size limit, filtering out files that would exceed the limit.
+
+        Returns the list of files that fit within the cache limit.
+        Files are prioritized in the order they appear (OnDeck items should come first).
+        """
+        cache_limit_bytes = self.config_manager.cache.cache_limit_bytes
+
+        # No limit set
+        if cache_limit_bytes == 0:
+            return media_files
+
+        # Calculate effective limit (handle percentage)
+        if cache_limit_bytes < 0:
+            # Negative value indicates percentage
+            percent = abs(cache_limit_bytes)
+            try:
+                total_drive_size = self.file_utils.get_total_drive_size(cache_dir)
+                cache_limit_bytes = int(total_drive_size * percent / 100)
+                limit_readable = f"{percent}% of {total_drive_size / (1024**3):.1f}GB = {cache_limit_bytes / (1024**3):.1f}GB"
+            except Exception as e:
+                logging.warning(f"Could not calculate cache drive size for percentage limit: {e}")
+                return media_files
+        else:
+            limit_readable = f"{cache_limit_bytes / (1024**3):.1f}GB"
+
+        # Calculate current PlexCache usage from exclude file
+        current_usage = 0
+        _, _, exclude_file = self.config_manager.get_cache_files()
+        if exclude_file.exists():
+            try:
+                with open(exclude_file, 'r') as f:
+                    cached_files = [line.strip() for line in f if line.strip()]
+                for cached_file in cached_files:
+                    try:
+                        if os.path.exists(cached_file):
+                            current_usage += os.path.getsize(cached_file)
+                    except (OSError, FileNotFoundError):
+                        pass
+            except Exception as e:
+                logging.warning(f"Error reading exclude file for cache limit calculation: {e}")
+
+        current_usage_gb = current_usage / (1024**3)
+        logging.info(f"Cache limit: {limit_readable}, current usage: {current_usage_gb:.2f}GB")
+
+        # Filter files that fit within limit
+        available_space = cache_limit_bytes - current_usage
+        files_to_cache = []
+        skipped_count = 0
+        skipped_size = 0
+
+        for file in media_files:
+            try:
+                file_size = os.path.getsize(file)
+                if file_size <= available_space:
+                    files_to_cache.append(file)
+                    available_space -= file_size
+                else:
+                    skipped_count += 1
+                    skipped_size += file_size
+            except (OSError, FileNotFoundError):
+                # File doesn't exist or can't be accessed, skip it
+                pass
+
+        if skipped_count > 0:
+            skipped_gb = skipped_size / (1024**3)
+            logging.warning(f"Cache limit reached: skipped {skipped_count} files ({skipped_gb:.2f}GB) that would exceed the {limit_readable} limit")
+
+        return files_to_cache
+
+    def _check_free_space_and_move_files(self, media_files: List[str], destination: str,
                                         real_source: str, cache_dir: str) -> None:
         """Check free space and move files."""
         media_files_filtered = self.file_filter.filter_files(
             media_files, destination, self.media_to_cache, set(self.files_to_skip)
         )
-        
+
+        # Apply cache size limit when moving to cache
+        if destination == 'cache':
+            media_files_filtered = self._apply_cache_limit(media_files_filtered, cache_dir)
+
         total_size, total_size_unit = self.file_utils.get_total_size_of_files(media_files_filtered)
         
         if total_size > 0:

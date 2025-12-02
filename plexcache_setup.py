@@ -449,7 +449,25 @@ def setup():
     if 'cache_retention_hours' not in settings_data:
         print('\nCache retention prevents files from being moved back to array immediately after caching.')
         print('This protects against accidental unwatching or Plex glitches.')
+        print('Note: This only applies to OnDeck items. Watchlist items are moved back immediately when removed.')
         prompt_user_for_number('How many hours should files stay on cache before they can be moved back? (default: 12) ', '12', 'cache_retention_hours')
+
+    # ---------------- Cache Size Limit ----------------
+    if 'cache_limit' not in settings_data:
+        print('\nSet a maximum amount of space PlexCache can use on your cache drive.')
+        print('This prevents your cache from being overwhelmed by large watchlists.')
+        print('Supported formats:')
+        print('  - "250GB" or "250" (defaults to GB)')
+        print('  - "500MB"')
+        print('  - "1TB"')
+        print('  - "50%" (percentage of total cache drive size)')
+        print('  - Leave empty for no limit')
+        cache_limit = input('\nEnter cache size limit (e.g., 250GB, 50%, or leave empty for no limit): ').strip()
+        settings_data['cache_limit'] = cache_limit
+        if cache_limit:
+            print(f'Cache limit set to: {cache_limit}')
+        else:
+            print('No cache limit set.')
 
     # ---------------- Cache / Array Paths ----------------
     if 'cache_dir' not in settings_data:

@@ -82,7 +82,14 @@ class CacheConfig:
 
     # Cache retention: how long files stay on cache before being moved back to array
     # Files cached less than this many hours ago will not be restored to array
+    # Note: This only applies to OnDeck items, not watchlist items
     cache_retention_hours: int = 12
+
+    # Cache size limit: maximum space PlexCache can use on the cache drive
+    # Supports formats: "250GB", "500MB", "50%", or just "250" (defaults to GB)
+    # Empty string or "0" means no limit
+    cache_limit: str = ""
+    cache_limit_bytes: int = 0  # Parsed value in bytes (computed from cache_limit)
 
 
 
@@ -186,8 +193,12 @@ class ConfigManager:
         self.cache.remote_watchlist_toggle = self.settings_data.get('remote_watchlist_toggle', False)
         self.cache.remote_watchlist_rss_url = self.settings_data.get('remote_watchlist_rss_url', "")
 
-        # Load cache retention setting (default 24 hours)
-        self.cache.cache_retention_hours = self.settings_data.get('cache_retention_hours', 24)
+        # Load cache retention setting (default 12 hours)
+        self.cache.cache_retention_hours = self.settings_data.get('cache_retention_hours', 12)
+
+        # Load and parse cache limit setting
+        self.cache.cache_limit = self.settings_data.get('cache_limit', "")
+        self.cache.cache_limit_bytes = self._parse_cache_limit(self.cache.cache_limit)
 
     
     def _load_path_config(self) -> None:
@@ -331,6 +342,53 @@ class ConfigManager:
             logging.error(f"Error saving settings: {type(e).__name__}: {e}")
             raise
     
+    def _parse_cache_limit(self, limit_str: str) -> int:
+        """Parse cache limit string and return bytes.
+
+        Supports formats:
+        - "250GB" or "250gb" -> 250 * 1024^3 bytes
+        - "500MB" or "500mb" -> 500 * 1024^2 bytes
+        - "50%" -> percentage of total cache drive size (computed at runtime)
+        - "250" -> defaults to GB (250 * 1024^3 bytes)
+        - "" or "0" -> 0 (no limit)
+
+        Returns:
+            Bytes as int, or negative value for percentage (e.g., -50 for 50%)
+        """
+        if not limit_str or limit_str.strip() == "0":
+            return 0
+
+        limit_str = limit_str.strip().upper()
+
+        try:
+            # Check for percentage
+            if limit_str.endswith('%'):
+                percent = int(limit_str[:-1])
+                if percent <= 0 or percent > 100:
+                    logging.warning(f"Invalid cache_limit percentage '{limit_str}', must be 1-100. Using no limit.")
+                    return 0
+                # Return negative value to indicate percentage (will be computed at runtime)
+                return -percent
+
+            # Check for size units
+            if limit_str.endswith('GB'):
+                size = float(limit_str[:-2])
+                return int(size * 1024 * 1024 * 1024)
+            elif limit_str.endswith('MB'):
+                size = float(limit_str[:-2])
+                return int(size * 1024 * 1024)
+            elif limit_str.endswith('TB'):
+                size = float(limit_str[:-2])
+                return int(size * 1024 * 1024 * 1024 * 1024)
+            else:
+                # No unit specified, default to GB
+                size = float(limit_str)
+                return int(size * 1024 * 1024 * 1024)
+
+        except ValueError:
+            logging.warning(f"Invalid cache_limit value '{limit_str}'. Using no limit.")
+            return 0
+
     @staticmethod
     def _add_trailing_slashes(value: str) -> str:
         """Add trailing slashes to a path."""
