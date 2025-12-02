@@ -262,9 +262,7 @@ class FileFilter:
             filename = os.path.basename(file_path)
             name, _ext = os.path.splitext(filename)
 
-            # Remove trailing parentheses blocks like:
-            # (Bluray-1080p x265), (WEBDL-2160p), (whatever)
-            # but keep parentheses that are part of the real title (e.g. "Babe (1995)")
+            # Remove trailing parentheses blocks
             cleaned = re.sub(r'\s*\([^)]*\)$', '', name).strip()
 
             return cleaned
