@@ -749,7 +749,7 @@ def main():
     dry_run = "--dry-run" in sys.argv or "--debug" in sys.argv  # --debug is alias for backwards compatibility
     restore_plexcached = "--restore-plexcached" in sys.argv
     quiet = "--quiet" in sys.argv or "--notify-errors-only" in sys.argv
-    verbose = "--verbose" in sys.argv or "-v" in sys.argv
+    verbose = "--verbose" in sys.argv or "-v" in sys.argv or "--v" in sys.argv
 
     # Derive config path from the script's actual location (matches plexcache_setup.py behavior)
     script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
