@@ -239,12 +239,19 @@ class PlexcachedMigration:
                 logging.info(f"  {cache_file} -> {plexcached_file}")
             return 0, 0, 0
 
-        # Perform migration
+        # Perform migration with progress tracking
         migrated = 0
         errors = 0
+        completed_bytes = 0
 
-        for cache_file, array_file, plexcached_file in files_needing_migration:
+        for i, (cache_file, array_file, plexcached_file) in enumerate(files_needing_migration, 1):
             try:
+                # Get file size for progress
+                try:
+                    file_size = os.path.getsize(cache_file)
+                except OSError:
+                    file_size = 0
+
                 # Ensure directory exists
                 array_dir = os.path.dirname(plexcached_file)
                 if not os.path.exists(array_dir):
@@ -252,16 +259,18 @@ class PlexcachedMigration:
                     logging.debug(f"Created directory: {array_dir}")
 
                 # Copy cache file to array as .plexcached
-                logging.info(f"Creating backup: {os.path.basename(cache_file)} -> .plexcached")
+                filename = os.path.basename(cache_file)
                 shutil.copy2(cache_file, plexcached_file)
 
                 # Verify copy succeeded
                 if os.path.isfile(plexcached_file):
                     migrated += 1
-                    logging.info(f"  Success: {plexcached_file}")
+                    completed_bytes += file_size
+                    # Print progress
+                    self._print_progress(i, len(files_needing_migration), completed_bytes, total_bytes, filename)
                 else:
                     errors += 1
-                    logging.error(f"  Failed to verify: {plexcached_file}")
+                    logging.error(f"Failed to verify: {plexcached_file}")
 
             except Exception as e:
                 errors += 1
@@ -288,6 +297,41 @@ class PlexcachedMigration:
             logging.info(f"Migration flag created: {self.flag_file}")
         except IOError as e:
             logging.error(f"Could not create migration flag: {type(e).__name__}: {e}")
+
+    def _format_bytes(self, bytes_value: int) -> str:
+        """Format bytes into human-readable string (e.g., '1.5 GB')."""
+        if bytes_value < 1024:
+            return f"{bytes_value} B"
+        elif bytes_value < 1024 ** 2:
+            return f"{bytes_value / 1024:.1f} KB"
+        elif bytes_value < 1024 ** 3:
+            return f"{bytes_value / (1024 ** 2):.1f} MB"
+        else:
+            return f"{bytes_value / (1024 ** 3):.1f} GB"
+
+    def _print_progress(self, completed: int, total: int, completed_bytes: int,
+                       total_bytes: int, current_file: str) -> None:
+        """Print progress bar for migration."""
+        percentage = (completed / total) * 100
+        bar_width = 30
+        filled = int(bar_width * completed / total)
+        bar = '█' * filled + '░' * (bar_width - filled)
+
+        # Format data progress
+        completed_str = self._format_bytes(completed_bytes)
+        total_str = self._format_bytes(total_bytes)
+
+        # Truncate filename if too long
+        if len(current_file) > 50:
+            current_file = current_file[:47] + '...'
+
+        # Print progress (use \r to overwrite same line, but also log for file output)
+        progress_line = f"[{bar}] {percentage:.0f}% ({completed}/{total}) - {completed_str} / {total_str}"
+        print(f"\r{progress_line} - {current_file}", end='', flush=True)
+
+        # Print newline on completion
+        if completed == total:
+            print()  # Newline after completion
 
 
 class FilePathModifier:
