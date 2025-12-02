@@ -156,11 +156,12 @@ class PlexcachedMigration:
         """Check if migration has already been completed."""
         return not os.path.exists(self.flag_file)
 
-    def run_migration(self, dry_run: bool = False) -> Tuple[int, int, int]:
+    def run_migration(self, dry_run: bool = False, max_concurrent: int = 5) -> Tuple[int, int, int]:
         """Run the migration to create .plexcached backups.
 
         Args:
             dry_run: If True, only log what would be done without making changes.
+            max_concurrent: Maximum number of concurrent file copies.
 
         Returns:
             Tuple of (files_migrated, files_skipped, errors)
@@ -239,12 +240,19 @@ class PlexcachedMigration:
                 logging.info(f"  {cache_file} -> {plexcached_file}")
             return 0, 0, 0
 
-        # Perform migration with progress tracking
-        migrated = 0
-        errors = 0
-        completed_bytes = 0
+        # Perform migration with progress tracking using thread pool
+        logging.info(f"Starting migration with {max_concurrent} concurrent copies...")
 
-        for i, (cache_file, array_file, plexcached_file) in enumerate(files_needing_migration, 1):
+        # Thread-safe counters
+        self._migration_lock = threading.Lock()
+        self._migrated = 0
+        self._errors = 0
+        self._completed_bytes = 0
+        self._total_files = len(files_needing_migration)
+        self._total_bytes = total_bytes
+
+        def migrate_file(args):
+            cache_file, array_file, plexcached_file = args
             try:
                 # Get file size for progress
                 try:
@@ -256,26 +264,37 @@ class PlexcachedMigration:
                 array_dir = os.path.dirname(plexcached_file)
                 if not os.path.exists(array_dir):
                     os.makedirs(array_dir, exist_ok=True)
-                    logging.debug(f"Created directory: {array_dir}")
 
                 # Copy cache file to array as .plexcached
                 filename = os.path.basename(cache_file)
-                logging.info(f"Copying ({i}/{len(files_needing_migration)}): {filename} ({self._format_bytes(file_size)})")
+                logging.info(f"Copying: {filename} ({self._format_bytes(file_size)})")
                 shutil.copy2(cache_file, plexcached_file)
 
                 # Verify copy succeeded
                 if os.path.isfile(plexcached_file):
-                    migrated += 1
-                    completed_bytes += file_size
-                    # Print progress
-                    self._print_progress(i, len(files_needing_migration), completed_bytes, total_bytes, filename)
+                    with self._migration_lock:
+                        self._migrated += 1
+                        self._completed_bytes += file_size
+                        self._print_progress(self._migrated, self._total_files,
+                                           self._completed_bytes, self._total_bytes, filename)
+                    return 0
                 else:
-                    errors += 1
                     logging.error(f"Failed to verify: {plexcached_file}")
+                    with self._migration_lock:
+                        self._errors += 1
+                    return 1
 
             except Exception as e:
-                errors += 1
                 logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
+                with self._migration_lock:
+                    self._errors += 1
+                return 1
+
+        with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+            list(executor.map(migrate_file, files_needing_migration))
+
+        migrated = self._migrated
+        errors = self._errors
 
         skipped = len(cache_files) - len(files_needing_migration)
         logging.info(f"=== Migration Complete ===")
