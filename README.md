@@ -95,6 +95,7 @@ And set it on a cron job to run whenever you want. I run it once a day at midnig
 | `--debug` | Run in debug mode (no files will be moved, useful for testing) |
 | `--skip-cache` | Bypass cache expiry and fetch fresh data from Plex (OnDeck, watchlist, watched) |
 | `--restore-plexcached` | Emergency restore: scan for all `.plexcached` files and restore them to original names |
+| `--quiet` | Only send notifications on errors (suppresses summary notification) |
 
 **Examples:**
 ```bash
@@ -109,6 +110,9 @@ python3 plexcache_app.py --skip-cache
 
 # Restore all .plexcached backup files
 python3 plexcache_app.py --restore-plexcached
+
+# Run silently (only notify on errors) - ideal for scheduled cron jobs
+python3 plexcache_app.py --quiet
 ```
 
 

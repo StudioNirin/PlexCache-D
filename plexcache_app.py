@@ -21,11 +21,12 @@ from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMo
 
 class PlexCacheApp:
     """Main PlexCache application class."""
-    
-    def __init__(self, config_file: str, skip_cache: bool = False, debug: bool = False):
+
+    def __init__(self, config_file: str, skip_cache: bool = False, debug: bool = False, quiet: bool = False):
         self.config_file = config_file
         self.skip_cache = skip_cache
         self.debug = debug
+        self.quiet = quiet  # Override notification level to errors-only
         self.start_time = time.time()
         
         # Initialize components
@@ -109,8 +110,15 @@ class PlexCacheApp:
             max_log_files=5
         )
         self.logging_manager.setup_logging()
+
+        # Override notification level if --quiet flag is used
+        notification_config = self.config_manager.notification
+        if self.quiet:
+            notification_config.unraid_level = "error"
+            notification_config.webhook_level = "error"
+
         self.logging_manager.setup_notification_handlers(
-            self.config_manager.notification,
+            notification_config,
             self.system_detector.is_unraid,
             self.system_detector.is_docker
         )
@@ -723,6 +731,7 @@ def main():
     skip_cache = "--skip-cache" in sys.argv
     debug = "--debug" in sys.argv
     restore_plexcached = "--restore-plexcached" in sys.argv
+    quiet = "--quiet" in sys.argv or "--notify-errors-only" in sys.argv
 
     # Derive config path from the script's actual location (matches plexcache_setup.py behavior)
     script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -733,7 +742,7 @@ def main():
         _run_plexcached_restore(config_file, debug)
         return
 
-    app = PlexCacheApp(config_file, skip_cache, debug)
+    app = PlexCacheApp(config_file, skip_cache, debug, quiet)
     app.run()
 
 

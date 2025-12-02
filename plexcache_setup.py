@@ -469,6 +469,32 @@ def setup():
         else:
             print('No cache limit set.')
 
+    # ---------------- Notification Level ----------------
+    if 'unraid_level' not in settings_data:
+        print('\nNotification level controls when you receive Unraid notifications from PlexCache.')
+        print('Options:')
+        print('  - "summary" : Notify on every run with a summary (default)')
+        print('  - "error"   : Only notify when errors occur')
+        print('  - "warning" : Notify on warnings and errors')
+        print('  - ""        : Disable notifications entirely')
+        while True:
+            unraid_level = input('\nEnter notification level (summary/error/warning/blank to disable) [default: summary]: ').strip().lower()
+            if unraid_level == '':
+                # User pressed enter - use default
+                unraid_level = 'summary'
+                break
+            elif unraid_level in ['summary', 'error', 'warning', 'disable', 'disabled', 'none']:
+                if unraid_level in ['disable', 'disabled', 'none']:
+                    unraid_level = ''
+                break
+            else:
+                print('Invalid option. Please enter: summary, error, warning, or leave blank.')
+        settings_data['unraid_level'] = unraid_level
+        if unraid_level:
+            print(f'Notification level set to: {unraid_level}')
+        else:
+            print('Notifications disabled.')
+
     # ---------------- Cache / Array Paths ----------------
     if 'cache_dir' not in settings_data:
         cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
@@ -569,6 +595,7 @@ def check_for_missing_settings(settings: dict) -> list:
     optional_new_settings = [
         'cache_retention_hours',
         'cache_limit',
+        'unraid_level',
     ]
     missing = [s for s in optional_new_settings if s not in settings]
     return missing
