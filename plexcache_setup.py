@@ -563,6 +563,16 @@ def setup():
 # ---------------- Main ----------------
 check_directory_exists(script_folder)
 
+def check_for_missing_settings(settings: dict) -> list:
+    """Check for new settings that aren't in the existing config."""
+    # List of settings that setup() can configure
+    optional_new_settings = [
+        'cache_retention_hours',
+        'cache_limit',
+    ]
+    missing = [s for s in optional_new_settings if s not in settings]
+    return missing
+
 if os.path.exists(settings_filename):
     try:
         settings_data = read_existing_settings(settings_filename)
@@ -573,7 +583,18 @@ if os.path.exists(settings_filename):
             settings_data = {}
             setup()
         else:
-            print("Configuration exists and appears to be valid, you can now run the plexcache.py script.\n")
+            # Check for missing new settings
+            missing_settings = check_for_missing_settings(settings_data)
+            if missing_settings:
+                print(f"Found {len(missing_settings)} new setting(s) available: {', '.join(missing_settings)}")
+                update = input("Would you like to configure these now? [Y/n] ") or 'yes'
+                if update.lower() in ['y', 'yes']:
+                    print("Updating configuration with new settings...\n")
+                    setup()
+                else:
+                    print("Skipping new settings. You can configure them later or edit the settings file directly.\n")
+            else:
+                print("Configuration exists and appears to be valid, you can now run the plexcache.py script.\n")
     except json.decoder.JSONDecodeError as e:
         print(f"Settings file appears to be corrupted (JSON error: {e}). Re-initializing...\n")
         settings_data = {}
