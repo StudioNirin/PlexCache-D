@@ -18,11 +18,21 @@ PLEXCACHED_EXTENSION = ".plexcached"
 
 
 class CacheTimestampTracker:
-    """Thread-safe tracker for when files were cached.
+    """Thread-safe tracker for when files were cached and their source.
 
-    Maintains a JSON file with timestamps of when each file was copied to cache.
+    Maintains a JSON file with timestamps and source info for cached files.
     Used to implement cache retention periods - files cached less than X hours ago
     won't be moved back to array even if they're no longer in OnDeck/watchlist.
+
+    Storage format:
+    {
+        "/path/to/file.mkv": {
+            "cached_at": "2025-12-02T14:26:27.156439",
+            "source": "ondeck"  # or "watchlist"
+        }
+    }
+
+    Backwards compatible with old format (plain timestamp string).
     """
 
     def __init__(self, timestamp_file: str):
@@ -33,15 +43,36 @@ class CacheTimestampTracker:
         """
         self.timestamp_file = timestamp_file
         self._lock = threading.Lock()
-        self._timestamps: Dict[str, str] = {}
+        self._timestamps: Dict[str, dict] = {}
         self._load()
 
     def _load(self) -> None:
-        """Load timestamps from file."""
+        """Load timestamps from file, migrating old format if needed."""
         try:
             if os.path.exists(self.timestamp_file):
                 with open(self.timestamp_file, 'r', encoding='utf-8') as f:
-                    self._timestamps = json.load(f)
+                    raw_data = json.load(f)
+
+                # Migrate old format (plain string) to new format (dict)
+                migrated = False
+                for path, value in raw_data.items():
+                    if isinstance(value, str):
+                        # Old format: just a timestamp string
+                        self._timestamps[path] = {
+                            "cached_at": value,
+                            "source": "unknown"  # Can't determine source for old entries
+                        }
+                        migrated = True
+                    elif isinstance(value, dict):
+                        # New format: dict with cached_at and source
+                        self._timestamps[path] = value
+                    else:
+                        logging.warning(f"Invalid timestamp entry for {path}: {value}")
+
+                if migrated:
+                    self._save()
+                    logging.info("Migrated timestamp file to new format with source tracking")
+
                 logging.debug(f"Loaded {len(self._timestamps)} timestamps from {self.timestamp_file}")
         except (json.JSONDecodeError, IOError) as e:
             logging.warning(f"Could not load timestamp file: {type(e).__name__}: {e}")
@@ -55,16 +86,20 @@ class CacheTimestampTracker:
         except IOError as e:
             logging.error(f"Could not save timestamp file: {type(e).__name__}: {e}")
 
-    def record_cache_time(self, cache_file_path: str) -> None:
-        """Record the current time as when a file was cached.
+    def record_cache_time(self, cache_file_path: str, source: str = "unknown") -> None:
+        """Record the current time and source when a file was cached.
 
         Args:
             cache_file_path: The path to the cached file.
+            source: Where the file came from - "ondeck", "watchlist", or "unknown".
         """
         with self._lock:
-            self._timestamps[cache_file_path] = datetime.now().isoformat()
+            self._timestamps[cache_file_path] = {
+                "cached_at": datetime.now().isoformat(),
+                "source": source
+            }
             self._save()
-            logging.debug(f"Recorded cache timestamp for: {cache_file_path}")
+            logging.debug(f"Recorded cache timestamp for: {cache_file_path} (source: {source})")
 
     def remove_entry(self, cache_file_path: str) -> None:
         """Remove a file's timestamp entry (when file is restored to array).
@@ -96,7 +131,17 @@ class CacheTimestampTracker:
                 return False
 
             try:
-                cached_time = datetime.fromisoformat(self._timestamps[cache_file_path])
+                entry = self._timestamps[cache_file_path]
+                # Handle both old format (string) and new format (dict)
+                if isinstance(entry, str):
+                    cached_time_str = entry
+                else:
+                    cached_time_str = entry.get("cached_at", "")
+
+                if not cached_time_str:
+                    return False
+
+                cached_time = datetime.fromisoformat(cached_time_str)
                 age_hours = (datetime.now() - cached_time).total_seconds() / 3600
 
                 if age_hours < retention_hours:
@@ -109,6 +154,23 @@ class CacheTimestampTracker:
             except (ValueError, TypeError) as e:
                 logging.warning(f"Invalid timestamp for {cache_file_path}: {e}")
                 return False
+
+    def get_source(self, cache_file_path: str) -> str:
+        """Get the source (ondeck/watchlist) for a cached file.
+
+        Args:
+            cache_file_path: The path to the cached file.
+
+        Returns:
+            The source string ("ondeck", "watchlist", or "unknown").
+        """
+        with self._lock:
+            if cache_file_path not in self._timestamps:
+                return "unknown"
+            entry = self._timestamps[cache_file_path]
+            if isinstance(entry, dict):
+                return entry.get("source", "unknown")
+            return "unknown"
 
     def cleanup_missing_files(self) -> int:
         """Remove entries for files that no longer exist on cache.
@@ -595,8 +657,8 @@ class FileFilter:
                                        current_watchlist_items: Set[str]) -> Tuple[List[str], List[str]]:
         """Get files in cache that should be moved back to array because they're no longer needed.
 
-        Retention period only applies to OnDeck items (protects against accidental unwatching).
-        Watchlist items are moved back immediately when removed from watchlist.
+        Retention period applies uniformly to all cached files (both OnDeck and watchlist).
+        This protects against accidental unwatching or watchlist removal.
         """
         files_to_move_back = []
         cache_paths_to_remove = []
@@ -648,23 +710,14 @@ class FileFilter:
                     continue
 
                 # Media is no longer needed - check if retention period applies
-                # Retention ONLY applies to items that WERE in OnDeck (not watchlist-only items)
-                # Since we can't know if it was originally from OnDeck or watchlist,
-                # we apply retention only if it's NOT a pure watchlist removal
-                # (i.e., if it was in OnDeck at some point, it would still be protected)
-
-                # Check if file is within cache retention period (OnDeck protection)
+                # Retention applies uniformly to all cached files to protect against
+                # accidental unwatching or watchlist removal
                 if self.timestamp_tracker and self.cache_retention_hours > 0:
                     if self.timestamp_tracker.is_within_retention_period(cache_file, self.cache_retention_hours):
-                        # Only retain if this looks like it could be OnDeck content (TV shows)
-                        # Movies from watchlist should move back immediately
-                        is_tv_show = self._is_tv_show_path(cache_file)
-                        if is_tv_show:
-                            logging.info(f"OnDeck item within retention period ({self.cache_retention_hours}h), will move later: {media_name}")
-                            retained_count += 1
-                            continue
-                        else:
-                            logging.info(f"Watchlist item removed, moving back immediately: {media_name}")
+                        source = self.timestamp_tracker.get_source(cache_file)
+                        logging.info(f"File within retention period ({self.cache_retention_hours}h), will move later: {media_name} (source: {source})")
+                        retained_count += 1
+                        continue
 
                 # Media is no longer needed and retention doesn't apply, move this file back to array
                 array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
@@ -674,7 +727,7 @@ class FileFilter:
                 cache_paths_to_remove.append(cache_file)
 
             if retained_count > 0:
-                logging.info(f"Retained {retained_count} OnDeck files due to cache retention period ({self.cache_retention_hours}h)")
+                logging.info(f"Retained {retained_count} files due to cache retention period ({self.cache_retention_hours}h)")
             logging.info(f"Found {len(files_to_move_back)} files to move back to array")
 
         except Exception as e:
@@ -790,10 +843,23 @@ class FileMover:
         self._total_bytes = 0
         self._active_files = {}  # Thread ID -> (filename, size)
         self._last_display_lines = 0
+        # Source tracking: maps cache file paths to their source (ondeck/watchlist)
+        self._source_map: Dict[str, str] = {}
     
     def move_media_files(self, files: List[str], destination: str,
-                        max_concurrent_moves_array: int, max_concurrent_moves_cache: int) -> None:
-        """Move media files to the specified destination."""
+                        max_concurrent_moves_array: int, max_concurrent_moves_cache: int,
+                        source_map: Optional[Dict[str, str]] = None) -> None:
+        """Move media files to the specified destination.
+
+        Args:
+            files: List of file paths to move.
+            destination: Either 'cache' or 'array'.
+            max_concurrent_moves_array: Max concurrent moves to array.
+            max_concurrent_moves_cache: Max concurrent moves to cache.
+            source_map: Optional dict mapping file paths to their source ('ondeck' or 'watchlist').
+        """
+        # Store source map for use during moves
+        self._source_map = source_map or {}
         logging.info(f"Moving media files to {destination}...")
         logging.debug(f"Total files to process: {len(files)}")
 
@@ -1057,9 +1123,12 @@ class FileMover:
             # Step 3: Add to exclude file
             self._add_to_exclude_file(cache_file_name)
 
-            # Step 4: Record timestamp for cache retention
+            # Step 4: Record timestamp for cache retention with source info
             if self.timestamp_tracker:
-                self.timestamp_tracker.record_cache_time(cache_file_name)
+                # Look up source from the source map (try both cache path and array path)
+                source = self._source_map.get(cache_file_name,
+                         self._source_map.get(array_file, "unknown"))
+                self.timestamp_tracker.record_cache_time(cache_file_name, source)
 
             # Log successful move
             file_size = os.path.getsize(cache_file_name)

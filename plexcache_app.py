@@ -51,6 +51,8 @@ class PlexCacheApp:
         self.media_to_cache = []
         self.media_to_array = []
         self.ondeck_items = set()
+        self.watchlist_items = set()
+        self.source_map = {}  # Maps file paths to source ('ondeck' or 'watchlist')
         
     def run(self) -> None:
         """Run the main application."""
@@ -351,6 +353,10 @@ class PlexCacheApp:
         self.ondeck_items = set(modified_ondeck)
         modified_paths_set.update(self.ondeck_items)
 
+        # Track source for OnDeck items
+        for item in self.ondeck_items:
+            self.source_map[item] = "ondeck"
+
         # Fetch subtitles for OnDeck media (already using real paths)
         logging.debug("Finding subtitles for OnDeck media...")
         ondeck_with_subtitles = self.subtitle_finder.get_media_subtitles(list(self.ondeck_items), files_to_skip=set(self.files_to_skip))
@@ -358,13 +364,25 @@ class PlexCacheApp:
         modified_paths_set.update(ondeck_with_subtitles)
         logging.debug(f"Found {subtitle_count} subtitle files for OnDeck media")
 
+        # Track source for OnDeck subtitles
+        for item in ondeck_with_subtitles:
+            if item not in self.source_map:
+                self.source_map[item] = "ondeck"
+
         # Process watchlist (returns already-modified paths)
         if self.config_manager.cache.watchlist_toggle:
             logging.info("Processing watchlist media...")
             watchlist_items = self._process_watchlist()
             if watchlist_items:
+                # Store watchlist items (don't override ondeck source for items in both)
+                self.watchlist_items = watchlist_items
                 modified_paths_set.update(watchlist_items)
                 logging.info(f"Added {len(watchlist_items)} watchlist items to cache set")
+
+                # Track source for watchlist items (only if not already tracked as ondeck)
+                for item in watchlist_items:
+                    if item not in self.source_map:
+                        self.source_map[item] = "watchlist"
         else:
             logging.info("Watchlist processing is disabled")
 
@@ -545,10 +563,13 @@ class PlexCacheApp:
     def _safe_move_files(self, files: List[str], destination: str) -> None:
         """Safely move files with consistent error handling."""
         try:
+            # Pass source map only when moving to cache
+            source_map = self.source_map if destination == 'cache' else None
             self._check_free_space_and_move_files(
                 files, destination,
                 self.config_manager.paths.real_source,
-                self.config_manager.paths.cache_dir
+                self.config_manager.paths.cache_dir,
+                source_map
             )
         except Exception as e:
             error_msg = f"Error moving media files to {destination}: {type(e).__name__}: {e}"
@@ -629,7 +650,8 @@ class PlexCacheApp:
         return files_to_cache
 
     def _check_free_space_and_move_files(self, media_files: List[str], destination: str,
-                                        real_source: str, cache_dir: str) -> None:
+                                        real_source: str, cache_dir: str,
+                                        source_map: dict = None) -> None:
         """Check free space and move files."""
         media_files_filtered = self.file_filter.filter_files(
             media_files, destination, self.media_to_cache, set(self.files_to_skip)
@@ -666,7 +688,8 @@ class PlexCacheApp:
             self.file_mover.move_media_files(
                 media_files_filtered, destination,
                 self.config_manager.performance.max_concurrent_moves_array,
-                self.config_manager.performance.max_concurrent_moves_cache
+                self.config_manager.performance.max_concurrent_moves_cache,
+                source_map
             )
         else:
             if not self.logging_manager.files_moved:
