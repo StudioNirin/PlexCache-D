@@ -175,9 +175,11 @@ class PlexcachedMigration:
             self._mark_complete()
             return 0, 0, 0
 
-        # Read exclude file to get list of cached files
+        # Read exclude file to get list of cached files (deduplicated)
         with open(self.exclude_file, 'r') as f:
-            cache_files = [line.strip() for line in f if line.strip()]
+            all_lines = [line.strip() for line in f if line.strip()]
+            cache_files = list(dict.fromkeys(all_lines))
+            duplicates_removed = len(all_lines) - len(cache_files)
 
         if not cache_files:
             logging.info("Exclude file is empty, nothing to migrate")
@@ -185,7 +187,9 @@ class PlexcachedMigration:
             return 0, 0, 0
 
         logging.info("=== PlexCache-R Migration ===")
-        logging.info(f"Checking {len(cache_files)} files in exclude list...")
+        if duplicates_removed > 0:
+            logging.info(f"Removed {duplicates_removed} duplicate entries from exclude list")
+        logging.info(f"Checking {len(cache_files)} unique files in exclude list...")
 
         files_needing_migration = []
 
