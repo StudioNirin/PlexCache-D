@@ -208,11 +208,11 @@ class PlexCacheApp:
         self.plex_manager.connect()
 
         # Load user tokens once at startup (reduces plex.tv API calls)
-        if self.config_manager.users.users_toggle:
+        if self.config_manager.plex.users_toggle:
             # Combine all skip lists for token loading
             skip_users = list(set(
-                (self.config_manager.users.skip_ondeck or []) +
-                (self.config_manager.users.skip_watchlist or [])
+                (self.config_manager.plex.skip_ondeck or []) +
+                (self.config_manager.plex.skip_watchlist or [])
             ))
             self.plex_manager.load_user_tokens(skip_users=skip_users)
     
