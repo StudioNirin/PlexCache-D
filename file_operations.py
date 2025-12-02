@@ -665,40 +665,47 @@ class FileMover:
     def _move_to_array(self, cache_file: str, array_path: str, cache_file_name: str) -> int:
         """Restore .plexcached file and delete cache copy.
 
+        Safety: Only deletes cache copy if the array file exists (either restored
+        from .plexcached or already present). This prevents data loss for files
+        that exist only on cache.
+
         Returns:
-            0: Success - both .plexcached renamed and cache deleted
+            0: Success - array file exists and cache deleted
             1: Error - exception occurred during operation
-            2: Partial - .plexcached file was missing (cache still deleted if present)
+            2: Skipped - no .plexcached and no array file (cache preserved to prevent data loss)
         """
         try:
             # Derive the original array file path and .plexcached path
             array_file = os.path.join(array_path, os.path.basename(cache_file))
             plexcached_file = array_file + PLEXCACHED_EXTENSION
-            plexcached_missing = False
 
-            # Step 1: Rename .plexcached back to original
+            # Step 1: Rename .plexcached back to original (if it exists)
             if os.path.isfile(plexcached_file):
                 os.rename(plexcached_file, array_file)
                 logging.info(f"Restored array file: {plexcached_file} -> {array_file}")
+
+            # Step 2: Only delete cache copy if array file now exists
+            # This prevents data loss for files that only exist on cache
+            if os.path.isfile(array_file):
+                if os.path.isfile(cache_file):
+                    os.remove(cache_file)
+                    logging.info(f"Deleted cache file: {cache_file}")
+                else:
+                    logging.debug(f"Cache file already removed: {cache_file}")
+
+                # Step 3: Remove timestamp entry
+                if self.timestamp_tracker:
+                    self.timestamp_tracker.remove_entry(cache_file)
+
+                return 0
             else:
-                logging.warning(f"No .plexcached file found to restore: {plexcached_file}")
-                plexcached_missing = True
+                # No array file exists - DO NOT delete cache copy
+                logging.warning(
+                    f"No .plexcached file and no array file found. "
+                    f"Keeping cache copy to prevent data loss: {cache_file}"
+                )
+                return 2  # Skipped - cache preserved
 
-            # Step 2: Delete cache copy
-            if os.path.isfile(cache_file):
-                os.remove(cache_file)
-                logging.info(f"Deleted cache file: {cache_file}")
-            else:
-                logging.debug(f"Cache file already removed: {cache_file}")
-
-            # Step 3: Remove timestamp entry
-            if self.timestamp_tracker:
-                self.timestamp_tracker.remove_entry(cache_file)
-
-            # Return appropriate status
-            if plexcached_missing:
-                return 2  # Partial success - no .plexcached to restore
-            return 0
         except Exception as e:
             logging.error(f"Error restoring to array: {type(e).__name__}: {e}")
             return 1
