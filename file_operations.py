@@ -735,46 +735,21 @@ class FileFilter:
 
         return files_to_move_back, cache_paths_to_remove
 
-    def _is_tv_show_path(self, file_path: str) -> bool:
-        """Check if the path looks like a TV show (has Season/Series/Specials folder) vs a movie."""
-        normalized_path = os.path.normpath(file_path)
-        path_parts = normalized_path.split(os.sep)
-        for part in path_parts:
-            if (
-                re.match(r'^(Season|Series)\s*\d+$', part, re.IGNORECASE)
-                or re.match(r'^\d+$', part)
-                or re.match(r'^Specials$', part, re.IGNORECASE)
-            ):
-                return True
-        return False
-
     def _extract_media_name(self, file_path: str) -> Optional[str]:
-        """Extract show or movie name from file path.
-
-        For TV shows: Returns the folder before 'Season X' or 'Specials'
-        For movies: Returns the parent folder of the file (e.g., 'Argo (2012)')
+        """
+        Extract a comparable media identifier from a file path.
+        - For movies: returns cleaned file title.
+        - For TV episodes: returns cleaned episode name.
         """
         try:
-            normalized_path = os.path.normpath(file_path)
-            path_parts = normalized_path.split(os.sep)
+            filename = os.path.basename(file_path)
+            name, _ext = os.path.splitext(filename)
 
-            # For TV shows: find Season/Series/Specials folder and return parent
-            for i, part in enumerate(path_parts):
-                if (
-                    re.match(r'^(Season|Series)\s*\d+$', part, re.IGNORECASE)
-                    or re.match(r'^\d+$', part)
-                    or re.match(r'^Specials$', part, re.IGNORECASE)
-                ):
-                    if i > 0:
-                        return path_parts[i - 1]
-                    break
+            # Remove trailing parentheses blocks
+            cleaned = re.sub(r'\s*\([^)]*\)$', '', name).strip()
 
-            # For movies: return the parent folder of the file
-            # e.g., /mnt/cache/Movies/Argo (2012)/Argo.mkv -> "Argo (2012)"
-            if len(path_parts) >= 2:
-                return path_parts[-2]
+            return cleaned
 
-            return None
         except Exception:
             return None
 
