@@ -125,6 +125,162 @@ class CacheTimestampTracker:
             return len(missing)
 
 
+class PlexcachedMigration:
+    """One-time migration to create .plexcached backups for existing cached files.
+
+    For users upgrading from older versions, files may exist on cache without
+    a corresponding .plexcached backup on the array. This migration scans the
+    exclude file and creates .plexcached backups for any files that need them.
+    """
+
+    MIGRATION_FLAG = "plexcache_migration_v2.complete"
+
+    def __init__(self, exclude_file: str, cache_dir: str, real_source: str,
+                 script_folder: str, is_unraid: bool = False):
+        """Initialize the migration helper.
+
+        Args:
+            exclude_file: Path to plexcache_mover_files_to_exclude.txt
+            cache_dir: Cache directory path (e.g., /mnt/cache_downloads/)
+            real_source: Array source path (e.g., /mnt/user/)
+            script_folder: Folder where the script lives (for flag file)
+            is_unraid: Whether running on Unraid (affects path handling)
+        """
+        self.exclude_file = exclude_file
+        self.cache_dir = cache_dir
+        self.real_source = real_source
+        self.flag_file = os.path.join(script_folder, self.MIGRATION_FLAG)
+        self.is_unraid = is_unraid
+
+    def needs_migration(self) -> bool:
+        """Check if migration has already been completed."""
+        return not os.path.exists(self.flag_file)
+
+    def run_migration(self, dry_run: bool = False) -> Tuple[int, int, int]:
+        """Run the migration to create .plexcached backups.
+
+        Args:
+            dry_run: If True, only log what would be done without making changes.
+
+        Returns:
+            Tuple of (files_migrated, files_skipped, errors)
+        """
+        if not self.needs_migration():
+            logging.info("Migration already complete, skipping")
+            return 0, 0, 0
+
+        if not os.path.exists(self.exclude_file):
+            logging.info("No exclude file found, nothing to migrate")
+            self._mark_complete()
+            return 0, 0, 0
+
+        # Read exclude file to get list of cached files
+        with open(self.exclude_file, 'r') as f:
+            cache_files = [line.strip() for line in f if line.strip()]
+
+        if not cache_files:
+            logging.info("Exclude file is empty, nothing to migrate")
+            self._mark_complete()
+            return 0, 0, 0
+
+        logging.info("=== PlexCache-R Migration ===")
+        logging.info(f"Checking {len(cache_files)} files in exclude list...")
+
+        files_needing_migration = []
+
+        # Find files that need migration (on cache but no .plexcached on array)
+        for cache_file in cache_files:
+            if not os.path.isfile(cache_file):
+                logging.debug(f"Cache file no longer exists, skipping: {cache_file}")
+                continue
+
+            # Derive array path from cache path
+            array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
+
+            # On Unraid, check user0 (direct array) path
+            if self.is_unraid:
+                array_file_check = array_file.replace("/mnt/user/", "/mnt/user0/", 1)
+            else:
+                array_file_check = array_file
+
+            plexcached_file = array_file_check + PLEXCACHED_EXTENSION
+
+            # Check if .plexcached already exists OR original exists on array
+            if os.path.isfile(plexcached_file):
+                logging.debug(f"Already has .plexcached backup: {cache_file}")
+                continue
+
+            if os.path.isfile(array_file_check):
+                logging.debug(f"Original exists on array, no migration needed: {cache_file}")
+                continue
+
+            # This file needs migration
+            files_needing_migration.append((cache_file, array_file_check, plexcached_file))
+
+        if not files_needing_migration:
+            logging.info("All files already have backups, no migration needed")
+            self._mark_complete()
+            return 0, len(cache_files), 0
+
+        logging.info(f"Found {len(files_needing_migration)} files needing .plexcached backup")
+
+        if dry_run:
+            logging.info("[DRY RUN] Would create the following backups:")
+            for cache_file, array_file, plexcached_file in files_needing_migration:
+                logging.info(f"  {cache_file} -> {plexcached_file}")
+            return 0, 0, 0
+
+        # Perform migration
+        migrated = 0
+        errors = 0
+
+        for cache_file, array_file, plexcached_file in files_needing_migration:
+            try:
+                # Ensure directory exists
+                array_dir = os.path.dirname(plexcached_file)
+                if not os.path.exists(array_dir):
+                    os.makedirs(array_dir, exist_ok=True)
+                    logging.debug(f"Created directory: {array_dir}")
+
+                # Copy cache file to array as .plexcached
+                logging.info(f"Creating backup: {os.path.basename(cache_file)} -> .plexcached")
+                shutil.copy2(cache_file, plexcached_file)
+
+                # Verify copy succeeded
+                if os.path.isfile(plexcached_file):
+                    migrated += 1
+                    logging.info(f"  Success: {plexcached_file}")
+                else:
+                    errors += 1
+                    logging.error(f"  Failed to verify: {plexcached_file}")
+
+            except Exception as e:
+                errors += 1
+                logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
+
+        skipped = len(cache_files) - len(files_needing_migration)
+        logging.info(f"=== Migration Complete ===")
+        logging.info(f"  Migrated: {migrated} files")
+        logging.info(f"  Skipped (already had backup): {skipped} files")
+        logging.info(f"  Errors: {errors}")
+
+        if errors == 0:
+            self._mark_complete()
+        else:
+            logging.warning("Migration had errors - will retry on next run")
+
+        return migrated, skipped, errors
+
+    def _mark_complete(self) -> None:
+        """Create the flag file to indicate migration is complete."""
+        try:
+            with open(self.flag_file, 'w') as f:
+                f.write(f"Migration completed: {datetime.now().isoformat()}\n")
+            logging.info(f"Migration flag created: {self.flag_file}")
+        except IOError as e:
+            logging.error(f"Could not create migration flag: {type(e).__name__}: {e}")
+
+
 class FilePathModifier:
     """Handles file path modifications and conversions."""
     

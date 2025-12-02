@@ -16,7 +16,7 @@ from config import ConfigManager
 from logging_config import LoggingManager
 from system_utils import SystemDetector, PathConverter, FileUtils
 from plex_api import PlexManager, CacheManager
-from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker
+from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker, PlexcachedMigration
 
 
 class PlexCacheApp:
@@ -151,6 +151,18 @@ class PlexCacheApp:
         if not mover_exclude.exists():
             mover_exclude.touch()
             logging.info(f"Created mover exclude file: {mover_exclude}")
+
+        # Run one-time migration to create .plexcached backups for existing cached files
+        migration = PlexcachedMigration(
+            exclude_file=str(mover_exclude),
+            cache_dir=self.config_manager.paths.cache_dir,
+            real_source=self.config_manager.paths.real_source,
+            script_folder=self.config_manager.paths.script_folder,
+            is_unraid=self.system_detector.is_unraid
+        )
+        if migration.needs_migration():
+            logging.info("Running one-time migration for .plexcached backups...")
+            migration.run_migration(dry_run=self.debug)
 
         # Initialize the cache timestamp tracker for retention period tracking
         self.timestamp_tracker = CacheTimestampTracker(str(timestamp_file))
