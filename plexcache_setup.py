@@ -415,8 +415,12 @@ def setup():
             user_entries = []
             for user in plex.myPlexAccount().users():
                 name = user.title
-                username = getattr(user, "username", None)
-                is_local = username is None
+                # Check if user is a home/managed user (not a remote friend)
+                # home=True means they're part of Plex Home
+                # restricted=True means they're a managed user (no separate plex.tv account)
+                is_home = getattr(user, "home", False)
+                is_restricted = getattr(user, "restricted", False)
+                is_local = is_home or is_restricted
                 try:
                     token = user.get_token(plex.machineIdentifier)
                 except Exception as e:
