@@ -657,9 +657,8 @@ class PlexManager:
                 if username in skip_watchlist or token in skip_watchlist:
                     logging.info(f"Skipping {username} for watchlist — in skip list")
                     continue
-                # Only include home/managed users - remote users' watchlists can't be accessed
+                # Only include home/managed users - remote users' watchlists are handled via RSS feed
                 if username not in home_users:
-                    logging.debug(f"Skipping {username} for watchlist — remote user (watchlist not accessible)")
                     continue
                 # Create a simple object to pass username
                 class UserProxy:
