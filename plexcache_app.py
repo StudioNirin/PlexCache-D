@@ -479,9 +479,8 @@ class PlexCacheApp:
 
                         # Check watchlist retention (skip expired items)
                         if retention_days > 0:
-                            # Need to check the modified path for retention
-                            modified_path = self.file_path_modifier.modify_file_paths([file_path])[0]
-                            if self.watchlist_tracker.is_expired(modified_path, retention_days):
+                            # Use original file_path for consistency with update_entry
+                            if self.watchlist_tracker.is_expired(file_path, retention_days):
                                 expired_count += 1
                                 continue
 
