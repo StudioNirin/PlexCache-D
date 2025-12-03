@@ -852,6 +852,7 @@ class FileFilter:
     def _should_add_to_array(self, file: str, cache_file_name: str, media_to_cache: List[str]) -> bool:
         """Determine if a file should be added to the array."""
         if file in media_to_cache:
+            logging.debug(f"Skipping array move - file in media_to_cache: {file}")
             return False
 
         # Note: Retention period check is handled upstream in get_files_to_move_back_to_array()
@@ -861,6 +862,7 @@ class FileFilter:
 
         if os.path.isfile(array_file):
             # File already exists in the array, try to remove cache version
+            logging.debug(f"File already exists on array, removing cache version: {array_file}")
             try:
                 os.remove(cache_file_name)
                 logging.info(f"Removed cache version of file: {cache_file_name}")
