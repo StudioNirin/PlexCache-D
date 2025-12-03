@@ -725,20 +725,26 @@ class FileFilter:
 
                     # Check if this show is still being watched
                     if show_name in tv_show_min_episodes:
-                        # Check if this season has an active episode
-                        if season_num in tv_show_min_episodes[show_name]:
+                        # Find the minimum (current) season for this show
+                        min_ondeck_season = min(tv_show_min_episodes[show_name].keys())
+
+                        if season_num < min_ondeck_season:
+                            # Previous season - user has moved past this season
+                            logging.debug(f"TV episode in previous season (S{season_num:02d} < S{min_ondeck_season:02d}), will check retention: {show_name} S{season_num:02d}E{episode_num:02d}")
+                        elif season_num > min_ondeck_season:
+                            # Future season - keep (user may have pre-cached ahead)
+                            logging.debug(f"TV episode in future season (S{season_num:02d} > S{min_ondeck_season:02d}), keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
+                            continue
+                        else:
+                            # Same season as OnDeck - check episode number
                             min_episode = tv_show_min_episodes[show_name][season_num]
-                            # Keep episodes >= the OnDeck episode (current + upcoming)
                             if episode_num >= min_episode:
+                                # Current or upcoming episode
                                 logging.debug(f"TV episode still needed (E{episode_num:02d} >= E{min_episode:02d}), keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
                                 continue
                             else:
+                                # Watched episode in current season
                                 logging.debug(f"TV episode watched (E{episode_num:02d} < E{min_episode:02d}), will check retention: {show_name} S{season_num:02d}E{episode_num:02d}")
-                        else:
-                            # Different season - keep all episodes of seasons with no OnDeck
-                            # (they might be future seasons user hasn't started)
-                            logging.debug(f"TV episode in different season, keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
-                            continue
                     # Show not on deck/watchlist - will be moved back
                     media_name = show_name
                 else:
