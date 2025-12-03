@@ -737,11 +737,16 @@ class FilePathModifier:
             file_path = file_path.replace(self.plex_source, self.real_source, 1)
 
             # Determine which library folder is in the file path
+            folder_matched = False
             for j, folder in enumerate(self.plex_library_folders):
                 if folder in file_path:
                     # Replace the plex library folder with the corresponding NAS library folder
                     file_path = file_path.replace(folder, self.nas_library_folders[j])
+                    folder_matched = True
                     break
+
+            if not folder_matched:
+                logging.warning(f"Path conversion: No matching library folder found for: {file_path}")
 
             result.append(file_path)
             logging.info(f"Edited path: {file_path}")
