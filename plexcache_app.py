@@ -787,7 +787,6 @@ class PlexCacheApp:
         execution_time_seconds = end_time - self.start_time
         execution_time = self._convert_time(execution_time_seconds)
 
-        self.logging_manager.add_summary_message(f"The script took approximately {execution_time} to execute.")
         self.logging_manager.log_summary()
 
         # Clean up empty folders in cache
