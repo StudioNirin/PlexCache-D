@@ -264,7 +264,7 @@ class PlexManager:
                         logging.debug(f"[PLEX API] Fetched token for new user: {username}")
                         new_users += 1
                     else:
-                        logging.warning(f"[PLEX API] No token available for: {username}")
+                        logging.debug(f"[PLEX API] No token available for: {username}")
                 except Exception as e:
                     _log_api_error(f"get token for {username}", e)
 

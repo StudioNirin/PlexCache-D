@@ -764,7 +764,7 @@ class SubtitleFinder:
     
     def get_media_subtitles(self, media_files: List[str], files_to_skip: Optional[Set[str]] = None) -> List[str]:
         """Get subtitle files for media files."""
-        logging.info("Fetching subtitles...")
+        logging.debug("Fetching subtitles...")
         
         files_to_skip = set() if files_to_skip is None else set(files_to_skip)
         processed_files = set()
@@ -1027,7 +1027,8 @@ class FileFilter:
 
             if retained_count > 0:
                 logging.info(f"Retained {retained_count} files due to cache retention period ({self.cache_retention_hours}h)")
-            logging.info(f"Found {len(files_to_move_back)} files to move back to array")
+            if files_to_move_back:
+                logging.info(f"Found {len(files_to_move_back)} files to move back to array")
 
         except Exception as e:
             logging.exception(f"Error getting files to move back to array: {type(e).__name__}: {e}")

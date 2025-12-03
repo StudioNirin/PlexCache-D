@@ -281,9 +281,9 @@ class PlexCacheApp:
 
             if media_type == "episode":
                 show_title = media_item.grandparentTitle
-                logging.warning(f"Active session detected, skipping: {show_title} - {media_title}")
+                logging.debug(f"Active session detected, skipping: {show_title} - {media_title}")
             elif media_type == "movie":
-                logging.warning(f"Active session detected, skipping: {media_title}")
+                logging.debug(f"Active session detected, skipping: {media_title}")
 
             # Safely access media parts with bounds checking
             if not media_item.media:
