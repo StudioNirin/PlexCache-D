@@ -492,8 +492,9 @@ class PlexManager:
         if home_users is None:
             home_users = []
 
-        def fetch_rss_titles(url: str) -> List[Tuple[str, str]]:
-            """Fetch titles and categories from a Plex RSS feed."""
+        def fetch_rss_titles(url: str) -> List[Tuple[str, str, Optional[datetime]]]:
+            """Fetch titles, categories, and pubDate from a Plex RSS feed."""
+            from email.utils import parsedate_to_datetime
             try:
                 resp = requests.get(url, timeout=10)
                 resp.raise_for_status()
@@ -503,7 +504,15 @@ class PlexManager:
                     title = item.find("title").text
                     category_elem = item.find("category")
                     category = category_elem.text if category_elem is not None else ""
-                    items.append((title, category))
+                    # Parse pubDate (RFC 822 format) - this is when item was added to watchlist
+                    pub_date = None
+                    pub_date_elem = item.find("pubDate")
+                    if pub_date_elem is not None and pub_date_elem.text:
+                        try:
+                            pub_date = parsedate_to_datetime(pub_date_elem.text)
+                        except Exception:
+                            pass
+                    items.append((title, category, pub_date))
                 return items
             except Exception as e:
                 logging.error(f"Failed to fetch or parse RSS feed {url}: {e}")
@@ -577,11 +586,11 @@ class PlexManager:
                 _log_api_error(f"get Plex account for {current_username}", e)
                 return
 
-            # --- RSS feed processing (no watchlistedAt available) ---
+            # --- RSS feed processing (pubDate = when added to watchlist) ---
             if rss_url:
                 rss_items = fetch_rss_titles(rss_url)
                 logging.info(f"RSS feed contains {len(rss_items)} items")
-                for title, category in rss_items:
+                for title, category, pub_date in rss_items:
                     cleaned_title = self.clean_rss_title(title)
                     file = self.search_plex(cleaned_title)
                     if file:
@@ -589,9 +598,9 @@ class PlexManager:
                         if not filtered_sections or file.librarySectionID in filtered_sections:
                             try:
                                 if category == 'show' or file.TYPE == 'show':
-                                    yield from process_show(file, watchlist_episodes, current_username, None)
+                                    yield from process_show(file, watchlist_episodes, current_username, pub_date)
                                 elif file.TYPE == 'movie':
-                                    yield from process_movie(file, current_username, None)
+                                    yield from process_movie(file, current_username, pub_date)
                                 else:
                                     logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
                             except Exception as e:
