@@ -639,6 +639,7 @@ def check_for_missing_settings(settings: dict) -> list:
         'cache_retention_hours',
         'cache_limit',
         'unraid_level',
+        'watchlist_retention_days',
     ]
     missing = [s for s in optional_new_settings if s not in settings]
     return missing
