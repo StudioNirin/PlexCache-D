@@ -772,11 +772,13 @@ class PlexCacheApp:
             files_to_move_back, cache_paths_to_remove = self.file_filter.get_files_to_move_back_to_array(
                 current_ondeck_items, current_watchlist_items
             )
-            
+
             if files_to_move_back:
                 logging.debug(f"Found {len(files_to_move_back)} files to move back to array")
                 self.media_to_array.extend(files_to_move_back)
-                # Remove these files from the exclude list since they're no longer in cache
+
+            # Always clean up stale entries from exclude list (files that no longer exist on cache)
+            if cache_paths_to_remove:
                 self.file_filter.remove_files_from_exclude_list(cache_paths_to_remove)
         except Exception as e:
             logging.exception(f"Error checking files to move back to array: {type(e).__name__}: {e}")

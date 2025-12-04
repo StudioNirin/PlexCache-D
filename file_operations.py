@@ -1235,18 +1235,22 @@ class FileFilter:
             with open(self.mover_cache_exclude_file, 'r') as f:
                 current_files = [line.strip() for line in f if line.strip()]
 
+            original_count = len(current_files)
+
             # Convert to set for O(1) lookup instead of O(n)
             paths_to_remove_set = set(cache_paths_to_remove)
 
             # Remove specified files
             updated_files = [f for f in current_files if f not in paths_to_remove_set]
 
-            # Write back updated list
-            with open(self.mover_cache_exclude_file, 'w') as f:
-                for file_path in updated_files:
-                    f.write(f"{file_path}\n")
+            # Only write if we actually removed something
+            removed_count = original_count - len(updated_files)
+            if removed_count > 0:
+                with open(self.mover_cache_exclude_file, 'w') as f:
+                    for file_path in updated_files:
+                        f.write(f"{file_path}\n")
+                logging.info(f"Cleaned up {removed_count} stale entries from exclude list")
 
-            logging.info(f"Removed {len(cache_paths_to_remove)} files from exclude list")
             return True
 
         except Exception as e:
@@ -1580,10 +1584,8 @@ class FileMover:
                     os.remove(old_plexcached)
                     logging.debug(f"Deleted old .plexcached: {old_plexcached}")
                     # Build the old cache file path for exclude list cleanup
-                    old_cache_file_to_remove = cache_file_name.replace(
-                        os.path.basename(cache_file_name),
-                        old_name
-                    )
+                    # The exclude list stores full cache paths, so join the cache directory with the old filename
+                    old_cache_file_to_remove = os.path.join(os.path.dirname(cache_file_name), old_name)
 
             # Step 1: Copy file from array to cache (preserving metadata)
             logging.debug(f"Starting copy: {array_file} -> {cache_file_name}")
