@@ -209,7 +209,12 @@ class CacheTimestampTracker:
                         f"{cache_file_path}"
                     )
                     return True
-                return False
+                else:
+                    logging.debug(
+                        f"File retention period expired ({age_hours:.1f}h >= {retention_hours}h): "
+                        f"{cache_file_path}"
+                    )
+                    return False
             except (ValueError, TypeError) as e:
                 logging.warning(f"Invalid timestamp for {cache_file_path}: {e}")
                 return False
