@@ -519,11 +519,28 @@ class PlexManager:
         def process_show(file, watchlist_episodes: int, username: str, watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
             """Process a show and yield episode file paths with metadata."""
             episodes = file.episodes()
-            logging.debug(f"Processing show {file.title} with {len(episodes)} episodes")
-            for episode in episodes[:watchlist_episodes]:
+            episodes_to_process = episodes[:watchlist_episodes]
+            logging.debug(f"Processing show {file.title} with {len(episodes)} episodes (limit: {watchlist_episodes})")
+
+            yielded_count = 0
+            skipped_watched = 0
+            skipped_no_media = 0
+
+            for episode in episodes_to_process:
                 if len(episode.media) > 0 and len(episode.media[0].parts) > 0:
                     if not episode.isPlayed:
                         yield (episode.media[0].parts[0].file, username, watchlisted_at)
+                        yielded_count += 1
+                    else:
+                        skipped_watched += 1
+                else:
+                    skipped_no_media += 1
+
+            # Log summary for this show
+            if skipped_watched > 0:
+                logging.debug(f"  {file.title}: {yielded_count} episodes to cache, {skipped_watched} skipped (already watched)")
+            if skipped_no_media > 0:
+                logging.warning(f"  {file.title}: {skipped_no_media} episodes skipped (no media files)")
 
         def process_movie(file, username: str, watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
             """Process a movie and yield file path with metadata."""
