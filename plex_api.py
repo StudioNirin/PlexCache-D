@@ -588,9 +588,13 @@ class PlexManager:
                     return
 
             # --- Obtain Plex account instance ---
-            # IMPORTANT: We create separate MyPlexAccount instances per user to avoid session
-            # state contamination. Using switchHomeUser() with a shared session can cause
-            # cross-user data leakage over time (Issue #20).
+            # IMPORTANT: We create fresh MyPlexAccount instances to avoid session state
+            # contamination that can cause cross-user data leakage (Issue #20).
+            #
+            # For main account: Create fresh MyPlexAccount with admin token
+            # For home/managed users: Create fresh admin account, then switchHomeUser()
+            #   (Home users don't have standalone plex.tv accounts, so we can't use
+            #    MyPlexAccount(token=their_token) directly - their tokens only work locally)
             try:
                 if user is None:
                     # Main account - use the main token with a fresh session
@@ -598,18 +602,16 @@ class PlexManager:
                     account = MyPlexAccount(token=self.plex_token)
                     logging.debug(f"[PLEX API] Created fresh MyPlexAccount for main user {current_username}")
                 else:
-                    # Home user - use their cached token with a fresh session
-                    # This avoids switchHomeUser() which reuses the admin session
-                    token = self._user_tokens.get(current_username)
-                    if not token:
-                        logging.warning(f"[PLEX API] No token for home user {current_username}; skipping watchlist")
-                        return
+                    # Home/managed user - create fresh admin account then switch to home user
+                    # This isolates each request while still allowing access to home user watchlists
                     try:
                         self._rate_limited_api_call()
-                        account = MyPlexAccount(token=token)
-                        logging.debug(f"[PLEX API] Created fresh MyPlexAccount for home user {current_username}")
+                        fresh_admin_account = MyPlexAccount(token=self.plex_token)
+                        self._rate_limited_api_call()
+                        account = fresh_admin_account.switchHomeUser(current_username)
+                        logging.debug(f"[PLEX API] Switched to home user {current_username} via fresh admin account")
                     except Exception as e:
-                        _log_api_error(f"create MyPlexAccount for {current_username}", e)
+                        _log_api_error(f"switch to home user {current_username}", e)
                         return
             except Exception as e:
                 _log_api_error(f"get Plex account for {current_username}", e)
