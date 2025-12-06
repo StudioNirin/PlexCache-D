@@ -552,7 +552,11 @@ class PlexManager:
 
 
         def fetch_user_watchlist(user) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
-            """Fetch watchlist media for a user, optionally via RSS, yielding file paths with metadata."""
+            """Fetch watchlist media for a user, optionally via RSS, yielding file paths with metadata.
+
+            Uses separate MyPlexAccount instances per user to avoid session state contamination.
+            See: https://github.com/StudioNirin/PlexCache-R/issues/20
+            """
             current_username = user.title if user else "main"
 
             # Use rate limiting
@@ -584,21 +588,28 @@ class PlexManager:
                     return
 
             # --- Obtain Plex account instance ---
-            # Note: Only the main account and home/managed users have accessible watchlists
-            # Remote users (friends) have their own separate Plex accounts we can't access
+            # IMPORTANT: We create separate MyPlexAccount instances per user to avoid session
+            # state contamination. Using switchHomeUser() with a shared session can cause
+            # cross-user data leakage over time (Issue #20).
             try:
                 if user is None:
-                    # Use already authenticated main account
-                    account = self.plex.myPlexAccount()
+                    # Main account - use the main token with a fresh session
+                    self._rate_limited_api_call()
+                    account = MyPlexAccount(token=self.plex_token)
+                    logging.debug(f"[PLEX API] Created fresh MyPlexAccount for main user {current_username}")
                 else:
-                    # For home users, we must use switchHomeUser() to access their watchlist
-                    # This hits plex.tv but is the only way to access home user watchlists
+                    # Home user - use their cached token with a fresh session
+                    # This avoids switchHomeUser() which reuses the admin session
+                    token = self._user_tokens.get(current_username)
+                    if not token:
+                        logging.warning(f"[PLEX API] No token for home user {current_username}; skipping watchlist")
+                        return
                     try:
                         self._rate_limited_api_call()
-                        account = self.plex.myPlexAccount().switchHomeUser(user.title)
-                        logging.debug(f"[PLEX API] Switched to home user {current_username} for watchlist")
+                        account = MyPlexAccount(token=token)
+                        logging.debug(f"[PLEX API] Created fresh MyPlexAccount for home user {current_username}")
                     except Exception as e:
-                        _log_api_error(f"switch to user {user.title}", e)
+                        _log_api_error(f"create MyPlexAccount for {current_username}", e)
                         return
             except Exception as e:
                 _log_api_error(f"get Plex account for {current_username}", e)
