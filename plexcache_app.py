@@ -508,7 +508,9 @@ class PlexCacheApp:
                 if retention_hours > 0 and self.timestamp_tracker:
                     logging.debug(f"Checking retention for watched file: {cache_path}")
                     if self.timestamp_tracker.is_within_retention_period(cache_path, retention_hours):
-                        logging.info(f"Watched file within retention period ({retention_hours}h), skipping move to array: {os.path.basename(file_path)}")
+                        remaining = self.timestamp_tracker.get_retention_remaining(cache_path, retention_hours)
+                        remaining_str = f"{remaining:.0f}h" if remaining >= 1 else f"{remaining * 60:.0f}m"
+                        logging.info(f"Retention hold ({remaining_str} left): {os.path.basename(file_path)}")
                         continue
 
                 self.media_to_array.append(file_path)

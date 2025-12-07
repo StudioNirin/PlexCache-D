@@ -219,6 +219,37 @@ class CacheTimestampTracker:
                 logging.warning(f"Invalid timestamp for {cache_file_path}: {e}")
                 return False
 
+    def get_retention_remaining(self, cache_file_path: str, retention_hours: int) -> float:
+        """Get hours remaining in retention period for a cached file.
+
+        Args:
+            cache_file_path: The path to the cached file.
+            retention_hours: The configured retention period in hours.
+
+        Returns:
+            Hours remaining (positive if within retention, 0 or negative if expired).
+            Returns 0 if no timestamp exists.
+        """
+        with self._lock:
+            if cache_file_path not in self._timestamps:
+                return 0
+
+            try:
+                entry = self._timestamps[cache_file_path]
+                if isinstance(entry, str):
+                    cached_time_str = entry
+                else:
+                    cached_time_str = entry.get("cached_at", "")
+
+                if not cached_time_str:
+                    return 0
+
+                cached_time = datetime.fromisoformat(cached_time_str)
+                age_hours = (datetime.now() - cached_time).total_seconds() / 3600
+                return retention_hours - age_hours
+            except (ValueError, TypeError):
+                return 0
+
     def get_source(self, cache_file_path: str) -> str:
         """Get the source (ondeck/watchlist) for a cached file.
 
@@ -1111,8 +1142,9 @@ class FileFilter:
                 # Media is no longer needed - check if retention period applies
                 if self.timestamp_tracker and self.cache_retention_hours > 0:
                     if self.timestamp_tracker.is_within_retention_period(cache_file, self.cache_retention_hours):
-                        source = self.timestamp_tracker.get_source(cache_file)
-                        logging.info(f"File within retention period ({self.cache_retention_hours}h), will move later: {media_name} (source: {source})")
+                        remaining = self.timestamp_tracker.get_retention_remaining(cache_file, self.cache_retention_hours)
+                        remaining_str = f"{remaining:.0f}h" if remaining >= 1 else f"{remaining * 60:.0f}m"
+                        logging.info(f"Retention hold ({remaining_str} left): {media_name}")
                         retained_count += 1
                         continue
 
