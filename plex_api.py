@@ -800,28 +800,3 @@ class PlexManager:
 
 
 
-class CacheManager:
-    """Manages cache operations for media files."""
-    
-    @staticmethod
-    def load_media_from_cache(cache_file: Path) -> Tuple[Set[str], Optional[float]]:
-        if cache_file.exists():
-            with cache_file.open('r') as f:
-                try:
-                    data = json.load(f)
-                    if isinstance(data, dict):
-                        return set(data.get('media', [])), data.get('timestamp')
-                    elif isinstance(data, list):
-                        return set(data), None
-                except json.JSONDecodeError:
-                    with cache_file.open('w') as f:
-                        f.write(json.dumps({'media': [], 'timestamp': None}))
-                    return set(), None
-        return set(), None
-    
-    @staticmethod
-    def save_media_to_cache(cache_file: Path, media_list: List[str], timestamp: Optional[float] = None) -> None:
-        if timestamp is None:
-            timestamp = datetime.now().timestamp()
-        with cache_file.open('w') as f:
-            json.dump({'media': media_list, 'timestamp': timestamp}, f)

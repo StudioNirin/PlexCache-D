@@ -7,7 +7,7 @@ import sys
 import time
 import logging
 import re
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Optional
 import os
@@ -15,7 +15,7 @@ import os
 from config import ConfigManager
 from logging_config import LoggingManager
 from system_utils import SystemDetector, PathConverter, FileUtils
-from plex_api import PlexManager, CacheManager
+from plex_api import PlexManager
 from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, PlexcachedMigration
 
 
@@ -158,10 +158,10 @@ class PlexCacheApp:
         
         self.subtitle_finder = SubtitleFinder()
         
-        # Get cache files
-        watchlist_cache, watched_cache, mover_exclude = self.config_manager.get_cache_files()
+        # Get mover exclude file path
+        mover_exclude = self.config_manager.get_mover_exclude_file()
         timestamp_file = self.config_manager.get_timestamp_file()
-        logging.debug(f"Cache files: watchlist={watchlist_cache}, watched={watched_cache}, exclude={mover_exclude}")
+        logging.debug(f"Mover exclude file: {mover_exclude}")
         logging.debug(f"Timestamp file: {timestamp_file}")
 
         # Create exclude file on startup if it doesn't exist
@@ -299,19 +299,6 @@ class PlexCacheApp:
             logging.error(f"Error extracting media path: {type(e).__name__}: {e}")
             return None
     
-    def _is_cache_expired(self, cache_file: Path, expiry_hours: int) -> bool:
-        """Check if a cache file is expired. Returns True if expired or file doesn't exist."""
-        if self.skip_cache or self.debug:
-            return True
-        try:
-            if not cache_file.exists():
-                return True
-            mtime = datetime.fromtimestamp(cache_file.stat().st_mtime)
-            return datetime.now() - mtime > timedelta(hours=expiry_hours)
-        except (OSError, FileNotFoundError):
-            # File was deleted between exists() check and stat() call
-            return True
-
     def _set_debug_mode(self) -> None:
         """Set logging level based on verbose flag."""
         if self.verbose:
@@ -405,131 +392,82 @@ class PlexCacheApp:
         expired_count = 0
 
         try:
-            watchlist_cache, _, _ = self.config_manager.get_cache_files()
-            watchlist_media_set, last_updated = CacheManager.load_media_from_cache(watchlist_cache)
-            current_watchlist_set = set()
-
-            logging.debug(f"Watchlist cache exists: {watchlist_cache.exists()}")
-            logging.debug(f"Watchlist cache last updated: {last_updated}")
-            logging.debug(f"Current watchlist items in cache: {len(watchlist_media_set)}")
             if retention_days > 0:
                 logging.debug(f"Watchlist retention enabled: {retention_days} days")
 
-            if self.system_detector.is_connected():
-                # Determine if cache should be refreshed
-                cache_expired = self._is_cache_expired(
-                    watchlist_cache,
-                    self.config_manager.cache.watchlist_cache_expiry
-                )
-                logging.debug(f"Cache expired: {cache_expired}")
+            # --- Local Plex users ---
+            # API returns (file_path, username, watchlisted_at) tuples
+            # Build list of home users from settings (only home users have accessible watchlists)
+            home_users = [
+                u.get("title") for u in self.config_manager.plex.users
+                if u.get("is_local", False)
+            ]
+            fetched_watchlist = list(self.plex_manager.get_watchlist_media(
+                self.config_manager.plex.valid_sections,
+                self.config_manager.cache.watchlist_episodes,
+                self.config_manager.plex.users_toggle,
+                self.config_manager.plex.skip_watchlist,
+                home_users=home_users
+            ))
 
-                if cache_expired:
-                    logging.debug(f"Cache expired: {watchlist_cache}")
+            for item in fetched_watchlist:
+                file_path, username, watchlisted_at = item
 
-                    # Delete old cache file if it exists
-                    if watchlist_cache.exists():
-                        try:
-                            watchlist_cache.unlink()
-                            logging.debug(f"Cache file deleted: {watchlist_cache}")
-                        except Exception as e:
-                            logging.error(f"Failed to delete cache file {watchlist_cache}: {e}")
+                # Update watchlist tracker with timestamp
+                self.watchlist_tracker.update_entry(file_path, username, watchlisted_at)
 
-                    # Reset memory sets to avoid old data
-                    watchlist_media_set.clear()
-                    current_watchlist_set.clear()
-                    result_set.clear()
+                # Check watchlist retention (skip expired items)
+                if retention_days > 0:
+                    if self.watchlist_tracker.is_expired(file_path, retention_days):
+                        expired_count += 1
+                        continue
 
-                    # --- Local Plex users ---
-                    # API now returns (file_path, username, watchlisted_at) tuples
-                    # Build list of home users from settings (only home users have accessible watchlists)
-                    home_users = [
-                        u.get("title") for u in self.config_manager.plex.users
-                        if u.get("is_local", False)
-                    ]
-                    fetched_watchlist = list(self.plex_manager.get_watchlist_media(
-                        self.config_manager.plex.valid_sections,
-                        self.config_manager.cache.watchlist_episodes,
-                        self.config_manager.plex.users_toggle,
-                        self.config_manager.plex.skip_watchlist,
-                        home_users=home_users
-                    ))
+                result_set.add(file_path)
 
-                    for item in fetched_watchlist:
+            # --- Remote users via RSS ---
+            if self.config_manager.cache.remote_watchlist_toggle and self.config_manager.cache.remote_watchlist_rss_url:
+                logging.debug("Fetching watchlist via RSS feed for remote users...")
+                try:
+                    # Use get_watchlist_media with rss_url parameter; users_toggle=False because this is just RSS
+                    # RSS items return (file_path, username, pubDate) tuples
+                    remote_items = list(
+                        self.plex_manager.get_watchlist_media(
+                            valid_sections=self.config_manager.plex.valid_sections,
+                            watchlist_episodes=self.config_manager.cache.watchlist_episodes,
+                            users_toggle=False,  # only RSS, no local Plex users
+                            skip_watchlist=[],
+                            rss_url=self.config_manager.cache.remote_watchlist_rss_url
+                        )
+                    )
+                    logging.debug(f"Found {len(remote_items)} remote watchlist items from RSS")
+                    rss_expired_count = 0
+                    for item in remote_items:
                         file_path, username, watchlisted_at = item
-
-                        # Update watchlist tracker with timestamp
+                        # Update tracker (RSS items use pubDate from feed)
                         self.watchlist_tracker.update_entry(file_path, username, watchlisted_at)
 
                         # Check watchlist retention (skip expired items)
                         if retention_days > 0:
-                            # Use original file_path for consistency with update_entry
                             if self.watchlist_tracker.is_expired(file_path, retention_days):
-                                expired_count += 1
+                                rss_expired_count += 1
                                 continue
 
-                        current_watchlist_set.add(file_path)
-                        if file_path not in watchlist_media_set:
-                            result_set.add(file_path)
+                        result_set.add(file_path)
 
-                    watchlist_media_set.intersection_update(current_watchlist_set)
-                    watchlist_media_set.update(result_set)
+                    if rss_expired_count > 0:
+                        expired_count += rss_expired_count
+                        logging.debug(f"Skipped {rss_expired_count} RSS watchlist items due to retention expiry")
+                except Exception as e:
+                    logging.error(f"Failed to fetch remote watchlist via RSS: {str(e)}")
 
-                    # --- Remote users via RSS ---
-                    if self.config_manager.cache.remote_watchlist_toggle and self.config_manager.cache.remote_watchlist_rss_url:
-                        logging.debug("Fetching watchlist via RSS feed for remote users...")
-                        try:
-                            # Use get_watchlist_media with rss_url parameter; users_toggle=False because this is just RSS
-                            # RSS items return (file_path, username, None) - no watchlistedAt available
-                            remote_items = list(
-                                self.plex_manager.get_watchlist_media(
-                                    valid_sections=self.config_manager.plex.valid_sections,
-                                    watchlist_episodes=self.config_manager.cache.watchlist_episodes,
-                                    users_toggle=False,  # only RSS, no local Plex users
-                                    skip_watchlist=[],
-                                    rss_url=self.config_manager.cache.remote_watchlist_rss_url
-                                )
-                            )
-                            logging.debug(f"Found {len(remote_items)} remote watchlist items from RSS")
-                            rss_expired_count = 0
-                            for item in remote_items:
-                                file_path, username, watchlisted_at = item
-                                # Update tracker (RSS items use pubDate from feed)
-                                self.watchlist_tracker.update_entry(file_path, username, watchlisted_at)
+            if expired_count > 0:
+                logging.debug(f"Skipped {expired_count} watchlist items due to retention expiry ({retention_days} days)")
 
-                                # Check watchlist retention (skip expired items)
-                                if retention_days > 0:
-                                    if self.watchlist_tracker.is_expired(file_path, retention_days):
-                                        rss_expired_count += 1
-                                        continue
-
-                                current_watchlist_set.add(file_path)
-                                result_set.add(file_path)
-
-                            if rss_expired_count > 0:
-                                expired_count += rss_expired_count
-                                logging.debug(f"Skipped {rss_expired_count} RSS watchlist items due to retention expiry")
-                        except Exception as e:
-                            logging.error(f"Failed to fetch remote watchlist via RSS: {str(e)}")
-
-                    if expired_count > 0:
-                        logging.debug(f"Skipped {expired_count} watchlist items due to retention expiry ({retention_days} days)")
-
-                    # Modify file paths and fetch subtitles
-                    modified_items = self.file_path_modifier.modify_file_paths(list(result_set))
-                    result_set.update(modified_items)
-                    subtitles = self.subtitle_finder.get_media_subtitles(modified_items, files_to_skip=set(self.files_to_skip))
-                    result_set.update(subtitles)
-
-                    # Update cache file
-                    CacheManager.save_media_to_cache(watchlist_cache, list(result_set))
-
-                else:
-                    logging.debug("Loading watchlist media from cache...")
-                    result_set.update(watchlist_media_set)
-            else:
-                logging.warning("Unable to connect to the internet, skipping fetching new watchlist media due to plexapi limitation.")
-                logging.debug("Loading watchlist media from cache...")
-                result_set.update(watchlist_media_set)
+            # Modify file paths and fetch subtitles
+            modified_items = self.file_path_modifier.modify_file_paths(list(result_set))
+            result_set.update(modified_items)
+            subtitles = self.subtitle_finder.get_media_subtitles(modified_items, files_to_skip=set(self.files_to_skip))
+            result_set.update(subtitles)
 
         except Exception as e:
             logging.exception(f"An error occurred while processing the watchlist: {type(e).__name__}: {e}")
@@ -538,103 +476,49 @@ class PlexCacheApp:
 
     
     def _process_watched_media(self) -> None:
-        """Process watched media."""
+        """Process watched media and identify files to move back to array."""
         try:
-            _, watched_cache, _ = self.config_manager.get_cache_files()
-            watched_media_set, last_updated = CacheManager.load_media_from_cache(watched_cache)
-            current_media_set = set()
+            logging.debug("Fetching watched media...")
 
-            # Check if cache should be refreshed
-            cache_expired = self._is_cache_expired(
-                watched_cache,
-                self.config_manager.cache.watched_cache_expiry
-            )
-            
-            if cache_expired:
-                logging.debug("Fetching watched media...")
+            # Get watched media from Plex server
+            fetched_media = list(self.plex_manager.get_watched_media(
+                self.config_manager.plex.valid_sections,
+                None,  # No last_updated filter - always fetch fresh
+                self.config_manager.plex.users_toggle
+            ))
 
-                # Get watched media from Plex server
-                fetched_media = list(self.plex_manager.get_watched_media(
-                    self.config_manager.plex.valid_sections,
-                    last_updated,
-                    self.config_manager.plex.users_toggle
-                ))
-                
-                # Add fetched media to the current media set
-                retention_hours = self.config_manager.cache.cache_retention_hours
-                for file_path in fetched_media:
-                    current_media_set.add(file_path)
+            retention_hours = self.config_manager.cache.cache_retention_hours
 
-                    # Check if file is not already in the watched media set
-                    if file_path not in watched_media_set:
-                        # Convert Plex path to real path, then to cache path
-                        # file_path is raw Plex path like /data/Movies/...
-                        modified_paths = self.file_path_modifier.modify_file_paths([file_path])
-                        if not modified_paths:
-                            continue
-                        real_path = modified_paths[0]  # /mnt/user/Movies/...
-                        cache_path = real_path.replace(
-                            self.config_manager.paths.real_source,
-                            self.config_manager.paths.cache_dir, 1
-                        )
-
-                        # Only process files that are actually on the cache drive
-                        if not os.path.isfile(cache_path):
-                            continue
-
-                        # Check retention period before adding to move queue
-                        if retention_hours > 0 and self.timestamp_tracker:
-                            logging.debug(f"Checking retention for watched file: {cache_path}")
-                            if self.timestamp_tracker.is_within_retention_period(cache_path, retention_hours):
-                                logging.info(f"Watched file within retention period ({retention_hours}h), skipping move to array: {os.path.basename(file_path)}")
-                                continue
-                        self.media_to_array.append(file_path)
-
-                # Add new media to the watched media set
-                watched_media_set.update(self.media_to_array)
-                
-                # Modify file paths and add subtitles
-                self.media_to_array = self.file_path_modifier.modify_file_paths(self.media_to_array)
-                self.media_to_array.extend(
-                    self.subtitle_finder.get_media_subtitles(self.media_to_array, files_to_skip=set(self.files_to_skip))
+            for file_path in fetched_media:
+                # Convert Plex path to real path, then to cache path
+                # file_path is raw Plex path like /data/Movies/...
+                modified_paths = self.file_path_modifier.modify_file_paths([file_path])
+                if not modified_paths:
+                    continue
+                real_path = modified_paths[0]  # /mnt/user/Movies/...
+                cache_path = real_path.replace(
+                    self.config_manager.paths.real_source,
+                    self.config_manager.paths.cache_dir, 1
                 )
 
-                # Save updated watched media set to cache file
-                CacheManager.save_media_to_cache(watched_cache, self.media_to_array)
+                # Only process files that are actually on the cache drive
+                if not os.path.isfile(cache_path):
+                    continue
 
-            else:
-                logging.debug("Loading watched media from cache...")
-                # Filter out stale entries and clean up the cache
-                valid_entries = []
-                stale_entries = []
-
-                for file_path in watched_media_set:
-                    # Convert to cache path and check if file exists
-                    modified_paths = self.file_path_modifier.modify_file_paths([file_path])
-                    if not modified_paths:
-                        stale_entries.append(file_path)
-                        logging.warning(f"Stale watched cache entry (path conversion failed): {os.path.basename(file_path)}")
+                # Check retention period before adding to move queue
+                if retention_hours > 0 and self.timestamp_tracker:
+                    logging.debug(f"Checking retention for watched file: {cache_path}")
+                    if self.timestamp_tracker.is_within_retention_period(cache_path, retention_hours):
+                        logging.info(f"Watched file within retention period ({retention_hours}h), skipping move to array: {os.path.basename(file_path)}")
                         continue
 
-                    real_path = modified_paths[0]
-                    cache_path = real_path.replace(
-                        self.config_manager.paths.real_source,
-                        self.config_manager.paths.cache_dir, 1
-                    )
+                self.media_to_array.append(file_path)
 
-                    if os.path.isfile(cache_path):
-                        valid_entries.append(file_path)
-                    else:
-                        stale_entries.append(file_path)
-                        logging.warning(f"Stale watched cache entry (file not on cache): {os.path.basename(file_path)}")
-
-                # Clean up stale entries from the cache file
-                if stale_entries:
-                    logging.info(f"Removed {len(stale_entries)} stale entries from watched cache")
-                    CacheManager.save_media_to_cache(watched_cache, valid_entries)
-
-                # Add valid entries to the media array
-                self.media_to_array.extend(valid_entries)
+            # Modify file paths and add subtitles
+            self.media_to_array = self.file_path_modifier.modify_file_paths(self.media_to_array)
+            self.media_to_array.extend(
+                self.subtitle_finder.get_media_subtitles(self.media_to_array, files_to_skip=set(self.files_to_skip))
+            )
 
         except Exception as e:
             logging.exception(f"An error occurred while processing the watched media: {type(e).__name__}: {e}")
@@ -792,32 +676,8 @@ class PlexCacheApp:
         try:
             # Get current OnDeck and watchlist items (already processed and path-modified)
             current_ondeck_items = self.ondeck_items
-            current_watchlist_items = set()
-
-            # Get watchlist items from the processed media
-            if self.config_manager.cache.watchlist_toggle:
-                watchlist_cache, _, _ = self.config_manager.get_cache_files()
-                if watchlist_cache.exists():
-                    watchlist_media_set, _ = CacheManager.load_media_from_cache(watchlist_cache)
-
-                    # Filter out expired watchlist items - they should be moved back to array
-                    # Check expiry using original paths (as stored in tracker), then convert to modified paths
-                    retention_days = self.config_manager.cache.watchlist_retention_days
-                    if retention_days > 0 and self.watchlist_tracker:
-                        non_expired_original = set()
-                        expired_count = 0
-                        for original_path in watchlist_media_set:
-                            if not self.watchlist_tracker.is_expired(original_path, retention_days):
-                                non_expired_original.add(original_path)
-                            else:
-                                logging.debug(f"Watchlist item expired, eligible for move back: {os.path.basename(original_path)}")
-                                expired_count += 1
-                        if expired_count > 0:
-                            logging.info(f"Excluding {expired_count} expired watchlist items from 'needed' check")
-                        # Convert non-expired items to modified paths
-                        current_watchlist_items = set(self.file_path_modifier.modify_file_paths(list(non_expired_original)))
-                    else:
-                        current_watchlist_items = set(self.file_path_modifier.modify_file_paths(list(watchlist_media_set)))
+            # Use the freshly fetched watchlist items (already filtered for retention in _process_watchlist)
+            current_watchlist_items = getattr(self, 'watchlist_items', set())
             
             # Get files that should be moved back to array (tracked by exclude file)
             files_to_move_back, cache_paths_to_remove = self.file_filter.get_files_to_move_back_to_array(

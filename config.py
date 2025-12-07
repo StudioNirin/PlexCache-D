@@ -75,11 +75,9 @@ class CacheConfig:
     """Configuration for caching behavior."""
     watchlist_toggle: bool = True
     watchlist_episodes: int = 5
-    watchlist_cache_expiry: int = 48
-    watched_cache_expiry: int = 48
     watched_move: bool = True
 
-    # Add these new fields
+    # Remote watchlist via RSS
     remote_watchlist_toggle: bool = False
     remote_watchlist_rss_url: str = ""
 
@@ -198,13 +196,15 @@ class ConfigManager:
         """Load cache-related configuration."""
         self.cache.watchlist_toggle = self.settings_data['watchlist_toggle']
         self.cache.watchlist_episodes = self.settings_data['watchlist_episodes']
-        self.cache.watchlist_cache_expiry = self.settings_data['watchlist_cache_expiry']
-        self.cache.watched_cache_expiry = self.settings_data['watched_cache_expiry']
         self.cache.watched_move = self.settings_data['watched_move']
 
-        # Load new remote watchlist settings
+        # Load remote watchlist settings
         self.cache.remote_watchlist_toggle = self.settings_data.get('remote_watchlist_toggle', False)
         self.cache.remote_watchlist_rss_url = self.settings_data.get('remote_watchlist_rss_url', "")
+
+        # Log deprecation warning for old cache expiry settings (these are now ignored)
+        if 'watchlist_cache_expiry' in self.settings_data or 'watched_cache_expiry' in self.settings_data:
+            logging.debug("Note: watchlist_cache_expiry and watched_cache_expiry settings are deprecated and ignored. Data is now always fetched fresh.")
 
         # Load cache retention setting (default 12 hours)
         self.cache.cache_retention_hours = self.settings_data.get('cache_retention_hours', 12)
@@ -257,9 +257,8 @@ class ConfigManager:
         required_fields = [
             'PLEX_URL', 'PLEX_TOKEN', 'number_episodes', 'valid_sections',
             'days_to_monitor', 'users_toggle', 'watchlist_toggle',
-            'watchlist_episodes', 'watchlist_cache_expiry', 'watched_cache_expiry',
-            'watched_move', 'plex_source', 'cache_dir', 'real_source',
-            'nas_library_folders', 'plex_library_folders',
+            'watchlist_episodes', 'watched_move', 'plex_source', 'cache_dir',
+            'real_source', 'nas_library_folders', 'plex_library_folders',
             'max_concurrent_moves_array', 'max_concurrent_moves_cache'
         ]
 
@@ -283,8 +282,6 @@ class ConfigManager:
             'users_toggle': bool,
             'watchlist_toggle': bool,
             'watchlist_episodes': int,
-            'watchlist_cache_expiry': int,
-            'watched_cache_expiry': int,
             'watched_move': bool,
             'plex_source': str,
             'cache_dir': str,
@@ -325,7 +322,6 @@ class ConfigManager:
         # Validate positive integers
         positive_int_fields = [
             'number_episodes', 'days_to_monitor', 'watchlist_episodes',
-            'watchlist_cache_expiry', 'watched_cache_expiry',
             'max_concurrent_moves_array', 'max_concurrent_moves_cache'
         ]
         for field in positive_int_fields:
@@ -428,14 +424,10 @@ class ConfigManager:
         """Remove all slashes from a list of paths."""
         return [value.strip('/\\') for value in value_list]
     
-    def get_cache_files(self) -> Tuple[Path, Path, Path]:
-        """Get cache file paths."""
+    def get_mover_exclude_file(self) -> Path:
+        """Get the path for the mover exclude file."""
         script_folder = Path(self.paths.script_folder)
-        return (
-            script_folder / "plexcache_watchlist_cache.json",
-            script_folder / "plexcache_watched_cache.json",
-            script_folder / "plexcache_mover_files_to_exclude.txt"
-        )
+        return script_folder / "plexcache_mover_files_to_exclude.txt"
 
     def get_timestamp_file(self) -> Path:
         """Get the path for the cache timestamp tracking file."""

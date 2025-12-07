@@ -449,11 +449,9 @@ def setup():
         if watchlist.lower() in ['n', 'no']:
             settings_data['watchlist_toggle'] = False
             settings_data['watchlist_episodes'] = 0
-            settings_data['watchlist_cache_expiry'] = 1
         elif watchlist.lower() in ['y', 'yes']:
             settings_data['watchlist_toggle'] = True
             prompt_user_for_number('\nHow many episodes do you want fetch from your Watchlist? (default: 3) ', '3', 'watchlist_episodes')
-            prompt_user_for_number('\nDefine the watchlist cache expiry duration in hours (default: 6) ', '6', 'watchlist_cache_expiry')
         else:
             print("Invalid choice. Please enter either yes or no")
 
@@ -571,10 +569,8 @@ def setup():
         watched_move = input('\nDo you want to move watched media from the cache back to the array? [y/N] ') or 'no'
         if watched_move.lower() in ['n', 'no']:
             settings_data['watched_move'] = False
-            settings_data['watched_cache_expiry'] = 48
         elif watched_move.lower() in ['y', 'yes']:
             settings_data['watched_move'] = True
-            prompt_user_for_number('\nDefine the watched cache expiry duration in hours (default: 48) ', '48', 'watched_cache_expiry')
         else:
             print("Invalid choice. Please enter either yes or no")
 
