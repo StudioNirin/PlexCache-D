@@ -1336,7 +1336,17 @@ class FileMover:
         self._last_display_lines = 0
         # Source tracking: maps cache file paths to their source (ondeck/watchlist)
         self._source_map: Dict[str, str] = {}
-    
+
+    def _format_size(self, size_bytes: int) -> str:
+        """Format file size in human-readable format."""
+        if size_bytes >= 1024 ** 3:
+            return f"{size_bytes / (1024 ** 3):.1f}GB"
+        elif size_bytes >= 1024 ** 2:
+            return f"{size_bytes / (1024 ** 2):.1f}MB"
+        elif size_bytes >= 1024:
+            return f"{size_bytes / 1024:.1f}KB"
+        return f"{size_bytes}B"
+
     def move_media_files(self, files: List[str], destination: str,
                         max_concurrent_moves_array: int, max_concurrent_moves_cache: int,
                         source_map: Optional[Dict[str, str]] = None) -> None:
@@ -1735,9 +1745,11 @@ class FileMover:
     def _move_to_array(self, cache_file: str, array_path: str, cache_file_name: str) -> int:
         """Move file from cache back to array.
 
-        Handles three scenarios:
-        1. Exact .plexcached exists: Rename it back to original, delete cache copy
-        2. Upgraded file: Different .plexcached exists (same media, different quality)
+        Handles four scenarios:
+        1a. Exact .plexcached exists, same size: Rename it back to original (fast)
+        1b. Exact .plexcached exists, different size: In-place upgrade detected
+            - Delete old .plexcached, copy upgraded cache file to array
+        2. Different .plexcached exists (same media, different filename/quality)
            - Delete old .plexcached, copy upgraded cache file to array
         3. No .plexcached: Copy from cache to array, then delete cache copy
 
@@ -1750,12 +1762,32 @@ class FileMover:
             array_file = os.path.join(array_path, os.path.basename(cache_file))
             plexcached_file = array_file + PLEXCACHED_EXTENSION
 
-            # Scenario 1: Exact .plexcached exists - just rename it back (fast)
+            # Scenario 1: Exact .plexcached exists (same filename)
             if os.path.isfile(plexcached_file):
-                os.rename(plexcached_file, array_file)
-                logging.debug(f"Restored array file: {plexcached_file} -> {array_file}")
+                # Check for in-place upgrade (same filename, different size)
+                cache_size = os.path.getsize(cache_file) if os.path.isfile(cache_file) else 0
+                plexcached_size = os.path.getsize(plexcached_file)
 
-            # Check for upgrade scenario: different .plexcached with same media identity
+                if cache_size > 0 and cache_size != plexcached_size:
+                    # In-place upgrade: same filename but different file content
+                    logging.info(f"In-place upgrade detected ({self._format_size(plexcached_size)} -> {self._format_size(cache_size)}): {os.path.basename(cache_file)}")
+                    os.remove(plexcached_file)
+                    shutil.copy2(cache_file, array_file)
+                    logging.debug(f"Copied upgraded file to array: {array_file}")
+
+                    # Verify copy succeeded
+                    if os.path.isfile(array_file):
+                        array_size = os.path.getsize(array_file)
+                        if cache_size != array_size:
+                            logging.error(f"Size mismatch after copy! Cache: {cache_size}, Array: {array_size}. Keeping cache file.")
+                            os.remove(array_file)
+                            return 1
+                else:
+                    # Same size (or cache missing), just rename back (fast)
+                    os.rename(plexcached_file, array_file)
+                    logging.debug(f"Restored array file: {plexcached_file} -> {array_file}")
+
+            # Scenario 2: Check for filename-change upgrade (different .plexcached with same media identity)
             elif os.path.isfile(cache_file):
                 cache_identity = get_media_identity(cache_file)
                 old_plexcached = find_matching_plexcached(array_path, cache_identity)
