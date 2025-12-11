@@ -1,0 +1,6 @@
+*.pyc
+logs/
+plexcache_mover_files_to_exclude.txt
+plexcache_settings.json
+plexcache_watched_cache.json
+plexcache_watchlist_cache.json
