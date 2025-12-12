@@ -93,6 +93,16 @@ class PlexCacheApp:
             # Move files
             self._move_files()
 
+
+            # Update Unraid mover exclusion file
+            logging.info("Updating Unraid mover exclusions...")
+            try:
+                self._update_unraid_mover_exclusions()
+                logging.info("Unraid mover exclusions updated.")
+            except Exception as e:
+                logging.error(f"Failed to update Unraid mover exclusions: {e}")
+
+
             # Log summary and cleanup
             self._finish()
             
@@ -103,6 +113,53 @@ class PlexCacheApp:
                 print(f"Application error: {type(e).__name__}: {e}")
             raise
     
+
+    def _update_unraid_mover_exclusions(self, tag_line: str = "### Plexcache exclusions below this line") -> None:
+        """
+        Update the Unraid mover exclusions file by inserting or updating the
+        PlexCache exclusions section. Paths are retrieved from the config.
+        """
+
+        # Get paths from config
+        exclusion_path = self.config_manager.get_unraid_mover_exclusions_file()
+        plexcache_path = self.config_manager.get_mover_exclude_file()
+
+        # Ensure the main file exists
+        if not exclusion_path.exists():
+            exclusion_path.parent.mkdir(parents=True, exist_ok=True)
+            exclusion_path.touch()
+
+        # Read current exclusion file
+        with open(exclusion_path, "r", encoding="utf-8") as f:
+            lines = f.read().splitlines()
+
+        # Ensure the tag line exists
+        if tag_line not in lines:
+            if lines and lines[-1].strip() != "":
+                lines.append("")  # pad newline if last line isn't empty
+            lines.append(tag_line)
+
+        # Keep only content above the tag (inclusive)
+        tag_index = lines.index(tag_line)
+        lines = lines[:tag_index + 1]
+
+        # Load new exclusion entries from plexcache file
+        if plexcache_path.exists():
+            with open(plexcache_path, "r", encoding="utf-8") as f:
+                new_entries = [ln.strip() for ln in f if ln.strip()]
+        else:
+            new_entries = []
+
+        # Append the new entries
+        lines.extend(new_entries)
+
+        # Write updated file back
+        with open(exclusion_path, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+
+
+
+
     def _setup_logging(self) -> None:
         """Set up logging system (basic logging only, notifications set up after config load)."""
         self.logging_manager = LoggingManager(
@@ -738,6 +795,8 @@ class PlexCacheApp:
             result_str += f"{int(seconds)} second{'s' if seconds > 1 else ''}"
 
         return result_str.rstrip(", ") or "less than 1 second"
+    
+
 
 
 def main():
