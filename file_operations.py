@@ -1265,7 +1265,14 @@ class FileFilter:
 
             # For movies: return cleaned filename
             filename = os.path.basename(file_path)
-            name, _ext = os.path.splitext(filename)
+            name, ext = os.path.splitext(filename)
+
+            # Handle subtitle files - strip language code suffix (e.g., ".en", ".eng", ".es", ".forced")
+            subtitle_extensions = {'.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx'}
+            if ext.lower() in subtitle_extensions:
+                # Strip common language code patterns from the end
+                name = re.sub(r'\.(en|eng|es|spa|fr|fra|de|deu|ger|it|ita|pt|por|ja|jpn|ko|kor|zh|chi|forced|sdh|cc|hi)$', '', name, flags=re.IGNORECASE)
+
             cleaned = re.sub(r'\s*\([^)]*\)$', '', name).strip()
             return cleaned
 
