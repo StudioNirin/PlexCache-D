@@ -14,7 +14,7 @@ import os
 
 from config import ConfigManager
 from logging_config import LoggingManager
-from system_utils import SystemDetector, PathConverter, FileUtils
+from system_utils import SystemDetector, PathConverter, FileUtils, SingleInstanceLock
 from plex_api import PlexManager
 from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, PlexcachedMigration
 
@@ -62,6 +62,15 @@ class PlexCacheApp:
                 logging.warning("DRY-RUN MODE - No files will be moved")
             if self.verbose:
                 logging.debug("VERBOSE MODE - Showing DEBUG level logs")
+
+            # Prevent multiple instances from running simultaneously
+            script_folder = os.path.dirname(os.path.abspath(__file__))
+            lock_file = os.path.join(script_folder, "plexcache.lock")
+            self.instance_lock = SingleInstanceLock(lock_file)
+            if not self.instance_lock.acquire():
+                logging.critical("Another instance of PlexCache is already running. Exiting.")
+                print("ERROR: Another instance of PlexCache is already running. Exiting.")
+                return
 
             # Load configuration
             logging.debug("Loading configuration...")

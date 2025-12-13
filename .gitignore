@@ -11,6 +11,7 @@ plexcache_mover_files_to_exclude.txt
 plexcache_timestamps.json
 plexcache_watchlist_tracker.json
 plexcache_user_tokens.json
+plexcache.lock
 
 # Old cache files (deprecated in v2.0)
 plexcache_watchlist_cache.json
