@@ -1,5 +1,5 @@
 # PlexCache: Automate Plex Media Management
-### Updated 11/25
+### Updated 12/13/25
 
 ## Current Bugs / Todo List
 
@@ -166,6 +166,24 @@ And my first personal thankyou to [Brandon-Haney](https://github.com/Brandon-Han
 
 
 ## Changelog
+
+### v2.0 Updates (December 2025)
+
+- **Fix double path conversion bug** ([#28](https://github.com/StudioNirin/PlexCache-R/issues/28)): Paths already in `real_source` format are no longer double-converted when `plex_source` is set to `/`. This was causing `FileNotFoundError` crashes for users with certain multi-path configurations.
+
+- **Graceful error handling for missing files** ([#27](https://github.com/StudioNirin/PlexCache-R/issues/27)): Script now skips inaccessible files instead of crashing. Logs a warning and continues processing remaining files.
+
+- **Self-healing exclude list cleanup**: At startup, stale entries (files that no longer exist on cache) are automatically removed from the exclude list. This prevents orphaned entries from accumulating.
+
+- **Prevent multiple instances**: A lock file (`plexcache.lock`) ensures only one instance of PlexCache can run at a time. If another instance is already running, the script exits with an error. Lock is automatically released on exit or crash.
+
+- **Improved cache limit logging**: Now shows both total cache drive usage and PlexCache-tracked size separately, making it easier to understand cache utilization.
+
+- **Fix RSS author lookup**: Plex changed the author ID format in RSS feeds from numeric ID to UUID (extracted from user thumb URL). Updated to store and lookup both formats for proper username attribution in RSS warnings.
+
+- **Store user UUID in settings**: User entries now include `uuid` (extracted from Plex thumb URL) for debugging RSS author lookup issues. Run `--refresh-users` to populate for existing setups.
+
+### Previous Updates
 
 - **11/25 - Handling of script_folder link**: Old version had a hardcoded link to the script folder instead of using the user-defined setting.
 - **11/25 - Adding logic so a 401 error when looking for watched-media doesn't cause breaking errors**: Seems it's only possible to get 'watched files' data from home users and not remote friends, and the 401 error would stop the script working? Added some logic to plex_api.py.
