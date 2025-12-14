@@ -158,6 +158,86 @@ def is_unraid():
 
 # ---------------- Multi-Path Mapping Functions ----------------
 
+def prompt_library_path_mapping(library_name: str, plex_locations: list, default_cache: str = None) -> list:
+    """Prompt user to configure path mappings for a library's locations.
+
+    Args:
+        library_name: Display name of the library (e.g., "Movies")
+        plex_locations: List of Plex paths for this library
+        default_cache: Default cache path to suggest (from previous entries)
+
+    Returns:
+        List of path mapping dicts for this library's locations
+    """
+    mappings = []
+
+    print(f"\n  Plex locations for this library:")
+    for loc in plex_locations:
+        print(f"    - {loc}")
+
+    for i, plex_path in enumerate(plex_locations):
+        # For libraries with multiple locations, number them
+        if len(plex_locations) > 1:
+            mapping_name = f"{library_name} ({i+1})"
+        else:
+            mapping_name = library_name
+
+        print(f"\n  Configuring: {plex_path}")
+
+        # Suggest a real path based on common patterns
+        suggested_real = plex_path.replace('/data/', '/mnt/user/').replace('/media/', '/mnt/user/')
+
+        print(f"  Where is this located on your filesystem?")
+        print(f"  (This is the actual path on your Unraid/NAS, not the Docker path)")
+        real_path = input(f"  Real path [{suggested_real}]: ").strip() or suggested_real
+
+        # Ensure trailing slash
+        if real_path and not real_path.endswith('/'):
+            real_path = real_path + '/'
+        # Ensure plex_path has trailing slash
+        plex_path_normalized = plex_path if plex_path.endswith('/') else plex_path + '/'
+
+        # Ask if cacheable
+        print(f"\n  Can files from this location be cached locally?")
+        print(f"  (Set to 'n' for remote/network storage that can't be cached)")
+        cacheable_input = input(f"  Cacheable? [Y/n]: ").strip().lower()
+        cacheable = cacheable_input not in ['n', 'no']
+
+        cache_path = None
+        if cacheable:
+            # Suggest cache path based on real path structure
+            if default_cache:
+                # Use previous cache root + same relative structure
+                # e.g., if real is /mnt/user/media/movies, suggest /mnt/cache/media/movies
+                relative_part = real_path.replace('/mnt/user/', '').replace('/mnt/user', '')
+                suggested_cache = default_cache.rstrip('/') + '/' + relative_part.lstrip('/')
+            else:
+                # First time - suggest replacing /mnt/user with /mnt/cache
+                suggested_cache = real_path.replace('/mnt/user/', '/mnt/cache/')
+
+            print(f"\n  Where should cached files be stored?")
+            cache_path = input(f"  Cache path [{suggested_cache}]: ").strip() or suggested_cache
+
+            # Ensure trailing slash
+            if cache_path and not cache_path.endswith('/'):
+                cache_path = cache_path + '/'
+
+        mapping = {
+            'name': mapping_name,
+            'plex_path': plex_path_normalized,
+            'real_path': real_path,
+            'cache_path': cache_path,
+            'cacheable': cacheable,
+            'enabled': True
+        }
+        mappings.append(mapping)
+
+        print(f"\n  ✓ Added mapping: {mapping_name}")
+        print(f"    {plex_path_normalized} → {real_path}" + (f" → {cache_path}" if cache_path else " (non-cacheable)"))
+
+    return mappings
+
+
 def display_path_mappings(mappings):
     """Display current path mappings in a formatted table."""
     if not mappings:
@@ -550,76 +630,132 @@ def setup():
             valid_sections = []
             selected_libraries = []
             plex_library_folders = []
+            path_mappings = []
+            default_cache_root = None
 
-            # Step 1: Collect library selections from user
+            # Step 1: Collect library selections and path mappings from user
+            print("\n" + "=" * 60)
+            print("LIBRARY SELECTION & PATH CONFIGURATION")
+            print("=" * 60)
+            print("\nFor each library you include, you'll configure how PlexCache")
+            print("maps between Plex paths and your actual filesystem paths.")
+
             while not valid_sections:
                 for library in libraries:
-                    print(f"\nYour plex library name: {library.title}")
-                    include = input("Do you want to include this library? [Y/n]  ") or 'yes'
+                    # Get library locations
+                    try:
+                        locs = library.locations
+                        if isinstance(locs, str):
+                            locs = [locs]
+                    except Exception as e:
+                        print(f"\nWarning: Could not get locations for '{library.title}': {e}")
+                        locs = []
+
+                    print(f"\n" + "-" * 60)
+                    print(f"Library: {library.title}")
+                    if locs:
+                        print(f"  Plex sees this at: {', '.join(locs)}")
+                    print("-" * 60)
+
+                    include = input("Include this library? [Y/n] ") or 'yes'
                     if include.lower() in ['n', 'no']:
+                        print(f"  Skipping {library.title}")
                         continue
                     elif include.lower() in ['y', 'yes']:
                         if library.key not in valid_sections:
                             valid_sections.append(library.key)
                             selected_libraries.append(library)
+
+                            # Collect path mappings for this library
+                            if locs:
+                                lib_mappings = prompt_library_path_mapping(
+                                    library.title,
+                                    locs,
+                                    default_cache_root
+                                )
+                                path_mappings.extend(lib_mappings)
+
+                                # Remember the first cache root for suggestions
+                                if not default_cache_root:
+                                    for m in lib_mappings:
+                                        if m.get('cache_path'):
+                                            # Extract root (e.g., /mnt/cache from /mnt/cache/media/movies/)
+                                            parts = m['cache_path'].strip('/').split('/')
+                                            if len(parts) >= 2:
+                                                default_cache_root = '/' + parts[0] + '/' + parts[1] + '/'
+                                            else:
+                                                default_cache_root = '/' + parts[0] + '/'
+                                            break
                     else:
                         print("Invalid choice. Please enter either yes or no")
 
                 if not valid_sections:
-                    print("You must select at least one library to include. Please try again.")
+                    print("\nYou must select at least one library to include. Please try again.")
 
             settings_data['valid_sections'] = valid_sections
+            settings_data['path_mappings'] = path_mappings
 
-            # Step 2: Compute plex_source from ONLY selected libraries (fixes Issue #12)
-            if 'plex_source' not in settings_data:
-                selected_locations = []
-                for lib in selected_libraries:
-                    try:
-                        locs = lib.locations
-                        if isinstance(locs, list):
-                            selected_locations.extend(locs)
-                        elif isinstance(locs, str):
-                            selected_locations.append(locs)
-                    except Exception as e:
-                        print(f"Warning: Could not get locations for library '{lib.title}': {e}")
-                        continue
-
-                plex_source = find_common_root(selected_locations)
-
-                # Warn user if plex_source is just "/" and allow manual override
-                if plex_source == "/":
-                    print(f"\nWarning: The computed plex_source is '/' (root).")
-                    print("This usually happens when your selected libraries have different base paths.")
-                    print(f"Selected library paths: {selected_locations}")
-                    print("\nUsing '/' as plex_source will likely cause path issues.")
-
-                    while True:
-                        manual_source = input("\nEnter the correct plex_source path (e.g., '/data') or press Enter to keep '/': ").strip()
-                        if manual_source == "":
-                            print("Keeping plex_source as '/' - please verify your settings work correctly.")
-                            break
-                        elif manual_source.startswith("/"):
-                            plex_source = manual_source.rstrip("/")
-                            print(f"plex_source set to: {plex_source}")
-                            break
-                        else:
-                            print("Path must start with '/'")
-
-                # Ensure trailing slash for consistency
+            # Step 2: Derive legacy fields from path mappings for backward compatibility
+            if path_mappings:
+                # plex_source = common root of all plex paths
+                plex_paths = [m['plex_path'] for m in path_mappings]
+                plex_source = find_common_root(plex_paths)
                 if not plex_source.endswith('/'):
                     plex_source = plex_source + '/'
-                print(f"\nPlex source path set to: {plex_source}")
                 settings_data['plex_source'] = plex_source
 
-            # Step 3: Compute relative library folders from selected libraries
-            for lib in selected_libraries:
-                for location in lib.locations:
-                    rel = os.path.relpath(location, settings_data['plex_source']).strip('/')
+                # real_source = common root of all real paths
+                real_paths = [m['real_path'] for m in path_mappings]
+                real_source = find_common_root(real_paths)
+                if not real_source.endswith('/'):
+                    real_source = real_source + '/'
+                settings_data['real_source'] = real_source
+
+                # cache_dir = common root of all cache paths (or first one)
+                cache_paths = [m['cache_path'] for m in path_mappings if m.get('cache_path')]
+                if cache_paths:
+                    cache_dir = find_common_root(cache_paths)
+                    if not cache_dir.endswith('/'):
+                        cache_dir = cache_dir + '/'
+                    settings_data['cache_dir'] = cache_dir
+
+                # plex_library_folders = relative paths from plex_source
+                for m in path_mappings:
+                    plex_path = m['plex_path'].rstrip('/')
+                    plex_src = settings_data['plex_source'].rstrip('/')
+                    if plex_path.startswith(plex_src):
+                        rel = plex_path[len(plex_src):].strip('/')
+                    else:
+                        rel = plex_path.strip('/')
                     rel = rel.replace('\\', '/')
-                    if rel not in plex_library_folders:
+                    if rel and rel not in plex_library_folders:
                         plex_library_folders.append(rel)
 
+                # nas_library_folders = relative paths from real_source
+                nas_library_folders = []
+                for m in path_mappings:
+                    real_path = m['real_path'].rstrip('/')
+                    real_src = settings_data['real_source'].rstrip('/')
+                    if real_path.startswith(real_src):
+                        rel = real_path[len(real_src):].strip('/')
+                    else:
+                        rel = real_path.strip('/')
+                    rel = rel.replace('\\', '/')
+                    if rel and rel not in nas_library_folders:
+                        nas_library_folders.append(rel)
+                settings_data['nas_library_folders'] = nas_library_folders
+
             settings_data['plex_library_folders'] = plex_library_folders
+
+            # Show summary
+            print("\n" + "=" * 60)
+            print("PATH CONFIGURATION SUMMARY")
+            print("=" * 60)
+            print(f"\nConfigured {len(path_mappings)} path mapping(s):")
+            for m in path_mappings:
+                cacheable = "cacheable" if m.get('cacheable', True) else "non-cacheable"
+                print(f"  - {m['name']}: {m['plex_path']} → {m['real_path']} ({cacheable})")
+            print("=" * 60)
 
 
         except (BadRequest, requests.exceptions.RequestException) as e:
@@ -898,8 +1034,13 @@ def setup():
         else:
             print('Notifications disabled.')
 
-    # ---------------- Cache / Array Paths ----------------
-    if 'cache_dir' not in settings_data:
+    # ---------------- Cache / Array Paths (Legacy - skip if path_mappings configured) ----------------
+    # If path_mappings were configured during library selection, skip this section
+    if settings_data.get('path_mappings'):
+        # Path mappings already configured during library selection
+        pass
+    elif 'cache_dir' not in settings_data:
+        # Legacy path configuration for users who somehow skip library-centric setup
         cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
         while True:
             test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
@@ -925,7 +1066,10 @@ def setup():
             cache_dir = cache_dir + '/'
         settings_data['cache_dir'] = cache_dir
 
-    if 'real_source' not in settings_data:
+    # Skip real_source/nas_library_folders if path_mappings configured
+    if settings_data.get('path_mappings'):
+        pass
+    elif 'real_source' not in settings_data:
         real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
         while True:
             test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
@@ -959,8 +1103,11 @@ def setup():
             nas_library_folder.append(folder_name)
         settings_data['nas_library_folders'] = nas_library_folder
 
-    # ---------------- Multi-Path Mappings (Advanced) ----------------
-    if 'path_mappings' not in settings_data:
+    # ---------------- Multi-Path Mappings (skip if already configured during library selection) ----------------
+    if settings_data.get('path_mappings'):
+        # Already configured during library selection - skip this section
+        pass
+    elif 'path_mappings' not in settings_data:
         print('\n' + '-' * 60)
         print('ADVANCED: MULTI-PATH MAPPING')
         print('-' * 60)
