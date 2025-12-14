@@ -7,6 +7,7 @@ import sys
 import time
 import logging
 import re
+import shutil
 from datetime import datetime
 from pathlib import Path
 from typing import List, Set, Optional
@@ -14,7 +15,7 @@ import os
 
 from config import ConfigManager
 from logging_config import LoggingManager
-from system_utils import SystemDetector, PathConverter, FileUtils
+from system_utils import SystemDetector, PathConverter, FileUtils, SingleInstanceLock
 from plex_api import PlexManager
 from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, PlexcachedMigration
 
@@ -63,6 +64,15 @@ class PlexCacheApp:
             if self.verbose:
                 logging.debug("VERBOSE MODE - Showing DEBUG level logs")
 
+            # Prevent multiple instances from running simultaneously
+            script_folder = os.path.dirname(os.path.abspath(__file__))
+            lock_file = os.path.join(script_folder, "plexcache.lock")
+            self.instance_lock = SingleInstanceLock(lock_file)
+            if not self.instance_lock.acquire():
+                logging.critical("Another instance of PlexCache is already running. Exiting.")
+                print("ERROR: Another instance of PlexCache is already running. Exiting.")
+                return
+
             # Load configuration
             logging.debug("Loading configuration...")
             self.config_manager.load_config()
@@ -73,6 +83,9 @@ class PlexCacheApp:
             # Initialize components that depend on config
             logging.debug("Initializing components...")
             self._initialize_components()
+
+            # Clean up stale exclude list entries (self-healing)
+            self.file_filter.clean_stale_exclude_entries()
 
             # Check paths
             logging.debug("Validating paths...")
@@ -639,8 +652,8 @@ class PlexCacheApp:
         else:
             limit_readable = f"{cache_limit_bytes / (1024**3):.1f}GB"
 
-        # Calculate current PlexCache usage from exclude file
-        current_usage = 0
+        # Calculate current PlexCache tracked size from exclude file
+        plexcache_tracked = 0
         exclude_file = self.config_manager.get_mover_exclude_file()
         if exclude_file.exists():
             try:
@@ -649,17 +662,25 @@ class PlexCacheApp:
                 for cached_file in cached_files:
                     try:
                         if os.path.exists(cached_file):
-                            current_usage += os.path.getsize(cached_file)
+                            plexcache_tracked += os.path.getsize(cached_file)
                     except (OSError, FileNotFoundError):
                         pass
             except Exception as e:
                 logging.warning(f"Error reading exclude file for cache limit calculation: {e}")
 
-        current_usage_gb = current_usage / (1024**3)
-        logging.info(f"Cache limit: {limit_readable}, current usage: {current_usage_gb:.2f}GB")
+        # Get total cache drive usage
+        try:
+            disk_usage = shutil.disk_usage(cache_dir)
+            drive_usage_gb = disk_usage.used / (1024**3)
+        except Exception:
+            drive_usage_gb = 0
+
+        plexcache_tracked_gb = plexcache_tracked / (1024**3)
+        logging.info(f"Cache limit: {limit_readable}")
+        logging.info(f"Cache drive usage: {drive_usage_gb:.2f}GB, PlexCache tracked: {plexcache_tracked_gb:.2f}GB")
 
         # Filter files that fit within limit
-        available_space = cache_limit_bytes - current_usage
+        available_space = cache_limit_bytes - plexcache_tracked
         files_to_cache = []
         skipped_count = 0
         skipped_size = 0

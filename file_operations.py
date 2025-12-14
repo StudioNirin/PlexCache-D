@@ -804,6 +804,13 @@ class FilePathModifier:
 
         result = []
         for file_path in files:
+            # Skip paths already in real_source format (prevents double-conversion)
+            # This is critical when plex_source is "/" - all paths start with "/"
+            if file_path.startswith(self.real_source):
+                logging.debug(f"Path already converted, skipping: {file_path}")
+                result.append(file_path)
+                continue
+
             # Pass through paths that are already converted (don't start with plex_source)
             if not file_path.startswith(self.plex_source):
                 result.append(file_path)
@@ -1258,7 +1265,14 @@ class FileFilter:
 
             # For movies: return cleaned filename
             filename = os.path.basename(file_path)
-            name, _ext = os.path.splitext(filename)
+            name, ext = os.path.splitext(filename)
+
+            # Handle subtitle files - strip language code suffix (e.g., ".en", ".eng", ".es", ".forced")
+            subtitle_extensions = {'.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx'}
+            if ext.lower() in subtitle_extensions:
+                # Strip common language code patterns from the end
+                name = re.sub(r'\.(en|eng|es|spa|fr|fra|de|deu|ger|it|ita|pt|por|ja|jpn|ko|kor|zh|chi|forced|sdh|cc|hi)$', '', name, flags=re.IGNORECASE)
+
             cleaned = re.sub(r'\s*\([^)]*\)$', '', name).strip()
             return cleaned
 
@@ -1297,6 +1311,53 @@ class FileFilter:
         except Exception as e:
             logging.exception(f"Error removing files from exclude list: {type(e).__name__}: {e}")
             return False
+
+    def clean_stale_exclude_entries(self) -> int:
+        """
+        Remove exclude list entries for files that no longer exist on cache.
+
+        This is a self-healing mechanism: if files are manually deleted from cache,
+        or if the cache drive has issues, stale entries are automatically cleaned up.
+
+        Does NOT add new files - only removes entries where the file no longer exists.
+        This ensures we don't interfere with Mover Tuning's management of other files.
+
+        Returns:
+            Number of stale entries removed.
+        """
+        if not self.mover_cache_exclude_file or not os.path.exists(self.mover_cache_exclude_file):
+            return 0
+
+        try:
+            with open(self.mover_cache_exclude_file, 'r') as f:
+                current_entries = [line.strip() for line in f if line.strip()]
+
+            if not current_entries:
+                return 0
+
+            # Keep only entries where file still exists
+            valid_entries = []
+            stale_entries = []
+
+            for entry in current_entries:
+                if os.path.exists(entry):
+                    valid_entries.append(entry)
+                else:
+                    stale_entries.append(entry)
+                    logging.debug(f"Removing stale exclude entry: {entry}")
+
+            # Only rewrite file if we found stale entries
+            if stale_entries:
+                with open(self.mover_cache_exclude_file, 'w') as f:
+                    for entry in valid_entries:
+                        f.write(entry + '\n')
+                logging.info(f"Cleaned {len(stale_entries)} stale entries from exclude list")
+
+            return len(stale_entries)
+
+        except Exception as e:
+            logging.warning(f"Error cleaning stale exclude entries: {type(e).__name__}: {e}")
+            return 0
 
 
 class FileMover:

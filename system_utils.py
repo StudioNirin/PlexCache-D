@@ -10,8 +10,70 @@ import socket
 import shutil
 import ntpath
 import posixpath
+import atexit
+import fcntl
 from typing import Tuple, Optional
 import logging
+
+
+class SingleInstanceLock:
+    """
+    Prevent multiple instances of PlexCache from running simultaneously.
+
+    Uses flock to ensure only one instance can run at a time.
+    The lock is automatically released when the process exits or crashes.
+    """
+
+    def __init__(self, lock_file: str):
+        self.lock_file = lock_file
+        self.lock_fd = None
+        self.locked = False
+
+    def acquire(self) -> bool:
+        """
+        Acquire the lock.
+
+        Returns:
+            True if lock acquired successfully, False if another instance is running.
+        """
+        try:
+            self.lock_fd = open(self.lock_file, 'w')
+            fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+            # Write PID for debugging
+            self.lock_fd.write(str(os.getpid()))
+            self.lock_fd.flush()
+            self.locked = True
+
+            # Register cleanup on exit
+            atexit.register(self.release)
+
+            return True
+
+        except (IOError, OSError):
+            # Lock is held by another process
+            if self.lock_fd:
+                self.lock_fd.close()
+                self.lock_fd = None
+            return False
+
+    def release(self):
+        """Release the lock and clean up."""
+        if not self.locked:
+            return
+
+        try:
+            if self.lock_fd:
+                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                self.lock_fd.close()
+                self.lock_fd = None
+
+            if os.path.exists(self.lock_file):
+                os.remove(self.lock_file)
+
+            self.locked = False
+        except Exception:
+            pass  # Best effort cleanup
 
 
 class SystemDetector:
@@ -196,7 +258,19 @@ class FileUtils:
     
     def get_total_size_of_files(self, files: list) -> Tuple[float, str]:
         """Calculate total size of files in human-readable format."""
-        total_size_bytes = sum(os.path.getsize(file) for file in files)
+        total_size_bytes = 0
+        skipped_files = []
+        for file in files:
+            try:
+                total_size_bytes += os.path.getsize(file)
+            except (OSError, FileNotFoundError):
+                skipped_files.append(file)
+
+        if skipped_files:
+            logging.warning(f"Could not get size for {len(skipped_files)} files (will skip during move)")
+            for f in skipped_files:
+                logging.debug(f"  Skipping inaccessible file: {f}")
+
         return self._convert_bytes_to_readable_size(total_size_bytes)
     
     def _convert_bytes_to_readable_size(self, size_bytes: int) -> Tuple[float, str]:
