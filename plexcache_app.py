@@ -997,6 +997,7 @@ def main():
     quiet = "--quiet" in sys.argv or "--notify-errors-only" in sys.argv
     verbose = "--verbose" in sys.argv or "-v" in sys.argv or "--v" in sys.argv
     show_priorities = "--show-priorities" in sys.argv
+    show_mappings = "--show-mappings" in sys.argv
 
     # Derive config path from the script's actual location (matches plexcache_setup.py behavior)
     script_dir = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -1010,6 +1011,11 @@ def main():
     # Handle show priorities mode
     if show_priorities:
         _run_show_priorities(config_file, verbose)
+        return
+
+    # Handle show mappings mode
+    if show_mappings:
+        _run_show_mappings(config_file)
         return
 
     app = PlexCacheApp(config_file, dry_run, quiet, verbose)
@@ -1122,6 +1128,86 @@ def _run_show_priorities(config_file: str, verbose: bool = False) -> None:
     # Generate and print report
     report = priority_manager.get_priority_report(cached_files)
     print(report)
+
+
+def _run_show_mappings(config_file: str) -> None:
+    """Show path mapping configuration and accessibility status."""
+    print("*** PlexCache Path Mapping Configuration ***\n")
+
+    # Load config
+    config_manager = ConfigManager(config_file)
+    config_manager.load_config()
+
+    # Check if path_mappings is configured
+    mappings = config_manager.paths.path_mappings
+    if not mappings:
+        print("No multi-path mappings configured.")
+        print(f"\nLegacy single-path mode:")
+        print(f"  Plex source: {config_manager.paths.plex_source or 'Not set'}")
+        print(f"  Real source: {config_manager.paths.real_source or 'Not set'}")
+        print(f"  Cache dir:   {config_manager.paths.cache_dir or 'Not set'}")
+        print("\nRun the setup wizard to configure multi-path mappings.")
+        return
+
+    # Display mappings table
+    print(f"Found {len(mappings)} path mapping(s):\n")
+
+    # Calculate column widths
+    name_width = max(len("Name"), max(len(m.name) for m in mappings))
+    plex_width = max(len("Plex Path"), max(len(m.plex_path) for m in mappings))
+    real_width = max(len("Real Path"), max(len(m.real_path) for m in mappings))
+
+    # Header
+    header = f"  {'#':<3} {'Name':<{name_width}}  {'Plex Path':<{plex_width}}  {'Real Path':<{real_width}}  {'Cacheable':<9}  {'Enabled':<7}"
+    separator = "  " + "-" * (len(header) - 2)
+    print(header)
+    print(separator)
+
+    # Rows
+    for i, m in enumerate(mappings, 1):
+        cacheable = "Yes" if m.cacheable else "No"
+        enabled = "Yes" if m.enabled else "No"
+        print(f"  {i:<3} {m.name:<{name_width}}  {m.plex_path:<{plex_width}}  {m.real_path:<{real_width}}  {cacheable:<9}  {enabled:<7}")
+
+    # Path accessibility check
+    print(f"\n{'Path Accessibility Check:'}")
+    print(separator)
+
+    for m in mappings:
+        if not m.enabled:
+            print(f"  [ ] {m.real_path} - DISABLED (skipping check)")
+            continue
+
+        if os.path.exists(m.real_path):
+            print(f"  [✓] {m.real_path} - accessible")
+        else:
+            print(f"  [✗] {m.real_path} - NOT ACCESSIBLE")
+
+    # Cache paths check (only for cacheable mappings)
+    cacheable_mappings = [m for m in mappings if m.cacheable and m.enabled and m.cache_path]
+    if cacheable_mappings:
+        print(f"\n{'Cache Path Accessibility:'}")
+        print(separator)
+
+        for m in cacheable_mappings:
+            # Check if cache path parent exists
+            cache_parent = os.path.dirname(m.cache_path.rstrip('/'))
+            if os.path.exists(cache_parent):
+                print(f"  [✓] {m.cache_path} - accessible")
+            else:
+                print(f"  [✗] {m.cache_path} - NOT ACCESSIBLE (parent dir missing)")
+
+    # Summary
+    enabled_count = sum(1 for m in mappings if m.enabled)
+    cacheable_count = sum(1 for m in mappings if m.enabled and m.cacheable)
+    non_cacheable_count = enabled_count - cacheable_count
+
+    print(f"\n{'Summary:'}")
+    print(separator)
+    print(f"  Total mappings:     {len(mappings)}")
+    print(f"  Enabled:            {enabled_count}")
+    print(f"  Cacheable:          {cacheable_count}")
+    print(f"  Non-cacheable:      {non_cacheable_count} (files tracked but not cached)")
 
 
 if __name__ == "__main__":
