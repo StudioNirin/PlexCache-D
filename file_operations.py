@@ -2105,7 +2105,13 @@ class FileFilter:
                         continue
 
                 # Media is no longer needed and retention doesn't apply, move this file back to array
-                array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
+                if self.path_modifier:
+                    array_file, mapping = self.path_modifier.convert_cache_to_real(cache_file)
+                    if array_file is None:
+                        logging.warning(f"Could not convert cache path to array path: {cache_file}")
+                        continue
+                else:
+                    array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
 
                 logging.info(f"Media no longer needed, will move back to array: {media_name} - {cache_file}")
                 files_to_move_back.append(array_file)
