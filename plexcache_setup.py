@@ -156,6 +156,198 @@ def is_unraid():
     return os.path.exists('/etc/unraid-version')
 
 
+# ---------------- Multi-Path Mapping Functions ----------------
+
+def display_path_mappings(mappings):
+    """Display current path mappings in a formatted table."""
+    if not mappings:
+        print("\n  No path mappings configured.")
+        return
+
+    print("\n  Current Path Mappings:")
+    print("  " + "-" * 70)
+    for i, m in enumerate(mappings, 1):
+        status = "enabled" if m.get('enabled', True) else "DISABLED"
+        cacheable = "cacheable" if m.get('cacheable', True) else "non-cacheable"
+        print(f"  {i}. {m.get('name', 'Unnamed')}")
+        print(f"     Plex path:  {m.get('plex_path', '')}")
+        print(f"     Real path:  {m.get('real_path', '')}")
+        if m.get('cacheable', True):
+            print(f"     Cache path: {m.get('cache_path', 'Not set')}")
+        print(f"     Status: {status}, {cacheable}")
+        print()
+
+
+def prompt_for_path_mapping(existing=None):
+    """Prompt user to create or edit a path mapping."""
+    print("\n" + "-" * 60)
+    if existing:
+        print("EDIT PATH MAPPING")
+        print(f"Current name: {existing.get('name', '')}")
+    else:
+        print("ADD NEW PATH MAPPING")
+    print("-" * 60)
+
+    # Name
+    default_name = existing.get('name', '') if existing else ''
+    name = input(f"\nMapping name (e.g., 'Local Array', 'Remote NAS') [{default_name}]: ").strip()
+    if not name and default_name:
+        name = default_name
+    elif not name:
+        name = f"Mapping {1}"
+
+    # Plex path
+    default_plex = existing.get('plex_path', '') if existing else ''
+    print(f"\nPlex path: The path as seen by Plex (inside Docker container)")
+    print(f"  Example: /data or /media")
+    plex_path = input(f"Plex path [{default_plex}]: ").strip()
+    if not plex_path and default_plex:
+        plex_path = default_plex
+    # Ensure trailing slash
+    if plex_path and not plex_path.endswith('/'):
+        plex_path = plex_path + '/'
+
+    # Real path
+    default_real = existing.get('real_path', '') if existing else ''
+    print(f"\nReal path: The actual filesystem path (on host/Unraid)")
+    print(f"  Example: /mnt/user or /mnt/remotes/NAS")
+    real_path = input(f"Real path [{default_real}]: ").strip()
+    if not real_path and default_real:
+        real_path = default_real
+    # Ensure trailing slash
+    if real_path and not real_path.endswith('/'):
+        real_path = real_path + '/'
+
+    # Cacheable?
+    default_cacheable = existing.get('cacheable', True) if existing else True
+    default_cacheable_str = 'Y' if default_cacheable else 'N'
+    print(f"\nIs this path cacheable? (Set to No for remote/network storage)")
+    cacheable_input = input(f"Cacheable? [{'Y/n' if default_cacheable else 'y/N'}]: ").strip().lower()
+    if not cacheable_input:
+        cacheable = default_cacheable
+    else:
+        cacheable = cacheable_input in ['y', 'yes']
+
+    # Cache path (only if cacheable)
+    cache_path = None
+    if cacheable:
+        default_cache = existing.get('cache_path', '') if existing else ''
+        print(f"\nCache path: Where cached files are stored")
+        print(f"  Example: /mnt/cache")
+        cache_path = input(f"Cache path [{default_cache}]: ").strip()
+        if not cache_path and default_cache:
+            cache_path = default_cache
+        # Ensure trailing slash
+        if cache_path and not cache_path.endswith('/'):
+            cache_path = cache_path + '/'
+
+    # Enabled?
+    default_enabled = existing.get('enabled', True) if existing else True
+
+    return {
+        'name': name,
+        'plex_path': plex_path,
+        'real_path': real_path,
+        'cache_path': cache_path,
+        'cacheable': cacheable,
+        'enabled': default_enabled
+    }
+
+
+def configure_path_mappings(settings):
+    """Interactive menu to configure multiple path mappings."""
+    mappings = settings.get('path_mappings', [])
+
+    # If no mappings but legacy settings exist, offer to convert
+    if not mappings and settings.get('plex_source') and settings.get('real_source'):
+        print("\n" + "=" * 60)
+        print("MULTI-PATH MAPPING CONFIGURATION")
+        print("=" * 60)
+        print("\nYou have legacy single-path settings configured:")
+        print(f"  Plex source: {settings.get('plex_source')}")
+        print(f"  Real source: {settings.get('real_source')}")
+        print(f"  Cache dir:   {settings.get('cache_dir')}")
+
+        convert = input("\nConvert to multi-path format? [Y/n]: ").strip().lower()
+        if convert in ['', 'y', 'yes']:
+            mappings = [{
+                'name': 'Primary',
+                'plex_path': settings.get('plex_source', ''),
+                'real_path': settings.get('real_source', ''),
+                'cache_path': settings.get('cache_dir', ''),
+                'cacheable': True,
+                'enabled': True
+            }]
+            print("Converted legacy settings to path mapping.")
+
+    while True:
+        print("\n" + "=" * 60)
+        print("PATH MAPPINGS MENU")
+        print("=" * 60)
+        display_path_mappings(mappings)
+
+        print("  Options:")
+        print("    [A] Add new path mapping")
+        if mappings:
+            print("    [E] Edit existing mapping")
+            print("    [D] Delete mapping")
+            print("    [T] Toggle enabled/disabled")
+        print("    [S] Save and return")
+        print()
+
+        choice = input("Select option: ").strip().lower()
+
+        if choice == 'a':
+            new_mapping = prompt_for_path_mapping()
+            if new_mapping.get('plex_path') and new_mapping.get('real_path'):
+                mappings.append(new_mapping)
+                print(f"\nAdded mapping: {new_mapping['name']}")
+            else:
+                print("\nMapping not added - plex_path and real_path are required.")
+
+        elif choice == 'e' and mappings:
+            try:
+                idx = int(input(f"Enter mapping number to edit (1-{len(mappings)}): ")) - 1
+                if 0 <= idx < len(mappings):
+                    mappings[idx] = prompt_for_path_mapping(mappings[idx])
+                    print(f"\nUpdated mapping: {mappings[idx]['name']}")
+                else:
+                    print("Invalid selection.")
+            except ValueError:
+                print("Invalid input.")
+
+        elif choice == 'd' and mappings:
+            try:
+                idx = int(input(f"Enter mapping number to delete (1-{len(mappings)}): ")) - 1
+                if 0 <= idx < len(mappings):
+                    removed = mappings.pop(idx)
+                    print(f"\nDeleted mapping: {removed['name']}")
+                else:
+                    print("Invalid selection.")
+            except ValueError:
+                print("Invalid input.")
+
+        elif choice == 't' and mappings:
+            try:
+                idx = int(input(f"Enter mapping number to toggle (1-{len(mappings)}): ")) - 1
+                if 0 <= idx < len(mappings):
+                    mappings[idx]['enabled'] = not mappings[idx].get('enabled', True)
+                    status = "enabled" if mappings[idx]['enabled'] else "disabled"
+                    print(f"\nMapping '{mappings[idx]['name']}' is now {status}")
+                else:
+                    print("Invalid selection.")
+            except ValueError:
+                print("Invalid input.")
+
+        elif choice == 's':
+            settings['path_mappings'] = mappings
+            print(f"\nSaved {len(mappings)} path mapping(s).")
+            return settings
+
+        else:
+            print("Invalid option. Please try again.")
+
+
 # ----------------  Plex OAuth PIN Authentication ----------------
 
 # PlexCache-R client identifier - stored in settings for consistency
@@ -766,6 +958,34 @@ def setup():
             nas_library_folder.append(folder_name)
         settings_data['nas_library_folders'] = nas_library_folder
 
+    # ---------------- Multi-Path Mappings (Advanced) ----------------
+    if 'path_mappings' not in settings_data:
+        print('\n' + '-' * 60)
+        print('ADVANCED: MULTI-PATH MAPPING')
+        print('-' * 60)
+        print('\nMulti-path mapping allows you to configure multiple source paths')
+        print('with different caching behavior. This is useful if you have:')
+        print('  - Multiple Docker path mappings (e.g., /data and /nas)')
+        print('  - Remote/network storage that should not be cached')
+        print('  - Different cache destinations for different libraries')
+        print('\nMost users can skip this - your paths above will work as-is.')
+
+        configure_multi = input('\nWould you like to configure multiple path mappings? [y/N] ') or 'no'
+        if configure_multi.lower() in ['y', 'yes']:
+            configure_path_mappings(settings_data)
+        else:
+            # Auto-create single mapping from legacy settings for consistency
+            if settings_data.get('plex_source') and settings_data.get('real_source'):
+                settings_data['path_mappings'] = [{
+                    'name': 'Primary',
+                    'plex_path': settings_data.get('plex_source', ''),
+                    'real_path': settings_data.get('real_source', ''),
+                    'cache_path': settings_data.get('cache_dir', ''),
+                    'cacheable': True,
+                    'enabled': True
+                }]
+                print('Created default path mapping from your settings.')
+
     # ---------------- Active Session ----------------
     while 'exit_if_active_session' not in settings_data:
         session = input('\nIf there is an active session in plex, do you want to exit the script (Yes) or just skip the playing media (No)? [y/N] ') or 'no'
@@ -810,6 +1030,7 @@ def check_for_missing_settings(settings: dict) -> list:
         'cache_eviction_mode',
         'cache_eviction_threshold_percent',
         'eviction_min_priority',
+        'path_mappings',
     ]
     missing = [s for s in optional_new_settings if s not in settings]
     return missing
@@ -995,6 +1216,22 @@ if os.path.exists(settings_filename):
                     print("\nUser list refreshed and saved!")
                 else:
                     print("Keeping existing user list.")
+
+            # Offer to manage path mappings
+            mapping_count = len(settings_data.get('path_mappings', []))
+            if mapping_count > 0:
+                print(f"\nCurrent path mappings: {mapping_count} configured")
+                for m in settings_data.get('path_mappings', []):
+                    status = "enabled" if m.get('enabled', True) else "disabled"
+                    cacheable = "cacheable" if m.get('cacheable', True) else "non-cacheable"
+                    print(f"  - {m.get('name', 'Unnamed')}: {m.get('plex_path', '')} -> {m.get('real_path', '')} ({status}, {cacheable})")
+            else:
+                print("\nNo multi-path mappings configured (using legacy single-path mode).")
+            manage_paths = input("Would you like to manage path mappings? [y/N] ") or 'no'
+            if manage_paths.lower() in ['y', 'yes']:
+                settings_data = configure_path_mappings(settings_data)
+                write_settings(settings_filename, settings_data)
+                print("Path mappings saved!")
 
             print("\nYou can now run the plexcache.py script.\n")
     except json.decoder.JSONDecodeError as e:
