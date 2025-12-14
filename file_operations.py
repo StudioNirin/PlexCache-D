@@ -647,6 +647,21 @@ class OnDeckTracker:
 
             self._save()
 
+    def _find_entry_by_filename(self, file_path: str) -> Optional[Tuple[str, dict]]:
+        """Find a tracker entry by matching filename when full path doesn't match.
+
+        This handles cases where the cache file has modified paths (/mnt/cache_downloads/...)
+        but the tracker stores original paths (/mnt/user/...).
+
+        Returns:
+            Tuple of (matched_path, entry) if found, None otherwise.
+        """
+        target_filename = os.path.basename(file_path)
+        for stored_path, entry in self._data.items():
+            if os.path.basename(stored_path) == target_filename:
+                return (stored_path, entry)
+        return None
+
     def get_entry(self, file_path: str) -> Optional[dict]:
         """Get the tracker entry for a file.
 
@@ -657,7 +672,13 @@ class OnDeckTracker:
             The entry dict or None if not found.
         """
         with self._lock:
-            return self._data.get(file_path)
+            if file_path in self._data:
+                return self._data[file_path]
+            # Try to find by filename (handles path prefix mismatches)
+            result = self._find_entry_by_filename(file_path)
+            if result:
+                return result[1]
+            return None
 
     def get_user_count(self, file_path: str) -> int:
         """Get the number of users who have this file OnDeck.
@@ -668,11 +689,10 @@ class OnDeckTracker:
         Returns:
             Number of users, or 0 if not found.
         """
-        with self._lock:
-            entry = self._data.get(file_path)
-            if entry:
-                return len(entry.get('users', []))
-            return 0
+        entry = self.get_entry(file_path)
+        if entry:
+            return len(entry.get('users', []))
+        return 0
 
     def get_episode_info(self, file_path: str) -> Optional[Dict[str, any]]:
         """Get episode info for a file.
@@ -684,11 +704,10 @@ class OnDeckTracker:
             Episode info dict with 'show', 'season', 'episode', 'is_current_ondeck' keys,
             or None if not a TV episode or no info available.
         """
-        with self._lock:
-            entry = self._data.get(file_path)
-            if entry:
-                return entry.get('episode_info')
-            return None
+        entry = self.get_entry(file_path)
+        if entry:
+            return entry.get('episode_info')
+        return None
 
     def get_ondeck_positions_for_show(self, show_name: str) -> List[Tuple[int, int]]:
         """Get all current OnDeck positions for a show.
@@ -1015,6 +1034,7 @@ class CachePriorityManager:
 
         # Build list of report entries with all metadata for sorting
         entries = []
+        stale_entries = []  # Track files that no longer exist on disk
         for cache_path, score in priorities:
             # Get file info
             try:
@@ -1022,11 +1042,19 @@ class CachePriorityManager:
                     size_bytes = os.path.getsize(cache_path)
                     size_str = f"{size_bytes / (1024**3):.1f}GB" if size_bytes >= 1024**3 else f"{size_bytes / (1024**2):.0f}MB"
                 else:
-                    size_str = "N/A"
-                    size_bytes = 0
+                    # File doesn't exist - track as stale and skip
+                    filename = os.path.basename(cache_path)
+                    if len(filename) > 50:
+                        filename = filename[:47] + "..."
+                    stale_entries.append(filename)
+                    continue
             except (OSError, IOError):
-                size_str = "N/A"
-                size_bytes = 0
+                # Can't access file - track as stale and skip
+                filename = os.path.basename(cache_path)
+                if len(filename) > 50:
+                    filename = filename[:47] + "..."
+                stale_entries.append(filename)
+                continue
 
             source = self.timestamp_tracker.get_source(cache_path)
             hours_cached = self._get_hours_since_cached(cache_path)
@@ -1083,6 +1111,13 @@ class CachePriorityManager:
         lines.append(f"Space that would be freed: {evictable_bytes / (1024**3):.2f}GB")
         lines.append("")
         lines.append("* = Would be evicted when space is needed")
+
+        # List stale entries if any
+        if stale_entries:
+            lines.append("")
+            lines.append(f"Stale entries (file not found): {len(stale_entries)} — run app to clean")
+            for stale_file in sorted(stale_entries):
+                lines.append(f"  - {stale_file}")
 
         return "\n".join(lines)
 
