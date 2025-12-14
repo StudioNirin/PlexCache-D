@@ -1034,6 +1034,7 @@ class CachePriorityManager:
 
         # Build list of report entries with all metadata for sorting
         entries = []
+        stale_count = 0  # Track files that no longer exist on disk
         for cache_path, score in priorities:
             # Get file info
             try:
@@ -1041,11 +1042,13 @@ class CachePriorityManager:
                     size_bytes = os.path.getsize(cache_path)
                     size_str = f"{size_bytes / (1024**3):.1f}GB" if size_bytes >= 1024**3 else f"{size_bytes / (1024**2):.0f}MB"
                 else:
-                    size_str = "N/A"
-                    size_bytes = 0
+                    # File doesn't exist - count as stale and skip
+                    stale_count += 1
+                    continue
             except (OSError, IOError):
-                size_str = "N/A"
-                size_bytes = 0
+                # Can't access file - count as stale and skip
+                stale_count += 1
+                continue
 
             source = self.timestamp_tracker.get_source(cache_path)
             hours_cached = self._get_hours_since_cached(cache_path)
@@ -1100,6 +1103,8 @@ class CachePriorityManager:
         lines.append("-" * 70)
         lines.append(f"Items below eviction threshold ({self.eviction_min_priority}): {evictable_count}")
         lines.append(f"Space that would be freed: {evictable_bytes / (1024**3):.2f}GB")
+        if stale_count > 0:
+            lines.append(f"Stale entries (file not found): {stale_count} — run app to clean")
         lines.append("")
         lines.append("* = Would be evicted when space is needed")
 
