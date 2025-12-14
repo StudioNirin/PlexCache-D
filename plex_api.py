@@ -13,12 +13,31 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import List, Set, Optional, Generator, Tuple, Dict
+from dataclasses import dataclass
 
 from plexapi.server import PlexServer
+
+
 from plexapi.video import Episode, Movie
 from plexapi.myplex import MyPlexAccount
 from plexapi.exceptions import NotFound, BadRequest
 import requests
+
+
+@dataclass
+class OnDeckItem:
+    """Represents an OnDeck item with metadata.
+
+    Attributes:
+        file_path: Path to the media file.
+        username: The user who has this on their OnDeck.
+        episode_info: For TV episodes, dict with 'show', 'season', 'episode' keys.
+        is_current_ondeck: True if this is the actual OnDeck episode (not prefetched next).
+    """
+    file_path: str
+    username: str
+    episode_info: Optional[Dict[str, any]] = None
+    is_current_ondeck: bool = False
 
 
 # API delay between plex.tv calls (seconds)
@@ -364,13 +383,13 @@ class PlexManager:
         return self.plex.sessions()
     
     def get_on_deck_media(self, valid_sections: List[int], days_to_monitor: int,
-                        number_episodes: int, users_toggle: bool, skip_ondeck: List[str]) -> List[Tuple[str, str]]:
+                        number_episodes: int, users_toggle: bool, skip_ondeck: List[str]) -> List[OnDeckItem]:
         """Get OnDeck media files using cached tokens (no plex.tv API calls).
 
         Returns:
-            List of (file_path, username) tuples for OnDeck items.
+            List of OnDeckItem objects containing file path, username, and episode metadata.
         """
-        on_deck_files = []
+        on_deck_files: List[OnDeckItem] = []
 
         # Build list of users to fetch using cached tokens
         users_to_fetch = [None]  # Always include main local account
@@ -412,11 +431,11 @@ class PlexManager:
 
     
     def _fetch_user_on_deck_media(self, valid_sections: List[int], days_to_monitor: int,
-                                number_episodes: int, user=None) -> List[Tuple[str, str]]:
+                                number_episodes: int, user=None) -> List[OnDeckItem]:
         """Fetch onDeck media for a specific user using cached tokens.
 
         Returns:
-            List of (file_path, username) tuples for OnDeck items.
+            List of OnDeckItem objects containing file path, username, and episode metadata.
         """
         username = user.title if user else "main"
         try:
@@ -427,7 +446,7 @@ class PlexManager:
 
             logging.debug(f"Fetching {username}'s onDeck media...")
 
-            on_deck_files = []
+            on_deck_files: List[OnDeckItem] = []
             # Get all sections available for the user
             available_sections = [section.key for section in plex_instance.library.sections()]
             filtered_sections = list(set(available_sections) & set(valid_sections))
@@ -456,48 +475,81 @@ class PlexManager:
                 self.invalidate_user_token(username)
             return []
     
-    def _process_episode_ondeck(self, video: Episode, number_episodes: int, on_deck_files: List[Tuple[str, str]], username: str = "unknown") -> None:
+    def _process_episode_ondeck(self, video: Episode, number_episodes: int, on_deck_files: List[OnDeckItem], username: str = "unknown") -> None:
         """Process an episode from onDeck.
 
         Args:
             video: The episode video object.
             number_episodes: Number of next episodes to fetch.
-            on_deck_files: List to append (file_path, username) tuples to.
+            on_deck_files: List to append OnDeckItem objects to.
             username: The user who has this OnDeck.
         """
+        show = video.grandparentTitle
+        current_season = video.parentIndex
+        current_episode = video.index
+
+        # Create episode info dict for this episode (the actual OnDeck episode)
+        episode_info = None
+        if current_season is not None and current_episode is not None:
+            episode_info = {
+                'show': show,
+                'season': current_season,
+                'episode': current_episode
+            }
+
+        # Add the current OnDeck episode
         for media in video.media:
             for part in media.parts:
-                on_deck_files.append((part.file, username))
+                on_deck_files.append(OnDeckItem(
+                    file_path=part.file,
+                    username=username,
+                    episode_info=episode_info,
+                    is_current_ondeck=True  # This is the actual OnDeck episode
+                ))
                 logging.debug(f"OnDeck found ({username}): {part.file}")
 
         # Skip fetching next episodes if current episode has missing index data
-        if video.parentIndex is None or video.index is None:
-            logging.warning(f"Skipping next episode fetch for '{video.grandparentTitle}' - missing index data (parentIndex={video.parentIndex}, index={video.index})")
+        if current_season is None or current_episode is None:
+            logging.warning(f"Skipping next episode fetch for '{show}' - missing index data (parentIndex={current_season}, index={current_episode})")
             return
 
-        show = video.grandparentTitle
         library_section = video.section()
         episodes = list(library_section.search(show)[0].episodes())
-        current_season = video.parentIndex
-        next_episodes = self._get_next_episodes(episodes, current_season, video.index, number_episodes)
+        next_episodes = self._get_next_episodes(episodes, current_season, current_episode, number_episodes)
 
+        # Add the prefetched next episodes
         for episode in next_episodes:
+            next_ep_info = {
+                'show': show,
+                'season': episode.parentIndex,
+                'episode': episode.index
+            }
             for media in episode.media:
                 for part in media.parts:
-                    on_deck_files.append((part.file, username))
+                    on_deck_files.append(OnDeckItem(
+                        file_path=part.file,
+                        username=username,
+                        episode_info=next_ep_info,
+                        is_current_ondeck=False  # This is a prefetched next episode
+                    ))
                     logging.debug(f"OnDeck found ({username}): {part.file}")
     
-    def _process_movie_ondeck(self, video: Movie, on_deck_files: List[Tuple[str, str]], username: str = "unknown") -> None:
+    def _process_movie_ondeck(self, video: Movie, on_deck_files: List[OnDeckItem], username: str = "unknown") -> None:
         """Process a movie from onDeck.
 
         Args:
             video: The movie video object.
-            on_deck_files: List to append (file_path, username) tuples to.
+            on_deck_files: List to append OnDeckItem objects to.
             username: The user who has this OnDeck.
         """
         for media in video.media:
             for part in media.parts:
-                on_deck_files.append((part.file, username))
+                on_deck_files.append(OnDeckItem(
+                    file_path=part.file,
+                    username=username,
+                    episode_info=None,  # Movies don't have episode info
+                    is_current_ondeck=True
+                ))
                 logging.debug(f"OnDeck found ({username}): {part.file}")
     
     def _get_next_episodes(self, episodes: List[Episode], current_season: int,

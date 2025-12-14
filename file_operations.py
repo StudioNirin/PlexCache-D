@@ -516,14 +516,28 @@ class OnDeckTracker:
 
     Tracks which users have each file OnDeck, similar to WatchlistTracker.
     Used for priority scoring - items OnDeck for multiple users have higher priority.
+    Also tracks episode position info for TV shows to enable episode position awareness.
 
     Storage format:
     {
         "/path/to/file.mkv": {
             "users": ["Brandon", "Home"],
-            "last_seen": "2025-12-03T10:00:00.000000"
+            "last_seen": "2025-12-03T10:00:00.000000",
+            "episode_info": {
+                "show": "Foundation",
+                "season": 2,
+                "episode": 5,
+                "is_current_ondeck": true
+            },
+            "ondeck_users": ["Brandon"]
         }
     }
+
+    Fields:
+    - users: All users who have this file in their OnDeck queue (current or prefetched)
+    - episode_info: For TV episodes, contains show/season/episode and whether this is
+                   the actual OnDeck episode vs a prefetched next episode
+    - ondeck_users: Users for whom this is the CURRENT OnDeck episode (not prefetched)
     """
 
     def __init__(self, tracker_file: str):
@@ -556,12 +570,16 @@ class OnDeckTracker:
         except IOError as e:
             logging.error(f"Could not save OnDeck tracker file: {type(e).__name__}: {e}")
 
-    def update_entry(self, file_path: str, username: str) -> None:
+    def update_entry(self, file_path: str, username: str,
+                     episode_info: Optional[Dict[str, any]] = None,
+                     is_current_ondeck: bool = False) -> None:
         """Update or create an entry for an OnDeck item.
 
         Args:
             file_path: The path to the media file.
             username: The user who has this on their OnDeck.
+            episode_info: For TV episodes, dict with 'show', 'season', 'episode' keys.
+            is_current_ondeck: True if this is the actual OnDeck episode (not prefetched next).
         """
         with self._lock:
             now_iso = datetime.now().isoformat()
@@ -573,12 +591,40 @@ class OnDeckTracker:
                     entry.setdefault('users', []).append(username)
                 # Always update last_seen
                 entry['last_seen'] = now_iso
+
+                # Track ondeck_users separately (users for whom this is current ondeck)
+                if is_current_ondeck:
+                    if username not in entry.get('ondeck_users', []):
+                        entry.setdefault('ondeck_users', []).append(username)
+
+                # Update episode_info if provided and not already set, or update is_current_ondeck
+                if episode_info:
+                    if 'episode_info' not in entry:
+                        entry['episode_info'] = {
+                            'show': episode_info.get('show'),
+                            'season': episode_info.get('season'),
+                            'episode': episode_info.get('episode'),
+                            'is_current_ondeck': is_current_ondeck
+                        }
+                    elif is_current_ondeck and not entry['episode_info'].get('is_current_ondeck'):
+                        # Upgrade to current ondeck if it was previously just prefetched
+                        entry['episode_info']['is_current_ondeck'] = True
             else:
                 # New entry
-                self._data[file_path] = {
+                new_entry = {
                     'users': [username],
                     'last_seen': now_iso
                 }
+                if is_current_ondeck:
+                    new_entry['ondeck_users'] = [username]
+                if episode_info:
+                    new_entry['episode_info'] = {
+                        'show': episode_info.get('show'),
+                        'season': episode_info.get('season'),
+                        'episode': episode_info.get('episode'),
+                        'is_current_ondeck': is_current_ondeck
+                    }
+                self._data[file_path] = new_entry
                 logging.debug(f"Added new OnDeck entry: {file_path} (user: {username})")
 
             self._save()
@@ -609,6 +655,68 @@ class OnDeckTracker:
             if entry:
                 return len(entry.get('users', []))
             return 0
+
+    def get_episode_info(self, file_path: str) -> Optional[Dict[str, any]]:
+        """Get episode info for a file.
+
+        Args:
+            file_path: The path to the media file.
+
+        Returns:
+            Episode info dict with 'show', 'season', 'episode', 'is_current_ondeck' keys,
+            or None if not a TV episode or no info available.
+        """
+        with self._lock:
+            entry = self._data.get(file_path)
+            if entry:
+                return entry.get('episode_info')
+            return None
+
+    def get_ondeck_positions_for_show(self, show_name: str) -> List[Tuple[int, int]]:
+        """Get all current OnDeck positions for a show.
+
+        Finds all entries for the given show that are marked as current OnDeck
+        (not prefetched), and returns their season/episode positions.
+
+        Args:
+            show_name: The show name to look up (case-insensitive).
+
+        Returns:
+            List of (season, episode) tuples for current OnDeck positions.
+        """
+        with self._lock:
+            positions = []
+            show_lower = show_name.lower()
+            for path, entry in self._data.items():
+                ep_info = entry.get('episode_info')
+                if ep_info and ep_info.get('is_current_ondeck'):
+                    entry_show = ep_info.get('show', '').lower()
+                    if entry_show == show_lower:
+                        season = ep_info.get('season')
+                        episode = ep_info.get('episode')
+                        if season is not None and episode is not None:
+                            positions.append((season, episode))
+            return positions
+
+    def get_earliest_ondeck_position(self, show_name: str) -> Optional[Tuple[int, int]]:
+        """Get the earliest (furthest behind) OnDeck position for a show.
+
+        Useful for determining how many episodes a file is "ahead" of the
+        user who is furthest behind in the show.
+
+        Args:
+            show_name: The show name to look up (case-insensitive).
+
+        Returns:
+            Tuple of (season, episode) for the earliest OnDeck position,
+            or None if no OnDeck entries for this show.
+        """
+        positions = self.get_ondeck_positions_for_show(show_name)
+        if not positions:
+            return None
+        # Sort by (season, episode) and return the earliest
+        positions.sort()
+        return positions[0]
 
     def clear_for_run(self) -> None:
         """Clear all entries at the start of a run.
@@ -672,17 +780,20 @@ class CachePriorityManager:
     - Cache recency: +5 to +15 based on hours cached (avoid churn)
     - Watchlist age: +10 if fresh, 0 if >30 days, -10 if >60 days
     - OnDeck age: +10 if recently watched, 0 if >30 days, -10 if >60 days
+    - Episode position: +15 for current OnDeck, +10 for next X episodes, 0 otherwise
 
     Eviction Philosophy:
     - Watchlist items are evicted first (lower base priority)
     - Only when watchlist is exhausted should OnDeck items be considered
     - Recently added items (watchlist or ondeck) get priority boost
+    - Current/next episodes in a series get higher priority
     """
 
     def __init__(self, timestamp_tracker: CacheTimestampTracker,
                  watchlist_tracker: WatchlistTracker,
                  ondeck_tracker: OnDeckTracker,
-                 eviction_min_priority: int = 60):
+                 eviction_min_priority: int = 60,
+                 number_episodes: int = 5):
         """Initialize the priority manager.
 
         Args:
@@ -690,11 +801,13 @@ class CachePriorityManager:
             watchlist_tracker: Tracker for watchlist items and users.
             ondeck_tracker: Tracker for OnDeck items and users.
             eviction_min_priority: Only evict items with priority below this threshold.
+            number_episodes: Number of episodes prefetched after OnDeck (for position scoring).
         """
         self.timestamp_tracker = timestamp_tracker
         self.watchlist_tracker = watchlist_tracker
         self.ondeck_tracker = ondeck_tracker
         self.eviction_min_priority = eviction_min_priority
+        self.number_episodes = number_episodes
 
     def calculate_priority(self, cache_path: str) -> int:
         """Calculate 0-100 priority score for a cached file.
@@ -772,6 +885,19 @@ class CachePriorityManager:
                     elif days_since_seen > 60:
                         score -= 10  # Stale OnDeck item
                     # 7-60 days: no adjustment (0)
+
+        # Factor 6: Episode Position (+15 for current OnDeck, +10 for next X episodes, 0 otherwise)
+        # Current/next episodes in a series get higher priority
+        # X = half of number_episodes setting (so if prefetching 5 episodes, prioritize next 2-3)
+        if self._is_tv_episode(cache_path):
+            episodes_ahead = self._get_episodes_ahead_of_ondeck(cache_path)
+            if episodes_ahead >= 0:  # -1 means not applicable
+                if episodes_ahead == 0:
+                    score += 15  # Current OnDeck episode - highest priority
+                elif episodes_ahead <= max(1, self.number_episodes // 2):
+                    score += 10  # Next few episodes - high priority
+                # episodes_ahead > half of number_episodes: no adjustment (0)
+                # Per StudioNirin: far-ahead episodes should NOT get negative scores
 
         return max(0, min(100, score))
 
@@ -948,6 +1074,77 @@ class CachePriorityManager:
             return (datetime.now() - watchlisted_at).total_seconds() / 86400
         except (ValueError, TypeError):
             return -1
+
+    def _get_episodes_ahead_of_ondeck(self, cache_path: str) -> int:
+        """Get how many episodes this file is ahead of the OnDeck position.
+
+        For TV episodes, calculates the distance from the earliest OnDeck position
+        for the same show. This is used to prioritize current/next episodes over
+        episodes further in the future.
+
+        Args:
+            cache_path: Path to the cached file.
+
+        Returns:
+            Number of episodes ahead of OnDeck position:
+            - 0: This IS the current OnDeck episode
+            - 1-N: Number of episodes ahead
+            - -1: Not a TV episode, or no OnDeck position found for this show
+        """
+        # Get episode info for this file
+        ep_info = self.ondeck_tracker.get_episode_info(cache_path)
+        if not ep_info:
+            return -1  # Not a TV episode or no info available
+
+        show = ep_info.get('show')
+        season = ep_info.get('season')
+        episode = ep_info.get('episode')
+
+        if not show or season is None or episode is None:
+            return -1
+
+        # Check if this IS the current OnDeck episode
+        if ep_info.get('is_current_ondeck'):
+            return 0
+
+        # Get the earliest OnDeck position for this show
+        ondeck_pos = self.ondeck_tracker.get_earliest_ondeck_position(show)
+        if not ondeck_pos:
+            return -1  # No OnDeck position found for this show
+
+        ondeck_season, ondeck_episode = ondeck_pos
+
+        # Calculate how many episodes ahead this file is
+        if season < ondeck_season:
+            # This episode is BEFORE the OnDeck position (shouldn't happen, but handle it)
+            return -1
+        elif season == ondeck_season:
+            if episode <= ondeck_episode:
+                # Same season, same or earlier episode
+                return 0
+            else:
+                # Same season, later episode
+                return episode - ondeck_episode
+        else:
+            # Later season - estimate distance
+            # Assume ~13 episodes per season for estimation
+            episodes_per_season = 13
+            seasons_ahead = season - ondeck_season
+            episodes_remaining_in_ondeck_season = episodes_per_season - ondeck_episode
+            full_seasons_between = max(0, seasons_ahead - 1) * episodes_per_season
+            return episodes_remaining_in_ondeck_season + full_seasons_between + episode
+
+    def _is_tv_episode(self, cache_path: str) -> bool:
+        """Check if a cached file is a TV episode.
+
+        Args:
+            cache_path: Path to the cached file.
+
+        Returns:
+            True if this is a TV episode with episode info, False otherwise.
+        """
+        ep_info = self.ondeck_tracker.get_episode_info(cache_path)
+        return ep_info is not None and ep_info.get('show') is not None
 
 
 class PlexcachedMigration:

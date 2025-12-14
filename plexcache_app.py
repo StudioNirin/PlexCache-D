@@ -16,7 +16,7 @@ import os
 from config import ConfigManager
 from logging_config import LoggingManager
 from system_utils import SystemDetector, PathConverter, FileUtils, SingleInstanceLock
-from plex_api import PlexManager
+from plex_api import PlexManager, OnDeckItem
 from file_operations import FilePathModifier, SubtitleFinder, FileFilter, FileMover, CacheCleanup, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, OnDeckTracker, CachePriorityManager, PlexcachedMigration
 
 
@@ -295,7 +295,8 @@ class PlexCacheApp:
             timestamp_tracker=self.timestamp_tracker,
             watchlist_tracker=self.watchlist_tracker,
             ondeck_tracker=self.ondeck_tracker,
-            eviction_min_priority=self.config_manager.cache.eviction_min_priority
+            eviction_min_priority=self.config_manager.cache.eviction_min_priority,
+            number_episodes=self.config_manager.plex.number_episodes
         )
         logging.debug("All components initialized successfully")
     
@@ -401,9 +402,9 @@ class PlexCacheApp:
         # Clear OnDeck tracker at start of each run (OnDeck status is ephemeral)
         self.ondeck_tracker.clear_for_run()
 
-        # Fetch OnDeck Media - returns List[Tuple[str, str]] (file_path, username)
+        # Fetch OnDeck Media - returns List[OnDeckItem] with file path, username, and episode metadata
         logging.debug("Fetching OnDeck media...")
-        ondeck_media_tuples = self.plex_manager.get_on_deck_media(
+        ondeck_items_list = self.plex_manager.get_on_deck_media(
             self.config_manager.plex.valid_sections or [],
             self.config_manager.plex.days_to_monitor,
             self.config_manager.plex.number_episodes,
@@ -412,7 +413,7 @@ class PlexCacheApp:
         )
 
         # Extract just the file paths for path modification
-        ondeck_files = [file_path for file_path, _ in ondeck_media_tuples]
+        ondeck_files = [item.file_path for item in ondeck_items_list]
 
         # Edit file paths for OnDeck media (convert plex paths to real paths)
         logging.debug("Modifying file paths for OnDeck media...")
@@ -421,10 +422,15 @@ class PlexCacheApp:
         # Build a mapping from original plex path to modified real path
         plex_to_real = dict(zip(ondeck_files, modified_ondeck))
 
-        # Populate OnDeck tracker with user info using modified paths
-        for file_path, username in ondeck_media_tuples:
-            real_path = plex_to_real.get(file_path, file_path)
-            self.ondeck_tracker.update_entry(real_path, username)
+        # Populate OnDeck tracker with user info and episode metadata using modified paths
+        for item in ondeck_items_list:
+            real_path = plex_to_real.get(item.file_path, item.file_path)
+            self.ondeck_tracker.update_entry(
+                real_path,
+                item.username,
+                episode_info=item.episode_info,
+                is_current_ondeck=item.is_current_ondeck
+            )
 
         # Store modified OnDeck items for filtering later
         self.ondeck_items = set(modified_ondeck)
@@ -474,7 +480,7 @@ class PlexCacheApp:
         self.media_to_cache = self.file_path_modifier.modify_file_paths(list(modified_paths_set))
 
         # Log consolidated summary
-        logging.info(f"OnDeck: {len(ondeck_media_tuples)} items, Watchlist: {watchlist_count} items, Watched: {watched_count} items")
+        logging.info(f"OnDeck: {len(ondeck_items_list)} items, Watchlist: {watchlist_count} items, Watched: {watched_count} items")
 
         # Check for files that should be moved back to array (no longer needed in cache)
         logging.debug("Checking for files to move back to array...")
@@ -1141,13 +1147,15 @@ def _run_show_priorities(config_file: str, verbose: bool = False) -> None:
 
     # Get eviction settings (use defaults if not set)
     eviction_min_priority = getattr(config_manager.cache, 'eviction_min_priority', 60)
+    number_episodes = getattr(config_manager.plex, 'number_episodes', 5)
 
     # Initialize priority manager
     priority_manager = CachePriorityManager(
         timestamp_tracker=timestamp_tracker,
         watchlist_tracker=watchlist_tracker,
         ondeck_tracker=ondeck_tracker,
-        eviction_min_priority=eviction_min_priority
+        eviction_min_priority=eviction_min_priority,
+        number_episodes=number_episodes
     )
 
     # Generate and print report
