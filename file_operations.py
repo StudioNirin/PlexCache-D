@@ -1015,9 +1015,9 @@ class CachePriorityManager:
 
         lines = []
         lines.append("Cache Priority Report")
-        lines.append("=" * 60)
-        lines.append(f"{'Score':>5} | {'Size':>8} | {'Source':>9} | {'Days':>4} | File")
-        lines.append("-" * 60)
+        lines.append("=" * 70)
+        lines.append(f"{'Score':>5} | {'Size':>8} | {'Source':>9} | {'Users':>5} | {'Days':>4} | File")
+        lines.append("-" * 70)
 
         evictable_count = 0
         evictable_bytes = 0
@@ -1039,18 +1039,28 @@ class CachePriorityManager:
             hours_cached = self._get_hours_since_cached(cache_path)
             days_cached = hours_cached / 24 if hours_cached >= 0 else -1
 
+            # Get user count from OnDeck and Watchlist trackers
+            user_count = 0
+            ondeck_entry = self.ondeck_tracker.get_entry(cache_path)
+            if ondeck_entry:
+                user_count = len(ondeck_entry.get('users', []))
+            watchlist_entry = self.watchlist_tracker.get_entry(cache_path)
+            if watchlist_entry:
+                watchlist_users = len(watchlist_entry.get('users', []))
+                user_count = max(user_count, watchlist_users)
+
             filename = os.path.basename(cache_path)
-            if len(filename) > 40:
-                filename = filename[:37] + "..."
+            if len(filename) > 35:
+                filename = filename[:32] + "..."
 
             evict_marker = " *" if score < self.eviction_min_priority else ""
-            lines.append(f"{score:>5} | {size_str:>8} | {source:>9} | {days_cached:>4.0f} | {filename}{evict_marker}")
+            lines.append(f"{score:>5} | {size_str:>8} | {source:>9} | {user_count:>5} | {days_cached:>4.0f} | {filename}{evict_marker}")
 
             if score < self.eviction_min_priority:
                 evictable_count += 1
                 evictable_bytes += size_bytes
 
-        lines.append("-" * 60)
+        lines.append("-" * 70)
         lines.append(f"Items below eviction threshold ({self.eviction_min_priority}): {evictable_count}")
         lines.append(f"Space that would be freed: {evictable_bytes / (1024**3):.2f}GB")
         lines.append("")
