@@ -409,6 +409,24 @@ class WatchlistTracker:
                 return (stored_path, entry)
         return None
 
+    def get_entry(self, file_path: str) -> Optional[dict]:
+        """Get the tracker entry for a file.
+
+        Args:
+            file_path: The path to the media file.
+
+        Returns:
+            The entry dict or None if not found.
+        """
+        with self._lock:
+            if file_path in self._data:
+                return self._data[file_path]
+            # Try to find by filename (handles path prefix mismatches)
+            result = self._find_entry_by_filename(file_path)
+            if result:
+                return result[1]
+            return None
+
     def is_expired(self, file_path: str, retention_days: int) -> bool:
         """Check if a watchlist item has expired based on retention period.
 
