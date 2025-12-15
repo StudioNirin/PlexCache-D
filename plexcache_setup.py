@@ -587,13 +587,10 @@ def setup(advanced_mode: bool = False):
 
     # Plex URL
     while 'PLEX_URL' not in settings_data:
-        url = input('\nEnter your Plex server address\n(Example: http://localhost:32400): ')
-        if not url.strip():
-            print("URL cannot be empty.")
-            continue
+        url = input('\nPlex server address [http://localhost:32400]: ').strip() or 'http://localhost:32400'
         if is_valid_plex_url(url):
             settings_data['PLEX_URL'] = url
-            print("✓ Valid Plex URL")
+            print(f"✓ Plex URL: {url}")
         else:
             print("✗ Invalid URL format")
 
@@ -985,10 +982,13 @@ def setup(advanced_mode: bool = False):
 
     # Notification Level
     if 'unraid_level' not in settings_data:
-        print('\n--- Notifications ---')
-        print('Unraid notification level: summary, warning, error, or blank')
+        print('\n--- Unraid Notifications ---')
+        print('  summary - Notify after every run with files moved (default)')
+        print('  warning - Only notify on warnings and errors')
+        print('  error   - Only notify on errors')
+        print('  blank   - Disable notifications')
         unraid_level = input('Notification level [summary]: ').strip().lower() or 'summary'
-        if unraid_level in ['disable', 'disabled', 'none']:
+        if unraid_level in ['disable', 'disabled', 'none', 'blank', '']:
             unraid_level = ''
         settings_data['unraid_level'] = unraid_level
 
@@ -1095,6 +1095,9 @@ def setup(advanced_mode: bool = False):
     # Active Session Handling
     if 'exit_if_active_session' not in settings_data:
         print('\n--- Playback Handling ---')
+        print('When someone is actively watching media:')
+        print('  No  - Skip that file but continue processing others (default)')
+        print('  Yes - Exit completely and try again next run')
         session = input('Exit if media is actively playing? [y/N] ') or 'no'
         settings_data['exit_if_active_session'] = session.lower() in ['y', 'yes']
 
@@ -1106,11 +1109,9 @@ def setup(advanced_mode: bool = False):
     if 'max_concurrent_moves_array' not in settings_data:
         prompt_user_for_number('Concurrent file moves (cache→array) [2]: ', '2', 'max_concurrent_moves_array')
 
-    # Test Mode (renamed from debug)
+    # Debug/dry-run mode - default to off, users can use --dry-run flag
     if 'debug' not in settings_data:
-        print('\n--- Test Mode ---')
-        test_mode = input('Enable test mode? (simulates moves, no actual changes) [y/N] ') or 'no'
-        settings_data['debug'] = test_mode.lower() in ['y', 'yes']
+        settings_data['debug'] = False
 
     # Save settings
     write_settings(settings_filename, settings_data)
@@ -1132,7 +1133,6 @@ def setup(advanced_mode: bool = False):
     print(f"  Users: {user_count + 1} (you + {user_count} others)")
     print(f"  Cache limit: {cache_limit if cache_limit else 'No limit'}")
     print(f"  Eviction: {settings_data.get('cache_eviction_mode', 'none')}")
-    print(f"  Test mode: {'ON' if settings_data.get('debug') else 'OFF'}")
 
     print(f"\n  Config saved to: {settings_filename}")
 
