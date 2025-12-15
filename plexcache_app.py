@@ -301,9 +301,30 @@ class PlexCacheApp:
             path_modifier=path_modifier
         )
         
+        # Get cache folders from path_mappings if available, otherwise fall back to nas_library_folders
+        cache_folders = []
+        if self.config_manager.paths.path_mappings:
+            cache_dir = self.config_manager.paths.cache_dir
+            for mapping in self.config_manager.paths.path_mappings:
+                if mapping.cacheable and mapping.enabled and mapping.cache_path:
+                    # Extract the relative folder from cache_path
+                    # e.g., /mnt/cache_downloads/Movies/ -> Movies
+                    cache_path = mapping.cache_path.rstrip('/')
+                    if cache_path.startswith(cache_dir.rstrip('/')):
+                        rel_path = cache_path[len(cache_dir.rstrip('/')):].lstrip('/')
+                        if rel_path and rel_path not in cache_folders:
+                            cache_folders.append(rel_path)
+                    else:
+                        # cache_path is not under cache_dir, use full path's last component
+                        folder_name = os.path.basename(cache_path)
+                        if folder_name and folder_name not in cache_folders:
+                            cache_folders.append(folder_name)
+        else:
+            cache_folders = self.config_manager.paths.nas_library_folders
+
         self.cache_cleanup = CacheCleanup(
             self.config_manager.paths.cache_dir,
-            self.config_manager.paths.nas_library_folders
+            cache_folders
         )
 
         # Initialize priority manager for smart eviction
