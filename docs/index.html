@@ -1,0 +1,3379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PlexCache-R Log Analyzer</title>
+    <style>
+        :root {
+            --bg-primary: #1a1a2e;
+            --bg-secondary: #16213e;
+            --bg-tertiary: #0f3460;
+            --text-primary: #eaeaea;
+            --text-secondary: #a0a0a0;
+            --accent: #e94560;
+            --accent-hover: #ff6b6b;
+            --success: #4ecca3;
+            --warning: #ffc93c;
+            --error: #ff6b6b;
+            --info: #7ec8e3;
+            --border: #2a2a4a;
+            --highlight: rgba(255, 200, 50, 0.3);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 30px 0;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: var(--text-primary);
+        }
+
+        header h1 span {
+            color: var(--accent);
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1rem;
+        }
+
+        .input-section {
+            margin-bottom: 30px;
+        }
+
+        .input-section label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .textarea-wrapper {
+            position: relative;
+            border: 2px dashed var(--border);
+            border-radius: 8px;
+            transition: border-color 0.3s;
+        }
+
+        .textarea-wrapper:hover,
+        .textarea-wrapper.drag-over {
+            border-color: var(--accent);
+        }
+
+        textarea {
+            width: 100%;
+            height: 200px;
+            padding: 15px;
+            background: var(--bg-secondary);
+            border: none;
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            resize: vertical;
+        }
+
+        textarea:focus {
+            outline: none;
+        }
+
+        textarea::placeholder {
+            color: var(--text-secondary);
+        }
+
+        .drop-hint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: var(--text-secondary);
+            pointer-events: none;
+            text-align: center;
+            display: none;
+        }
+
+        .textarea-wrapper.drag-over .drop-hint {
+            display: block;
+        }
+
+        .textarea-wrapper.drag-over textarea {
+            opacity: 0.3;
+        }
+
+        .button-row {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: var(--accent-hover);
+            transform: translateY(-1px);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+        }
+
+        .results-section {
+            display: none;
+        }
+
+        .results-section.visible {
+            display: block;
+        }
+
+        /* Section Navigation */
+        .section-nav {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            border: 1px solid var(--border);
+        }
+
+        .section-tab {
+            padding: 8px 16px;
+            font-size: 13px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .section-tab:hover {
+            background: var(--border);
+            color: var(--text-primary);
+        }
+
+        .section-tab.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .section-tab .count {
+            background: rgba(255,255,255,0.2);
+            padding: 2px 6px;
+            border-radius: 10px;
+            font-size: 11px;
+        }
+
+        .section-tab.active .count {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .section-tab.has-errors {
+            border-color: var(--error);
+        }
+
+        .section-tab.has-warnings {
+            border-color: var(--warning);
+        }
+
+        /* Search Bar */
+        .search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            align-items: center;
+        }
+
+        .search-input-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 12px 15px 12px 40px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-secondary);
+        }
+
+        .search-results-count {
+            padding: 8px 15px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .search-results-count.has-results {
+            color: var(--success);
+        }
+
+        .search-nav-btns {
+            display: flex;
+            gap: 5px;
+        }
+
+        .search-nav-btn {
+            padding: 8px 12px;
+            font-size: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+        }
+
+        /* User Filter */
+        .user-filter-container {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .user-filter-label {
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .user-filter-select {
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-size: 13px;
+            cursor: pointer;
+        }
+
+        .user-filter-select:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+
+        .results-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        @media (max-width: 900px) {
+            .results-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+
+        .card-full {
+            grid-column: 1 / -1;
+        }
+
+        .card h3 {
+            font-size: 1rem;
+            margin-bottom: 15px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .card-header h3 {
+            margin-bottom: 0;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 15px;
+        }
+
+        .stat {
+            text-align: center;
+            padding: 15px 10px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+        }
+
+        .stat-value {
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 5px;
+        }
+
+        .stat.error .stat-value { color: var(--error); }
+        .stat.warning .stat-value { color: var(--warning); }
+        .stat.success .stat-value { color: var(--success); }
+        .stat.info .stat-value { color: var(--info); }
+
+        .problem-list {
+            list-style: none;
+        }
+
+        .problem-item {
+            padding: 12px 15px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 4px solid;
+            background: var(--bg-tertiary);
+        }
+
+        .problem-item.error {
+            border-color: var(--error);
+        }
+
+        .problem-item.warning {
+            border-color: var(--warning);
+        }
+
+        .problem-item.info {
+            border-color: var(--info);
+        }
+
+        .problem-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .problem-title {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .problem-title .icon {
+            font-size: 1.1rem;
+        }
+
+        .problem-line {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            background: var(--bg-secondary);
+            padding: 2px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .problem-line:hover {
+            background: var(--accent);
+            color: white;
+        }
+
+        .problem-detail {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-top: 5px;
+        }
+
+        .problem-suggestion {
+            font-size: 0.85rem;
+            color: var(--success);
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border);
+        }
+
+        .config-list {
+            list-style: none;
+        }
+
+        .config-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .config-item:last-child {
+            border-bottom: none;
+        }
+
+        .config-key {
+            color: var(--text-secondary);
+        }
+
+        .config-value {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .config-value.yes { color: var(--success); }
+        .config-value.no { color: var(--text-secondary); }
+        .config-value.warning { color: var(--warning); }
+
+        .timeline {
+            position: relative;
+            padding-left: 25px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            left: 8px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-bottom: 15px;
+        }
+
+        .timeline-item::before {
+            content: '';
+            position: absolute;
+            left: -21px;
+            top: 5px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: var(--accent);
+        }
+
+        .timeline-item.success::before { background: var(--success); }
+        .timeline-item.warning::before { background: var(--warning); }
+        .timeline-item.error::before { background: var(--error); }
+
+        .timeline-time {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            margin-bottom: 3px;
+        }
+
+        .timeline-event {
+            font-size: 0.95rem;
+        }
+
+        /* Path Mapping Summary */
+        .path-mapping-list {
+            list-style: none;
+        }
+
+        .path-mapping-item {
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            border-left: 3px solid var(--success);
+        }
+
+        .path-mapping-item.disabled {
+            border-left-color: var(--text-secondary);
+            opacity: 0.7;
+        }
+
+        .path-mapping-name {
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+
+        .path-mapping-paths {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            font-family: monospace;
+        }
+
+        .path-mapping-stats {
+            display: flex;
+            gap: 15px;
+            margin-top: 6px;
+            font-size: 0.85rem;
+        }
+
+        .path-mapping-stat {
+            color: var(--text-secondary);
+        }
+
+        .path-mapping-stat span {
+            color: var(--text-primary);
+            font-weight: 600;
+        }
+
+        /* Retention Table */
+        .retention-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+        }
+
+        .retention-table th,
+        .retention-table td {
+            padding: 10px 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .retention-table th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
+
+        .retention-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .retention-table .expired {
+            color: var(--warning);
+        }
+
+        .retention-table .retained {
+            color: var(--success);
+        }
+
+        /* Expandable retention rows */
+        .retention-expandable {
+            cursor: pointer;
+            transition: background-color 0.15s ease;
+        }
+
+        .retention-expandable:hover {
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .retention-expandable.expanded {
+            background-color: rgba(255, 255, 255, 0.03);
+        }
+
+        .expand-arrow {
+            display: inline-block;
+            width: 16px;
+            color: var(--text-secondary);
+            transition: transform 0.15s ease;
+        }
+
+        .expand-arrow-placeholder {
+            display: inline-block;
+            width: 16px;
+        }
+
+        .retention-details-row td {
+            padding: 0 !important;
+            background-color: rgba(0, 0, 0, 0.2);
+        }
+
+        .retention-files {
+            padding: 12px 20px 12px 32px;
+            font-size: 0.85rem;
+        }
+
+        .retention-files-section {
+            margin-bottom: 10px;
+        }
+
+        .retention-files-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .retention-files-section strong {
+            color: var(--text-secondary);
+            display: block;
+            margin-bottom: 6px;
+        }
+
+        .retention-files ul {
+            margin: 0;
+            padding-left: 0;
+            list-style: none;
+        }
+
+        .retention-files li {
+            padding: 4px 0;
+            color: var(--text-primary);
+            word-break: break-word;
+        }
+
+        .retention-files .file-status {
+            display: inline-block;
+            width: 18px;
+            font-weight: bold;
+        }
+
+        .retention-files .file-status.expired {
+            color: var(--warning);
+        }
+
+        .retention-files .file-status.retained {
+            color: var(--success);
+        }
+
+        .retention-files .file-details {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-left: 4px;
+        }
+
+        /* Media Operations */
+        .media-ops-summary {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .media-ops-stat {
+            display: flex;
+            flex-direction: column;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            min-width: 100px;
+        }
+
+        .media-ops-stat-value {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .media-ops-stat-value.ondeck { color: var(--info); }
+        .media-ops-stat-value.watchlist { color: #9b59b6; }
+        .media-ops-stat-value.cached { color: var(--success); }
+        .media-ops-stat-value.to-array { color: var(--warning); }
+        .media-ops-stat-value.retention { color: #e67e22; }
+
+        .media-ops-stat-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+        }
+
+        .media-ops-tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+        }
+
+        .media-ops-tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-size: 0.9rem;
+            transition: all 0.15s ease;
+        }
+
+        .media-ops-tab:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+        }
+
+        .media-ops-tab.active {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-weight: 500;
+        }
+
+        .media-ops-content {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .media-ops-user-section {
+            margin-bottom: 16px;
+        }
+
+        .media-ops-user-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            background: var(--bg-primary);
+            border-radius: 6px;
+            cursor: pointer;
+            transition: background 0.15s ease;
+        }
+
+        .media-ops-user-header:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
+
+        .media-ops-user-header.expanded {
+            border-radius: 6px 6px 0 0;
+        }
+
+        .media-ops-user-name {
+            font-weight: 500;
+            flex: 1;
+        }
+
+        .media-ops-user-count {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+        }
+
+        .media-ops-user-arrow {
+            color: var(--text-secondary);
+            transition: transform 0.15s ease;
+        }
+
+        .media-ops-user-header.expanded .media-ops-user-arrow {
+            transform: rotate(90deg);
+        }
+
+        .media-ops-user-header.no-expand {
+            cursor: default;
+            padding-left: 28px;
+        }
+
+        .media-ops-user-header.no-expand:hover {
+            background: var(--bg-primary);
+        }
+
+        .media-ops-file-list {
+            display: none;
+            padding: 8px 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0 0 6px 6px;
+            margin-top: -1px;
+        }
+
+        .media-ops-file-list.visible {
+            display: block;
+        }
+
+        .media-ops-file {
+            padding: 4px 0;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .media-ops-file:last-child {
+            border-bottom: none;
+        }
+
+        .media-ops-file-name {
+            color: var(--text-primary);
+        }
+
+        .media-ops-file-size {
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            margin-left: 8px;
+        }
+
+        .media-ops-file-size.retention-time {
+            color: #e67e22;
+            font-weight: 500;
+        }
+
+        .media-ops-empty {
+            color: var(--text-secondary);
+            font-style: italic;
+            padding: 20px;
+            text-align: center;
+        }
+
+        /* Log Lines */
+        .log-lines-container {
+            position: relative;
+        }
+
+        .log-lines {
+            max-height: 500px;
+            overflow-y: auto;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 12px;
+            background: var(--bg-primary);
+            padding: 15px;
+            border-radius: 6px;
+        }
+
+        .log-line {
+            padding: 3px 0;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: flex;
+        }
+
+        .log-line-num {
+            color: var(--text-secondary);
+            min-width: 50px;
+            padding-right: 10px;
+            user-select: none;
+            opacity: 0.5;
+        }
+
+        .log-line-content {
+            flex: 1;
+        }
+
+        .log-line.error .log-line-content { color: var(--error); }
+        .log-line.warning .log-line-content { color: var(--warning); }
+        .log-line.info .log-line-content { color: var(--info); }
+        .log-line.debug .log-line-content { color: var(--text-secondary); }
+
+        .log-line.highlight {
+            background: var(--highlight);
+            margin: 0 -15px;
+            padding: 3px 15px;
+        }
+
+        .log-line.current-match {
+            background: rgba(233, 69, 96, 0.3);
+            margin: 0 -15px;
+            padding: 3px 15px;
+        }
+
+        .search-highlight {
+            background: var(--warning);
+            color: var(--bg-primary);
+            padding: 1px 2px;
+            border-radius: 2px;
+        }
+
+        /* Collapsible Sections */
+        .collapsible-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 5px;
+            user-select: none;
+        }
+
+        .collapsible-header:hover {
+            background: var(--border);
+        }
+
+        .collapsible-header .arrow {
+            transition: transform 0.2s;
+        }
+
+        .collapsible-header.collapsed .arrow {
+            transform: rotate(-90deg);
+        }
+
+        .collapsible-content {
+            max-height: 2000px;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+        }
+
+        .collapsible-content.collapsed {
+            max-height: 0;
+        }
+
+        .section-badge {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 10px;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+        }
+
+        .no-problems {
+            text-align: center;
+            padding: 30px;
+            color: var(--success);
+        }
+
+        .no-problems .icon {
+            font-size: 3rem;
+            margin-bottom: 10px;
+        }
+
+        .copy-btn {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .filter-btn {
+            padding: 6px 12px;
+            font-size: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        .filter-btn.active {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: white;
+        }
+
+        .filter-divider {
+            width: 1px;
+            height: 24px;
+            background: var(--border);
+        }
+
+        .diagnosis-output {
+            background: var(--bg-primary);
+            padding: 20px;
+            border-radius: 6px;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        footer {
+            text-align: center;
+            padding: 30px 0;
+            margin-top: 30px;
+            border-top: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        footer a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        /* Quick Stats Row */
+        .quick-stats {
+            display: flex;
+            gap: 15px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .quick-stat {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 15px;
+            background: var(--bg-secondary);
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+
+        .quick-stat-icon {
+            font-size: 1.2rem;
+        }
+
+        .quick-stat-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+
+        .quick-stat-label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        /* Log Viewer Section */
+        .log-viewer-section {
+            margin-bottom: 30px;
+        }
+
+        .log-viewer-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .log-viewer-header .button-row {
+            margin-top: 0;
+        }
+
+        .search-filter-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .search-filter-row .search-container {
+            flex: 1;
+            min-width: 300px;
+            margin-bottom: 0;
+        }
+
+        .filter-row-inline {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .log-viewer-container {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .log-viewer-container .log-lines {
+            max-height: 400px;
+            border-radius: 0;
+        }
+
+        @media (max-width: 900px) {
+            .search-filter-row {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .search-filter-row .search-container {
+                min-width: auto;
+            }
+            .filter-row-inline {
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>PlexCache-R <span>Log Analyzer</span></h1>
+            <p>Paste a log file to quickly diagnose issues and identify problems</p>
+        </header>
+
+        <section class="input-section" id="input-section">
+            <label for="log-input">Paste log content or drag & drop a file:</label>
+            <div class="textarea-wrapper" id="drop-zone">
+                <textarea id="log-input" placeholder="Paste your PlexCache-R log content here...
+
+Example log format:
+2024-01-15 10:30:22,123 - INFO - === PlexCache-R ===
+2024-01-15 10:30:22,456 - DEBUG - Loading configuration...
+..."></textarea>
+                <div class="drop-hint">
+                    <div style="font-size: 2rem;">📄</div>
+                    <div>Drop log file here</div>
+                </div>
+            </div>
+            <div class="button-row">
+                <button class="btn-primary" id="analyze-btn">Analyze Log</button>
+                <button class="btn-secondary" id="clear-btn">Clear</button>
+                <button class="btn-secondary" id="sample-btn">Load Sample</button>
+            </div>
+        </section>
+
+        <!-- Log Viewer Section (replaces input after analysis) -->
+        <section class="log-viewer-section" id="log-viewer-section" style="display: none;">
+            <div class="log-viewer-header">
+                <div class="button-row">
+                    <button class="btn-secondary" id="new-log-btn">New Log</button>
+                    <button class="btn-secondary copy-btn" id="copy-diagnosis-btn-top">Copy Diagnosis</button>
+                </div>
+            </div>
+
+            <!-- Section Navigation -->
+            <div class="section-nav" id="section-nav">
+                <button class="section-tab active" data-section="all">All <span class="count" id="section-count-all">0</span></button>
+            </div>
+
+            <!-- Search and Filters Row -->
+            <div class="search-filter-row">
+                <div class="search-container">
+                    <div class="search-input-wrapper">
+                        <span class="search-icon">&#128269;</span>
+                        <input type="text" class="search-input" id="search-input" placeholder="Search logs... (Ctrl+F)">
+                    </div>
+                    <div class="search-results-count" id="search-results-count">0 results</div>
+                    <div class="search-nav-btns">
+                        <button class="search-nav-btn btn-secondary" id="search-prev" title="Previous match">&#9650;</button>
+                        <button class="search-nav-btn btn-secondary" id="search-next" title="Next match">&#9660;</button>
+                    </div>
+                </div>
+                <div class="filter-row-inline">
+                    <button class="filter-btn active" data-filter="all">All</button>
+                    <button class="filter-btn" data-filter="error">Errors</button>
+                    <button class="filter-btn" data-filter="warning">Warnings</button>
+                    <button class="filter-btn" data-filter="info">Info</button>
+                    <button class="filter-btn" data-filter="debug">Debug</button>
+                    <div class="filter-divider"></div>
+                    <button class="filter-btn" id="collapse-debug-btn">Collapse DEBUG</button>
+                    <div class="filter-divider"></div>
+                    <div class="user-filter-container">
+                        <span class="user-filter-label">User:</span>
+                        <select class="user-filter-select" id="user-filter">
+                            <option value="all">All Users</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Log Viewer -->
+            <div class="log-viewer-container">
+                <div class="log-lines" id="log-lines">
+                    <!-- Populated by JS -->
+                </div>
+            </div>
+        </section>
+
+        <section class="results-section" id="results">
+            <!-- Quick Stats Row -->
+            <div class="quick-stats" id="quick-stats">
+                <div class="quick-stat">
+                    <span class="quick-stat-icon">&#128221;</span>
+                    <span class="quick-stat-value" id="qs-lines">0</span>
+                    <span class="quick-stat-label">lines</span>
+                </div>
+                <div class="quick-stat" id="qs-errors-container">
+                    <span class="quick-stat-icon">&#10060;</span>
+                    <span class="quick-stat-value" id="qs-errors">0</span>
+                    <span class="quick-stat-label">errors</span>
+                </div>
+                <div class="quick-stat" id="qs-warnings-container">
+                    <span class="quick-stat-icon">&#9888;&#65039;</span>
+                    <span class="quick-stat-value" id="qs-warnings">0</span>
+                    <span class="quick-stat-label">warnings</span>
+                </div>
+                <div class="quick-stat">
+                    <span class="quick-stat-icon">&#128337;</span>
+                    <span class="quick-stat-value" id="qs-duration">-</span>
+                    <span class="quick-stat-label">duration</span>
+                </div>
+                <div class="quick-stat">
+                    <span class="quick-stat-icon">&#128100;</span>
+                    <span class="quick-stat-value" id="qs-users">0</span>
+                    <span class="quick-stat-label">users</span>
+                </div>
+            </div>
+
+            <div class="results-grid">
+                <!-- Summary Stats -->
+                <div class="card">
+                    <h3>Summary</h3>
+                    <div class="stat-grid">
+                        <div class="stat" id="stat-errors">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Errors</div>
+                        </div>
+                        <div class="stat" id="stat-warnings">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Warnings</div>
+                        </div>
+                        <div class="stat info" id="stat-lines">
+                            <div class="stat-value">0</div>
+                            <div class="stat-label">Log Lines</div>
+                        </div>
+                        <div class="stat" id="stat-duration">
+                            <div class="stat-value">-</div>
+                            <div class="stat-label">Duration</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Detected -->
+                <div class="card">
+                    <h3>Configuration Detected</h3>
+                    <ul class="config-list" id="config-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+
+                <!-- Problems Found -->
+                <div class="card card-full">
+                    <div class="card-header">
+                        <h3>Problems Found</h3>
+                        <button class="btn-secondary copy-btn" id="copy-diagnosis-btn">Copy Diagnosis</button>
+                    </div>
+                    <ul class="problem-list" id="problem-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+
+                <!-- Timeline -->
+                <div class="card">
+                    <h3>Timeline</h3>
+                    <div class="timeline" id="timeline">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Operations Summary -->
+                <div class="card">
+                    <h3>Operations</h3>
+                    <ul class="config-list" id="operations-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+
+                <!-- Path Mappings -->
+                <div class="card card-full" id="path-mappings-card" style="display: none;">
+                    <h3>Path Mappings</h3>
+                    <ul class="path-mapping-list" id="path-mapping-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+
+                <!-- Retention Analysis -->
+                <div class="card card-full" id="retention-card" style="display: none;">
+                    <h3>Retention Analysis</h3>
+                    <table class="retention-table">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Items Expired</th>
+                                <th>Items Retained</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="retention-tbody">
+                            <!-- Populated by JS -->
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Media Operations -->
+                <div class="card card-full" id="media-ops-card" style="display: none;">
+                    <h3>Media Operations</h3>
+                    <div class="media-ops-summary" id="media-ops-summary">
+                        <!-- Summary stats populated by JS -->
+                    </div>
+                    <div class="media-ops-tabs">
+                        <button class="media-ops-tab active" data-tab="ondeck">OnDeck</button>
+                        <button class="media-ops-tab" data-tab="watchlist">Watchlist</button>
+                        <button class="media-ops-tab" data-tab="cached">Cached</button>
+                        <button class="media-ops-tab" data-tab="to-array">To Array</button>
+                        <button class="media-ops-tab" data-tab="retention">Retention Holds</button>
+                    </div>
+                    <div class="media-ops-content" id="media-ops-content">
+                        <!-- Tab content populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Missing Information -->
+                <div class="card card-full" id="missing-info-card" style="display: none;">
+                    <h3>Missing Information</h3>
+                    <ul class="problem-list" id="missing-info-list">
+                        <!-- Populated by JS -->
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <p>
+                <a href="https://github.com/StudioNirin/PlexCache-R" target="_blank">PlexCache-R</a> &mdash;
+                Open an <a href="https://github.com/StudioNirin/PlexCache-R/issues" target="_blank">issue</a> if you need help
+            </p>
+        </footer>
+    </div>
+
+    <script>
+        // Log section definitions for navigation
+        const LOG_SECTIONS = [
+            { id: 'startup', name: 'Startup', patterns: [/=== PlexCache-R ===/i, /Loading configuration/i, /Initializing/i, /Connected to Plex/i] },
+            { id: 'ondeck', name: 'OnDeck', patterns: [/--- Fetching Media ---/i, /Fetching OnDeck/i, /OnDeck found/i, /OnDeck:.*items/i] },
+            { id: 'paths', name: 'Path Mapping', patterns: [/Converted path using/i, /Skipping disabled/i, /path mapping/i, /No matching library folder/i] },
+            { id: 'subtitles', name: 'Subtitles', patterns: [/Finding subtitles/i, /subtitle.*found/i, /\.srt|\.ass|\.sub/i] },
+            { id: 'watchlist', name: 'Watchlist', patterns: [/Processing watchlist/i, /watchlist items/i, /Watchlist:/i] },
+            { id: 'retention', name: 'Retention', patterns: [/Watchlist retention expired/i, /retention.*days/i, /Cache retention/i, /expired.*items/i] },
+            { id: 'rss', name: 'RSS Feed', patterns: [/RSS title/i, /RSS feed contains/i, /Fetching RSS/i, /RSS.*items/i] },
+            { id: 'cache', name: 'Cache Ops', patterns: [/File already on cache/i, /non-cacheable/i, /Moving.*to cache/i, /Moving.*to array/i, /evict/i] },
+            { id: 'summary', name: 'Summary', patterns: [/SUMMARY/i, /Completed in/i, /Finished moving/i, /Run complete/i] },
+            { id: 'errors', name: 'Errors', patterns: [/ERROR|CRITICAL/i] }
+        ];
+
+        // Known problem patterns with detection and suggestions
+        const PROBLEM_PATTERNS = [
+            // Authentication Issues
+            {
+                pattern: /Authentication failed|token is invalid|has been revoked/i,
+                title: "Authentication Failed",
+                severity: "error",
+                suggestion: "Run 'python3 plexcache_setup.py' and select 'y' to re-authenticate with Plex."
+            },
+            {
+                pattern: /Access forbidden|may not have permission/i,
+                title: "Access Forbidden",
+                severity: "error",
+                suggestion: "Check that the Plex token has proper permissions for the requested resource."
+            },
+            {
+                pattern: /Rate limited by Plex\.tv/i,
+                title: "Rate Limited by Plex",
+                severity: "warning",
+                suggestion: "The script is making too many API calls. Consider increasing delays between requests."
+            },
+
+            // Path Issues
+            {
+                pattern: /Path does not exist:\s*(.+)/i,
+                title: "Path Does Not Exist",
+                severity: "error",
+                suggestion: "Verify the path exists and is accessible. Check your path_mappings in settings.",
+                extractDetail: (match) => match[1]
+            },
+            {
+                pattern: /Path is not a directory:\s*(.+)/i,
+                title: "Path Is Not a Directory",
+                severity: "error",
+                suggestion: "The configured path points to a file, not a directory. Check your settings.",
+                extractDetail: (match) => match[1]
+            },
+            {
+                pattern: /Path is not writable:\s*(.+)/i,
+                title: "Path Not Writable",
+                severity: "error",
+                suggestion: "Check file permissions. The script needs write access to this path.",
+                extractDetail: (match) => match[1]
+            },
+            {
+                pattern: /No matching library folder found for:\s*(.+)/i,
+                title: "Unmapped Library Path",
+                severity: "warning",
+                suggestion: "Add a path_mapping entry for this Plex library path in your settings.",
+                extractDetail: (match) => match[1]
+            },
+            {
+                pattern: /No enabled path mappings configured/i,
+                title: "No Path Mappings Enabled",
+                severity: "error",
+                suggestion: "At least one path_mapping must have 'enabled: true' in your settings."
+            },
+
+            // File Operation Issues
+            {
+                pattern: /Error moving file from (.+) to (.+):/i,
+                title: "File Move Failed",
+                severity: "error",
+                suggestion: "Check disk space, permissions, and that both paths are accessible.",
+                extractDetail: (match) => `${match[1]} → ${match[2]}`
+            },
+            {
+                pattern: /Size mismatch after copy/i,
+                title: "File Copy Verification Failed",
+                severity: "error",
+                suggestion: "The file copy didn't complete correctly. Check for disk errors or space issues."
+            },
+            {
+                pattern: /Cannot access directory.+Permission denied/i,
+                title: "Permission Denied",
+                severity: "error",
+                suggestion: "The script cannot access this directory. Check ownership and permissions."
+            },
+
+            // Plex Server Issues
+            {
+                pattern: /plex\.tv unreachable/i,
+                title: "Plex.tv Unreachable",
+                severity: "warning",
+                suggestion: "Cannot reach Plex servers. Using cached data. Array restore will be skipped."
+            },
+            {
+                pattern: /Plex server error|Plex\.tv may be experiencing issues/i,
+                title: "Plex Server Error",
+                severity: "error",
+                suggestion: "Plex.tv is having issues. Wait and try again later."
+            },
+            {
+                pattern: /No cached token for (\w+)/i,
+                title: "Missing User Token",
+                severity: "warning",
+                suggestion: "Re-run setup to refresh user tokens, or check skip_users list.",
+                extractDetail: (match) => `User: ${match[1]}`
+            },
+
+            // Session Issues
+            {
+                pattern: /There is an active session\. Exiting/i,
+                title: "Active Session Detected - Exiting",
+                severity: "warning",
+                suggestion: "Someone is actively streaming. The script exited to avoid interruption."
+            },
+            {
+                pattern: /Skipped (\d+) active session/i,
+                title: "Active Sessions Skipped",
+                severity: "info",
+                suggestion: "Files being actively played were skipped (this is normal behavior).",
+                extractDetail: (match) => `${match[1]} session(s)`
+            },
+
+            // Cache Issues
+            {
+                pattern: /Cache limit reached.*skipped (\d+) files/i,
+                title: "Cache Limit Reached",
+                severity: "warning",
+                suggestion: "The cache drive limit was reached. Some files weren't cached.",
+                extractDetail: (match) => `${match[1]} files skipped`
+            },
+            {
+                pattern: /Cannot move to array.*file not found on cache/i,
+                title: "File Not Found on Cache",
+                severity: "warning",
+                suggestion: "Expected file missing from cache. May have been manually moved or deleted."
+            },
+
+            // RSS Feed Issues
+            {
+                pattern: /Failed to fetch RSS feed after/i,
+                title: "RSS Feed Fetch Failed",
+                severity: "error",
+                suggestion: "Could not fetch watchlist via RSS. Check internet connectivity and RSS URL."
+            },
+            {
+                pattern: /No cached RSS data available/i,
+                title: "No RSS Cache Available",
+                severity: "warning",
+                suggestion: "Remote watchlist items will be missing until RSS feed is accessible."
+            },
+
+            // Webhook Issues
+            {
+                pattern: /Failed to send.*message.*Error code: (\d+)/i,
+                title: "Webhook Notification Failed",
+                severity: "warning",
+                suggestion: "Check your webhook URL configuration.",
+                extractDetail: (match) => `HTTP ${match[1]}`
+            },
+
+            // Migration Issues
+            {
+                pattern: /Migration had errors/i,
+                title: "Migration Errors",
+                severity: "warning",
+                suggestion: "Some .plexcached backups couldn't be created. Will retry on next run."
+            },
+            {
+                pattern: /Failed to verify:\s*(.+)/i,
+                title: "Migration Verification Failed",
+                severity: "error",
+                suggestion: "A migrated file couldn't be verified. Check disk space and permissions.",
+                extractDetail: (match) => match[1]
+            }
+        ];
+
+        // Configuration detection patterns
+        const CONFIG_PATTERNS = [
+            { pattern: /DRY-RUN MODE/i, key: "Dry Run", value: "Yes", class: "warning" },
+            { pattern: /VERBOSE MODE/i, key: "Verbose", value: "Yes", class: "yes" },
+            { pattern: /Using multi-path mode with (\d+) mappings \((\d+) enabled\)/i, key: "Path Mappings", extract: (m) => `${m[2]}/${m[1]} enabled` },
+            { pattern: /Connected to Plex \((\d+) users?\)/i, key: "Users", extract: (m) => m[1] },
+            { pattern: /Watchlist retention enabled:\s*(\d+)\s*days/i, key: "Watchlist Retention", extract: (m) => `${m[1]} days` },
+            { pattern: /days\s*>\s*(\d+(?:\.\d+)?)\s*days\)/i, key: "Watchlist Retention", extract: (m) => `${Math.round(parseFloat(m[1]))} days`, fallback: true },
+            { pattern: /Cache retention.*?(\d+) hours/i, key: "Cache Retention", extract: (m) => `${m[1]} hours` },
+        ];
+
+        // Operation extraction patterns
+        const OPERATION_PATTERNS = [
+            { pattern: /OnDeck: (\d+) items? from (\d+) users?/i, key: "OnDeck Items", extract: (m) => `${m[1]} from ${m[2]} users` },
+            { pattern: /OnDeck: 0 items/i, key: "OnDeck Items", value: "0" },
+            { pattern: /Total media to cache: (\d+) files?/i, key: "Files to Cache", extract: (m) => m[1] },
+            { pattern: /Watchlist.*?(\d+) items/i, key: "Watchlist Items", extract: (m) => m[1] },
+            { pattern: /Moved (\d+).*?to cache/i, key: "Moved to Cache", extract: (m) => m[1] },
+            { pattern: /Moved (\d+).*?to array/i, key: "Moved to Array", extract: (m) => m[1] },
+            { pattern: /Skipped (\d+) files from disabled libraries/i, key: "Skipped (Disabled)", extract: (m) => m[1] },
+            { pattern: /evict.*?(\d+) files?.*?free.*?space/i, key: "Evicted", extract: (m) => m[1] },
+            { pattern: /Cleaned up (\d+) stale/i, key: "Stale Entries Cleaned", extract: (m) => m[1] },
+            { pattern: /Found (\d+) \.plexcached files/i, key: "Plexcached Files", extract: (m) => m[1] },
+        ];
+
+        // User extraction patterns
+        // Primary: Look for structured [USER:name] tags (new format)
+        // Secondary: Look for USERS: summary line (new format)
+        // Fallback: Legacy patterns for backwards compatibility with old logs
+        const USER_TAG_PATTERN = /\[USER:([^\]]+)\]/;
+        const USERS_SUMMARY_PATTERN = /- INFO - USERS: (.+)$/;
+
+        // Legacy patterns for backwards compatibility with old logs
+        const LEGACY_USER_PATTERNS = [
+            /Fetching (\w+)'s OnDeck/i,                    // "Fetching Brandon's OnDeck"
+            /\[(\w+)\] OnDeck/i,                           // "[Brandon] OnDeck found"
+            /for [Uu]ser ['"](\w+)['"]/i,                  // "for user 'Brandon'" or "for User 'Brandon'"
+            /[Uu]ser ['"](\w+)['"]/i,                      // "User 'Brandon'"
+            /token for (\w+),/i,                           // "token for Brandon,"
+            /Processing (\w+)'s/i,                         // "Processing Brandon's watchlist"
+            /(\w+)'s (?:OnDeck|watchlist|media)/i,        // "Brandon's OnDeck/watchlist/media"
+        ];
+
+        // Words that are definitely not usernames (for legacy pattern fallback)
+        const USER_BLACKLIST = new Set([
+            'the', 'for', 'all', 'and', 'from', 'with', 'has', 'was', 'are', 'not',
+            'processing', 'fetching', 'found', 'skipped', 'moved', 'cached', 'error',
+            'warning', 'info', 'debug', 'summary', 'plex', 'cache', 'array', 'file',
+            'files', 'media', 'item', 'items', 'path', 'paths', 'user', 'users',
+            'ondeck', 'watchlist', 'retention', 'expired', 'enabled', 'disabled',
+            'movies', 'shows', 'home', 'tv', 'uhd', 'hdr', 'web', 'api', 'rss',
+            'new', 'old', 'total', 'using', 'multi', 'mode', 'mapping', 'mappings'
+        ]);
+
+        // Path mapping extraction patterns
+        const PATH_MAPPING_PATTERNS = {
+            mappingDef: /path_mapping.*?['"]name['"]:\s*['"]([^'"]+)['"]/gi,
+            mappingEnabled: /['"]([^'"]+)['"].*enabled.*?(true|false)/gi,
+            convertedPath: /Converted path using ['"]([^'"]+)['"]/gi,
+            skippedDisabled: /Skipping disabled.*['"]([^'"]+)['"]/gi,
+            filesInMapping: /(\d+) files?.*?['"]([^'"]+)['"]/gi
+        };
+
+        // Retention extraction patterns
+        const RETENTION_PATTERNS = {
+            expired: /Watchlist retention expired.*?(\d+) items?.*?(\w+)/gi,
+            retained: /Retained (\d+) items?.*?(\w+)/gi,
+            userExpiry: /(\w+).*?(\d+).*?expired/gi
+        };
+
+        // Detect sections in log lines
+        function detectSections(parsed) {
+            const sections = {};
+
+            LOG_SECTIONS.forEach(section => {
+                sections[section.id] = {
+                    name: section.name,
+                    lines: [],
+                    hasErrors: false,
+                    hasWarnings: false
+                };
+            });
+
+            parsed.lines.forEach(entry => {
+                LOG_SECTIONS.forEach(section => {
+                    const matches = section.patterns.some(p => p.test(entry.message));
+                    if (matches) {
+                        sections[section.id].lines.push(entry);
+                        if (entry.level === 'ERROR' || entry.level === 'CRITICAL') {
+                            sections[section.id].hasErrors = true;
+                        }
+                        if (entry.level === 'WARNING') {
+                            sections[section.id].hasWarnings = true;
+                        }
+                    }
+                });
+            });
+
+            return sections;
+        }
+
+        // Extract users from log
+        // Uses structured format when available, falls back to legacy patterns
+        function extractUsers(parsed) {
+            const users = new Set();
+            let usedStructuredFormat = false;
+
+            // Method 1: Look for USERS: summary line (new structured format)
+            const summaryLine = parsed.lines.find(l => USERS_SUMMARY_PATTERN.test(l.raw || l.message));
+            if (summaryLine) {
+                const match = (summaryLine.raw || summaryLine.message).match(USERS_SUMMARY_PATTERN);
+                if (match && match[1]) {
+                    match[1].split(',').forEach(u => {
+                        const trimmed = u.trim();
+                        if (trimmed) users.add(trimmed);
+                    });
+                    usedStructuredFormat = true;
+                }
+            }
+
+            // Method 2: Extract from [USER:name] tags (new structured format)
+            parsed.lines.forEach(entry => {
+                const match = entry.message.match(USER_TAG_PATTERN);
+                if (match && match[1]) {
+                    users.add(match[1]);
+                    usedStructuredFormat = true;
+                }
+            });
+
+            // Method 3: Fallback to legacy patterns for old logs
+            if (!usedStructuredFormat || users.size === 0) {
+                parsed.lines.forEach(entry => {
+                    LEGACY_USER_PATTERNS.forEach(pattern => {
+                        const match = entry.message.match(pattern);
+                        if (match && match[1]) {
+                            const name = match[1];
+                            // Validate: reasonable length, not a number, not blacklisted
+                            if (name.length >= 2 &&
+                                name.length <= 30 &&
+                                !/^\d+$/.test(name) &&
+                                !USER_BLACKLIST.has(name.toLowerCase())) {
+                                users.add(name);
+                            }
+                        }
+                    });
+                });
+            }
+
+            return Array.from(users).sort();
+        }
+
+        // Extract path mappings from log
+        function extractPathMappings(parsed) {
+            const mappingStats = {};
+
+            // Helper to validate mapping name (should be short, no path separators)
+            function isValidMappingName(name) {
+                if (!name || name.length > 50) return false;
+                if (name.includes('/') || name.includes('\\')) return false;
+                if (name.includes(':') && name.length > 3) return false; // Skip drive paths like C:
+                if (name.startsWith('.')) return false; // Skip hidden files
+                return true;
+            }
+
+            // Look for path mapping names in conversion messages
+            parsed.lines.forEach(entry => {
+                // Match: Converted path using 'TV Shows' or similar
+                let match = entry.message.match(/Converted path using ['"]([^'"]+)['"]/i);
+                if (match && isValidMappingName(match[1])) {
+                    const name = match[1];
+                    if (!mappingStats[name]) {
+                        mappingStats[name] = { name, enabled: true, conversions: 0 };
+                    }
+                    mappingStats[name].conversions++;
+                    return;
+                }
+
+                // Match: Skipping disabled mapping 'Anime' or path mapping 'Name'
+                match = entry.message.match(/[Ss]kipping disabled.*?mapping ['"]([^'"]+)['"]/i);
+                if (match && isValidMappingName(match[1])) {
+                    const name = match[1];
+                    if (!mappingStats[name]) {
+                        mappingStats[name] = { name, enabled: false, conversions: 0 };
+                    }
+                    mappingStats[name].enabled = false;
+                    return;
+                }
+
+                // Also look for "Using multi-path mode" which lists total mappings
+                // This helps us know there are mappings even if no conversions logged
+            });
+
+            return Object.values(mappingStats);
+        }
+
+        // Extract retention analysis from log
+        function extractRetentionAnalysis(parsed) {
+            const userStats = {};
+
+            // Helper to add a file entry for a user
+            function addFileEntry(user, filename, status, details) {
+                if (!user || user.length < 2 || user.length > 50) return;
+                if (!userStats[user]) {
+                    userStats[user] = { user, expired: 0, retained: 0, files: [] };
+                }
+                if (status === 'expired') {
+                    userStats[user].expired += 1;
+                } else if (status === 'retained') {
+                    userStats[user].retained += 1;
+                }
+                userStats[user].files.push({ filename, status, details });
+            }
+
+            // Look for retention-related messages
+            parsed.lines.forEach(entry => {
+                const msg = entry.message;
+
+                // Match retention expired messages
+                // Format: "[USER:Bueno1988] Watchlist retention expired (50.4 days > 45.0 days): filename.mkv"
+                let match = msg.match(/\[USER:([^\]]+)\].*?[Ww]atchlist retention expired\s*\(([^)]+)\):\s*(.+)$/);
+                if (match) {
+                    const user = match[1].trim();
+                    const details = match[2].trim(); // e.g., "50.4 days > 45.0 days"
+                    const filename = match[3].trim();
+                    addFileEntry(user, filename, 'expired', details);
+                    return;
+                }
+
+                // Legacy format: "Watchlist retention expired (...): filename.mkv (users: Bueno1988)"
+                match = msg.match(/[Ww]atchlist retention expired\s*\(([^)]+)\):\s*(.+?)\s*\(users?:\s*([^)]+)\)\s*$/);
+                if (match) {
+                    const details = match[1].trim();
+                    const filename = match[2].trim();
+                    const usersStr = match[3].trim();
+                    const users = usersStr.split(',').map(u => u.trim());
+                    users.forEach(user => addFileEntry(user, filename, 'expired', details));
+                    return;
+                }
+
+                // Match retention hold messages (files being retained due to cache retention period)
+                // Format: "Retention hold (9h left): Title" (no USER prefix - applies to all users with file)
+                match = msg.match(/^Retention hold\s*\(([^)]+)\):\s*(.+)$/);
+                if (match) {
+                    const details = match[1].trim(); // e.g., "9h left"
+                    const filename = match[2].trim();
+                    // Add to a generic "Cache Retention" user since no specific user
+                    addFileEntry('Cache Retention', filename, 'retained', details);
+                    return;
+                }
+
+                // Match keeping in cache messages
+                // Format: "Keeping in cache (OnDeck/Watchlist for user1, user2): filename"
+                match = msg.match(/[Kk]eeping in cache\s*\((?:OnDeck\/Watchlist|still needed)\s*(?:for\s+)?([^)]*)\):\s*(.+)$/);
+                if (match) {
+                    const usersStr = match[1].trim();
+                    const filename = match[2].trim();
+                    if (usersStr) {
+                        // Extract users, handling "user1, user2 +3 more" format
+                        const usersPart = usersStr.replace(/\s*\+\d+\s*more.*$/, '');
+                        const users = usersPart.split(',').map(u => u.trim()).filter(u => u.length >= 2);
+                        users.forEach(user => addFileEntry(user, filename, 'retained', 'OnDeck/Watchlist'));
+                    } else {
+                        // "still needed" variant without specific users
+                        addFileEntry('Active Use', filename, 'retained', 'Still needed');
+                    }
+                    return;
+                }
+            });
+
+            return Object.values(userStats);
+        }
+
+        // Extract media operations from log
+        function extractMediaOperations(parsed) {
+            const ops = {
+                ondeck: {},      // user -> [files]
+                watchlist: {},   // user -> [files]
+                cached: [],      // [{filename, size}]
+                toArray: [],     // [{filename, type}] - type: 'restore' or 'copy'
+                retentionHolds: [] // [{filename, filepath, timeLeft, reason}]
+            };
+
+            let currentArraySection = null; // Track if we're in "Returning to array" or "Copying to array" section
+
+            parsed.lines.forEach(entry => {
+                const msg = entry.message;
+
+                // OnDeck found: [USER:username] OnDeck found: filepath
+                let match = msg.match(/\[USER:([^\]]+)\]\s*OnDeck found:\s*(.+)$/);
+                if (match) {
+                    const user = match[1].trim();
+                    const filepath = match[2].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    if (!ops.ondeck[user]) ops.ondeck[user] = [];
+                    ops.ondeck[user].push({ filename, filepath });
+                    return;
+                }
+
+                // Individual watchlist files: [USER:username] Watchlist found: filepath
+                match = msg.match(/\[USER:([^\]]+)\]\s*Watchlist found:\s*(.+)$/i);
+                if (match) {
+                    const user = match[1].trim();
+                    const filepath = match[2].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    if (!ops.watchlist[user]) ops.watchlist[user] = [];
+                    ops.watchlist[user].push({ filename, filepath });
+                    return;
+                }
+
+                // Watchlist tracker entries: [USER:username] Added new watchlist entry: filepath
+                match = msg.match(/\[USER:([^\]]+)\]\s*Added new watchlist entry:\s*(.+)$/i);
+                if (match) {
+                    const user = match[1].trim();
+                    const filepath = match[2].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    if (!ops.watchlist[user]) ops.watchlist[user] = [];
+                    // Avoid duplicates
+                    if (!ops.watchlist[user].find(f => f.filename === filename)) {
+                        ops.watchlist[user].push({ filename, filepath, status: 'added' });
+                    }
+                    return;
+                }
+
+                // Updated watchlist entries: [USER:username] Updated watchlist entry: filepath
+                match = msg.match(/\[USER:([^\]]+)\]\s*Updated watchlist entry.*?:\s*(.+)$/i);
+                if (match) {
+                    const user = match[1].trim();
+                    const filepath = match[2].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    if (!ops.watchlist[user]) ops.watchlist[user] = [];
+                    // Avoid duplicates
+                    if (!ops.watchlist[user].find(f => f.filename === filename)) {
+                        ops.watchlist[user].push({ filename, filepath, status: 'existing' });
+                    }
+                    return;
+                }
+
+                // Watchlist count summary: [USER:username] Found N watchlist items
+                // Format: "[USER:Brandon] Found 36 watchlist items"
+                match = msg.match(/\[USER:([^\]]+)\].*?Found\s+(\d+)\s+watchlist\s+items?/i);
+                if (match) {
+                    const user = match[1].trim();
+                    const count = parseInt(match[2]);
+                    if (!ops.watchlist[user]) ops.watchlist[user] = [];
+                    // Only set _count if we don't have individual files
+                    if (ops.watchlist[user].length === 0) {
+                        ops.watchlist[user]._count = count;
+                    }
+                    return;
+                }
+
+                // Also match RSS watchlist items: "Found 59 remote watchlist items from RSS"
+                match = msg.match(/Found\s+(\d+)\s+remote\s+watchlist\s+items?\s+from\s+RSS/i);
+                if (match) {
+                    const count = parseInt(match[1]);
+                    if (!ops.watchlist['RSS (Remote)']) ops.watchlist['RSS (Remote)'] = [];
+                    ops.watchlist['RSS (Remote)']._count = count;
+                    return;
+                }
+
+                // Successfully cached: filename (size) - console output (may not be in log)
+                match = msg.match(/Successfully cached:\s*(.+?)\s*\(([^)]+)\)\s*$/);
+                if (match) {
+                    const filename = match[1].trim();
+                    const size = match[2].trim();
+                    ops.cached.push({ filename, size });
+                    return;
+                }
+
+                // Recorded cache timestamp - definitive indicator file was cached (in log file)
+                // Format: "Recorded cache timestamp for: /path/to/file.mkv (source: watchlist)"
+                match = msg.match(/Recorded cache timestamp for:\s*(.+?)\s*\(source:\s*(\w+)\)/i);
+                if (match) {
+                    const filepath = match[1].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    const source = match[2].trim();
+                    // Avoid duplicates
+                    if (!ops.cached.find(c => c.filename === filename)) {
+                        ops.cached.push({ filename, source });
+                    }
+                    return;
+                }
+
+                // Individual "Restored to array:" lines (DEBUG level)
+                // Format: "Restored to array: Glass (2019) - [BLURAY-1080P]...mkv"
+                match = msg.match(/Restored to array:\s*(.+)$/i);
+                if (match) {
+                    const filename = match[1].trim();
+                    // Avoid duplicates
+                    if (!ops.toArray.find(f => f.filename === filename)) {
+                        ops.toArray.push({ filename, type: 'restore' });
+                    }
+                    return;
+                }
+
+                // Individual "Copied to array:" lines (if they exist)
+                match = msg.match(/Copied to array:\s*(.+)$/i);
+                if (match) {
+                    const filename = match[1].trim();
+                    if (!ops.toArray.find(f => f.filename === filename)) {
+                        ops.toArray.push({ filename, type: 'copy' });
+                    }
+                    return;
+                }
+
+                // Returning to array (N episodes, instant via .plexcached):
+                if (/Returning to array.*\.plexcached/i.test(msg)) {
+                    currentArraySection = 'restore';
+                    return;
+                }
+
+                // Copying to array (N episodes, size):
+                if (/Copying to array/i.test(msg)) {
+                    currentArraySection = 'copy';
+                    return;
+                }
+
+                // Individual files listed under array sections (start with spaces)
+                if (currentArraySection && /^\s{2,}/.test(msg)) {
+                    // Extract display name (format: "Show - SxxExx - Title" or "Movie (Year)")
+                    const displayName = msg.trim();
+                    if (displayName && !displayName.startsWith('...and')) {
+                        // Avoid duplicates (may have been captured by individual lines too)
+                        if (!ops.toArray.find(f => f.filename === displayName)) {
+                            ops.toArray.push({
+                                filename: displayName,
+                                type: currentArraySection
+                            });
+                        }
+                    }
+                    return;
+                }
+
+                // "...and N more" line - end of section
+                if (/\.\.\.and \d+ more/i.test(msg)) {
+                    // Keep currentArraySection to track we had more items
+                    return;
+                }
+
+                // Reset section tracking on other lines
+                if (currentArraySection && !/^\s/.test(msg) && msg.trim()) {
+                    currentArraySection = null;
+                }
+
+                // Retention holds: File still within retention period (14.6h < 24h): /path/file.mkv
+                match = msg.match(/File still within retention period \((\d+(?:\.\d+)?h) < (\d+)h\):\s*(.+)$/i);
+                if (match) {
+                    const timeUsed = match[1];
+                    const timeLimit = match[2];
+                    const filepath = match[3].trim();
+                    const filename = filepath.split(/[/\\]/).pop();
+                    const hoursLeft = (parseFloat(timeLimit) - parseFloat(timeUsed)).toFixed(1);
+                    ops.retentionHolds.push({
+                        filename,
+                        filepath,
+                        timeLeft: `${hoursLeft}h`,
+                        reason: 'retention'
+                    });
+                    return;
+                }
+
+                // Retention hold (9h left): Title
+                match = msg.match(/Retention hold \((\d+(?:\.\d+)?h?) left\):\s*(.+)$/i);
+                if (match) {
+                    const timeLeft = match[1].includes('h') ? match[1] : `${match[1]}h`;
+                    const title = match[2].trim();
+                    // Avoid duplicates from same file (both messages may appear)
+                    if (!ops.retentionHolds.find(h => h.filename === title || h.filename.includes(title))) {
+                        ops.retentionHolds.push({
+                            filename: title,
+                            filepath: null,
+                            timeLeft,
+                            reason: 'retention'
+                        });
+                    }
+                    return;
+                }
+
+                // TV episode still needed (E11 >= E09), keeping: Title
+                match = msg.match(/TV episode still needed \(([^)]+)\), keeping:\s*(.+)$/i);
+                if (match) {
+                    const episodeInfo = match[1];
+                    const title = match[2].trim();
+                    ops.retentionHolds.push({
+                        filename: title,
+                        filepath: null,
+                        timeLeft: null,
+                        reason: 'episode-needed',
+                        detail: episodeInfo
+                    });
+                    return;
+                }
+
+                // TV episode in previous season, will check retention
+                match = msg.match(/TV episode in previous season \(([^)]+)\), will check retention:\s*(.+)$/i);
+                if (match) {
+                    const seasonInfo = match[1];
+                    const title = match[2].trim();
+                    ops.retentionHolds.push({
+                        filename: title,
+                        filepath: null,
+                        timeLeft: null,
+                        reason: 'previous-season',
+                        detail: seasonInfo
+                    });
+                    return;
+                }
+            });
+
+            return ops;
+        }
+
+        // Render media operations section
+        function renderMediaOperations(ops) {
+            const card = document.getElementById('media-ops-card');
+            const summaryEl = document.getElementById('media-ops-summary');
+            const contentEl = document.getElementById('media-ops-content');
+
+            // Calculate totals
+            const ondeskTotal = Object.values(ops.ondeck).reduce((sum, files) => sum + files.length, 0);
+            const watchlistTotal = Object.values(ops.watchlist).reduce((sum, files) => {
+                return sum + (files._count || files.length);
+            }, 0);
+            const cachedTotal = ops.cached.length;
+            const toArrayTotal = ops.toArray.length;
+            const retentionTotal = ops.retentionHolds.length;
+
+            // Hide if no data
+            if (ondeskTotal === 0 && watchlistTotal === 0 && cachedTotal === 0 && toArrayTotal === 0 && retentionTotal === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+
+            // Render summary stats
+            summaryEl.innerHTML = `
+                <div class="media-ops-stat">
+                    <span class="media-ops-stat-value ondeck">${ondeskTotal}</span>
+                    <span class="media-ops-stat-label">OnDeck</span>
+                </div>
+                <div class="media-ops-stat">
+                    <span class="media-ops-stat-value watchlist">${watchlistTotal}</span>
+                    <span class="media-ops-stat-label">Watchlist</span>
+                </div>
+                <div class="media-ops-stat">
+                    <span class="media-ops-stat-value cached">${cachedTotal}</span>
+                    <span class="media-ops-stat-label">Cached</span>
+                </div>
+                <div class="media-ops-stat">
+                    <span class="media-ops-stat-value to-array">${toArrayTotal}</span>
+                    <span class="media-ops-stat-label">To Array</span>
+                </div>
+                <div class="media-ops-stat">
+                    <span class="media-ops-stat-value retention">${retentionTotal}</span>
+                    <span class="media-ops-stat-label">Retention</span>
+                </div>
+            `;
+
+            // Store data for tab switching
+            window.mediaOpsData = ops;
+
+            // Render initial tab (ondeck)
+            renderMediaOpsTab('ondeck');
+
+            // Set up tab click handlers
+            document.querySelectorAll('.media-ops-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    document.querySelectorAll('.media-ops-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    renderMediaOpsTab(tab.dataset.tab);
+                });
+            });
+        }
+
+        // Render specific media operations tab content
+        function renderMediaOpsTab(tabName) {
+            const contentEl = document.getElementById('media-ops-content');
+            const ops = window.mediaOpsData;
+
+            if (!ops) {
+                contentEl.innerHTML = '<div class="media-ops-empty">No data available</div>';
+                return;
+            }
+
+            let html = '';
+
+            if (tabName === 'ondeck') {
+                const users = Object.keys(ops.ondeck).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                if (users.length === 0) {
+                    html = '<div class="media-ops-empty">No OnDeck items found in log</div>';
+                } else {
+                    users.forEach((user, idx) => {
+                        const files = ops.ondeck[user];
+                        html += renderUserFileSection(user, files, `ondeck-${idx}`);
+                    });
+                }
+            } else if (tabName === 'watchlist') {
+                const users = Object.keys(ops.watchlist).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                if (users.length === 0) {
+                    html = '<div class="media-ops-empty">No Watchlist items found in log (requires --verbose)</div>';
+                } else {
+                    // Check if any user has individual file data
+                    const hasFileData = users.some(user => {
+                        const data = ops.watchlist[user];
+                        return data.filter && data.filter(f => f.filename).length > 0;
+                    });
+                    if (!hasFileData) {
+                        html = '<div class="media-ops-empty" style="margin-bottom: 12px; padding: 8px; font-size: 0.85rem;">Individual files not in log. Run with latest code + --verbose to see expandable file lists.</div>';
+                    }
+                    users.forEach((user, idx) => {
+                        const data = ops.watchlist[user];
+                        const count = data._count || data.length;
+                        const files = data.filter ? data.filter(f => f.filename) : [];
+                        html += renderUserFileSection(user, files, `watchlist-${idx}`, count);
+                    });
+                }
+            } else if (tabName === 'cached') {
+                if (ops.cached.length === 0) {
+                    html = '<div class="media-ops-empty">No items were cached during this run</div>';
+                } else {
+                    // Helper to find which user has a file in their ondeck/watchlist
+                    function findUserForFile(filename) {
+                        // Check ondeck first
+                        for (const [user, files] of Object.entries(ops.ondeck)) {
+                            if (files.some(f => f.filename === filename)) {
+                                return { user, source: 'ondeck' };
+                            }
+                        }
+                        // Check watchlist
+                        for (const [user, files] of Object.entries(ops.watchlist)) {
+                            if (files.filter && files.some(f => f.filename === filename)) {
+                                return { user, source: 'watchlist' };
+                            }
+                        }
+                        return null;
+                    }
+
+                    // Group cached items by user
+                    const byUser = {};
+                    const unknown = [];
+                    ops.cached.forEach(item => {
+                        const userInfo = findUserForFile(item.filename);
+                        if (userInfo) {
+                            const key = userInfo.user;
+                            if (!byUser[key]) byUser[key] = [];
+                            byUser[key].push({ ...item, foundSource: userInfo.source });
+                        } else {
+                            unknown.push(item);
+                        }
+                    });
+
+                    const users = Object.keys(byUser).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+
+                    // Render by user
+                    users.forEach((user, idx) => {
+                        const files = byUser[user];
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header${idx === 0 ? ' expanded' : ''}" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">${idx === 0 ? '▼' : '▶'}</span>
+                            <span class="media-ops-user-name">${escapeHtml(user)}</span>
+                            <span class="media-ops-user-count">${files.length} items</span>
+                        </div>`;
+                        html += `<div class="media-ops-file-list${idx === 0 ? ' visible' : ''}">`;
+                        files.forEach(item => {
+                            const sourceLabel = item.source || item.foundSource || '';
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                                ${sourceLabel ? `<span class="media-ops-file-size">from ${escapeHtml(sourceLabel)}</span>` : ''}
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    });
+
+                    // Show unknown user items if any
+                    if (unknown.length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▶</span>
+                            <span class="media-ops-user-name">Unknown User</span>
+                            <span class="media-ops-user-count">${unknown.length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list">';
+                        unknown.forEach(item => {
+                            const detail = item.size || (item.source ? `from ${item.source}` : '');
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                                ${detail ? `<span class="media-ops-file-size">${escapeHtml(detail)}</span>` : ''}
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+                }
+            } else if (tabName === 'to-array') {
+                if (ops.toArray.length === 0) {
+                    html = '<div class="media-ops-empty">No items were moved to array during this run</div>';
+                } else {
+                    const restored = ops.toArray.filter(f => f.type === 'restore');
+                    const copied = ops.toArray.filter(f => f.type === 'copy');
+
+                    if (restored.length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▶</span>
+                            <span class="media-ops-user-name">Restored (via .plexcached)</span>
+                            <span class="media-ops-user-count">${restored.length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list">';
+                        restored.forEach(item => {
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+
+                    if (copied.length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▶</span>
+                            <span class="media-ops-user-name">Copied to array</span>
+                            <span class="media-ops-user-count">${copied.length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list">';
+                        copied.forEach(item => {
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+                }
+            } else if (tabName === 'retention') {
+                if (ops.retentionHolds.length === 0) {
+                    html = '<div class="media-ops-empty">No items in retention hold during this run (requires --verbose)</div>';
+                } else {
+                    // Group by reason
+                    const byReason = {
+                        retention: ops.retentionHolds.filter(h => h.reason === 'retention'),
+                        'episode-needed': ops.retentionHolds.filter(h => h.reason === 'episode-needed'),
+                        'previous-season': ops.retentionHolds.filter(h => h.reason === 'previous-season')
+                    };
+
+                    // Time-based retention holds
+                    if (byReason.retention.length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header expanded" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▼</span>
+                            <span class="media-ops-user-name">Time-Based Retention</span>
+                            <span class="media-ops-user-count">${byReason.retention.length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list visible">';
+                        byReason.retention.forEach(item => {
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                                <span class="media-ops-file-size retention-time">${item.timeLeft} left</span>
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+
+                    // Episode still needed
+                    if (byReason['episode-needed'].length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▶</span>
+                            <span class="media-ops-user-name">Episode Still Needed</span>
+                            <span class="media-ops-user-count">${byReason['episode-needed'].length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list">';
+                        byReason['episode-needed'].forEach(item => {
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                                <span class="media-ops-file-size">${item.detail || ''}</span>
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+
+                    // Previous season check
+                    if (byReason['previous-season'].length > 0) {
+                        html += '<div class="media-ops-user-section">';
+                        html += `<div class="media-ops-user-header" onclick="toggleMediaOpsSection(this)">
+                            <span class="media-ops-user-arrow">▶</span>
+                            <span class="media-ops-user-name">Previous Season (checking retention)</span>
+                            <span class="media-ops-user-count">${byReason['previous-season'].length} items</span>
+                        </div>`;
+                        html += '<div class="media-ops-file-list">';
+                        byReason['previous-season'].forEach(item => {
+                            html += `<div class="media-ops-file">
+                                <span class="media-ops-file-name">${escapeHtml(item.filename)}</span>
+                                <span class="media-ops-file-size">${item.detail || ''}</span>
+                            </div>`;
+                        });
+                        html += '</div></div>';
+                    }
+                }
+            }
+
+            contentEl.innerHTML = html;
+        }
+
+        // Render a user section with expandable file list
+        function renderUserFileSection(user, files, sectionId, countOverride) {
+            const count = countOverride || files.length;
+            const hasFiles = files.length > 0;
+
+            let html = '<div class="media-ops-user-section">';
+            html += `<div class="media-ops-user-header${hasFiles ? '' : ' no-expand'}" ${hasFiles ? `onclick="toggleMediaOpsSection(this)"` : ''}>`;
+            if (hasFiles) {
+                html += '<span class="media-ops-user-arrow">▶</span>';
+            }
+            html += `<span class="media-ops-user-name">${escapeHtml(user)}</span>`;
+            html += `<span class="media-ops-user-count">${count} items</span>`;
+            html += '</div>';
+
+            if (hasFiles) {
+                html += '<div class="media-ops-file-list">';
+                files.forEach(file => {
+                    html += `<div class="media-ops-file">
+                        <span class="media-ops-file-name">${escapeHtml(file.filename)}</span>
+                    </div>`;
+                });
+                html += '</div>';
+            }
+
+            html += '</div>';
+            return html;
+        }
+
+        // Toggle media operations section expansion
+        function toggleMediaOpsSection(header) {
+            const fileList = header.nextElementSibling;
+            if (fileList && fileList.classList.contains('media-ops-file-list')) {
+                const isVisible = fileList.classList.contains('visible');
+                fileList.classList.toggle('visible', !isVisible);
+                header.classList.toggle('expanded', !isVisible);
+            }
+        }
+
+        // Missing information detection
+        function detectMissingInfo(parsed) {
+            const hints = [];
+            const hasDebug = parsed.debug.length > 0;
+            const hasVerboseFlag = parsed.lines.some(l => /VERBOSE MODE/i.test(l.message));
+
+            if (!hasDebug && !hasVerboseFlag) {
+                hints.push({
+                    title: "No verbose/debug output",
+                    suggestion: "Ask user to re-run with --verbose flag for more detailed logs"
+                });
+            }
+
+            // Check if log seems truncated (no start marker)
+            const hasStart = parsed.lines.some(l => /=== PlexCache-R ===/i.test(l.message));
+            if (!hasStart && parsed.lines.length > 0) {
+                hints.push({
+                    title: "Log may be truncated",
+                    suggestion: "The log doesn't show the startup sequence - ask for complete log file"
+                });
+            }
+
+            // Check if log ends abruptly (no summary or completion)
+            const hasEnding = parsed.lines.some(l => /SUMMARY|Finished moving|complete/i.test(l.message));
+            if (!hasEnding && parsed.lines.length > 10) {
+                hints.push({
+                    title: "Log may be incomplete",
+                    suggestion: "No completion/summary found - script may have crashed or log was cut off"
+                });
+            }
+
+            return hints;
+        }
+
+        // Timeline event patterns
+        const TIMELINE_PATTERNS = [
+            { pattern: /=== PlexCache-R ===/i, event: "PlexCache-R Started", type: "info" },
+            { pattern: /Connected to Plex/i, event: "Connected to Plex Server", type: "success" },
+            { pattern: /--- Fetching Media ---/i, event: "Fetching Media Lists", type: "info" },
+            { pattern: /Fetching OnDeck media/i, event: "Fetching OnDeck", type: "info" },
+            { pattern: /Processing watchlist/i, event: "Processing Watchlist", type: "info" },
+            { pattern: /Authentication failed/i, event: "Authentication Failed", type: "error" },
+            { pattern: /plex\.tv unreachable/i, event: "Plex.tv Unreachable", type: "warning" },
+            { pattern: /active session.*Exiting/i, event: "Exited (Active Session)", type: "warning" },
+            { pattern: /Starting migration/i, event: "Starting Migration", type: "info" },
+            { pattern: /Migration Complete/i, event: "Migration Complete", type: "success" },
+            { pattern: /Moving files to cache/i, event: "Moving Files to Cache", type: "info" },
+            { pattern: /Moving files to array/i, event: "Moving Files to Array", type: "info" },
+            { pattern: /Cache limit reached/i, event: "Cache Limit Reached", type: "warning" },
+            { pattern: /Validating paths/i, event: "Validating Paths", type: "info" },
+            { pattern: /Path does not exist/i, event: "Path Validation Failed", type: "error" },
+            { pattern: /Restore complete/i, event: "Restore Complete", type: "success" },
+            { pattern: /Finished moving files/i, event: "File Operations Complete", type: "success" },
+            { pattern: /SUMMARY/i, event: "Run Summary", type: "success" },
+        ];
+
+        // Parse log into structured data
+        function parseLog(logText) {
+            const lines = logText.split('\n').filter(line => line.trim());
+            const parsed = {
+                lines: [],
+                errors: [],
+                warnings: [],
+                info: [],
+                debug: [],
+                startTime: null,
+                endTime: null
+            };
+
+            const logLineRegex = /^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}(?:,\d{3})?)\s*-\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL|SUMMARY)\s*-\s*(.+)$/i;
+
+            lines.forEach((line, index) => {
+                const match = line.match(logLineRegex);
+                if (match) {
+                    const entry = {
+                        lineNum: index + 1,
+                        timestamp: match[1],
+                        level: match[2].toUpperCase(),
+                        message: match[3],
+                        raw: line
+                    };
+                    parsed.lines.push(entry);
+
+                    // Track timestamps
+                    if (!parsed.startTime) parsed.startTime = entry.timestamp;
+                    parsed.endTime = entry.timestamp;
+
+                    // Categorize by level
+                    switch (entry.level) {
+                        case 'ERROR':
+                        case 'CRITICAL':
+                            parsed.errors.push(entry);
+                            break;
+                        case 'WARNING':
+                            parsed.warnings.push(entry);
+                            break;
+                        case 'INFO':
+                        case 'SUMMARY':
+                            parsed.info.push(entry);
+                            break;
+                        case 'DEBUG':
+                            parsed.debug.push(entry);
+                            break;
+                    }
+                } else if (line.trim()) {
+                    // Non-matching line (continuation or other format)
+                    parsed.lines.push({
+                        lineNum: index + 1,
+                        timestamp: null,
+                        level: 'UNKNOWN',
+                        message: line,
+                        raw: line
+                    });
+                }
+            });
+
+            return parsed;
+        }
+
+        // Detect problems in parsed log
+        function detectProblems(parsed) {
+            const problems = [];
+            const seenProblems = new Set();
+
+            parsed.lines.forEach(entry => {
+                PROBLEM_PATTERNS.forEach(pattern => {
+                    const match = entry.message.match(pattern.pattern);
+                    if (match) {
+                        const key = `${pattern.title}-${entry.lineNum}`;
+                        if (!seenProblems.has(pattern.title)) {
+                            seenProblems.add(pattern.title);
+                            problems.push({
+                                ...pattern,
+                                lineNum: entry.lineNum,
+                                timestamp: entry.timestamp,
+                                detail: pattern.extractDetail ? pattern.extractDetail(match) : null,
+                                rawMessage: entry.message
+                            });
+                        }
+                    }
+                });
+            });
+
+            return problems;
+        }
+
+        // Extract configuration from log
+        function extractConfig(parsed) {
+            const config = [];
+            const allText = parsed.lines.map(l => l.message).join('\n');
+
+            CONFIG_PATTERNS.forEach(pattern => {
+                // Skip fallback patterns if we already have the key
+                if (pattern.fallback && config.find(c => c.key === pattern.key)) {
+                    return;
+                }
+                const match = allText.match(pattern.pattern);
+                if (match) {
+                    config.push({
+                        key: pattern.key,
+                        value: pattern.extract ? pattern.extract(match) : pattern.value,
+                        class: pattern.class || ''
+                    });
+                }
+            });
+
+            // Add defaults for non-detected items
+            if (!config.find(c => c.key === "Dry Run")) {
+                config.push({ key: "Dry Run", value: "No", class: "no" });
+            }
+            if (!config.find(c => c.key === "Verbose")) {
+                // Check if we have DEBUG level messages
+                const hasDebug = parsed.debug.length > 0;
+                config.push({ key: "Verbose", value: hasDebug ? "Likely" : "No", class: hasDebug ? "" : "no" });
+            }
+
+            return config;
+        }
+
+        // Extract operations summary
+        function extractOperations(parsed) {
+            const operations = [];
+            const allText = parsed.lines.map(l => l.message).join('\n');
+
+            OPERATION_PATTERNS.forEach(pattern => {
+                const match = allText.match(pattern.pattern);
+                if (match) {
+                    // Avoid duplicates
+                    if (!operations.find(o => o.key === pattern.key)) {
+                        operations.push({
+                            key: pattern.key,
+                            value: pattern.extract ? pattern.extract(match) : pattern.value
+                        });
+                    }
+                }
+            });
+
+            return operations;
+        }
+
+        // Build timeline from log
+        function buildTimeline(parsed) {
+            const timeline = [];
+            const seenEvents = new Set();
+
+            parsed.lines.forEach(entry => {
+                TIMELINE_PATTERNS.forEach(pattern => {
+                    if (entry.message.match(pattern.pattern) && !seenEvents.has(pattern.event)) {
+                        seenEvents.add(pattern.event);
+                        timeline.push({
+                            time: entry.timestamp,
+                            event: pattern.event,
+                            type: pattern.type
+                        });
+                    }
+                });
+            });
+
+            return timeline;
+        }
+
+        // Calculate duration between timestamps
+        function calculateDuration(start, end) {
+            if (!start || !end) return '-';
+
+            try {
+                // Parse timestamps like "2024-01-15 10:30:22,123" or "2024-01-15 10:30:22"
+                const parseTs = (ts) => {
+                    const cleaned = ts.replace(',', '.');
+                    return new Date(cleaned.replace(' ', 'T'));
+                };
+
+                const startDate = parseTs(start);
+                const endDate = parseTs(end);
+                const diffMs = endDate - startDate;
+
+                if (isNaN(diffMs)) return '-';
+
+                const seconds = Math.floor(diffMs / 1000);
+                if (seconds < 60) return `${seconds}s`;
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                if (minutes < 60) return `${minutes}m ${remainingSeconds}s`;
+                const hours = Math.floor(minutes / 60);
+                const remainingMinutes = minutes % 60;
+                return `${hours}h ${remainingMinutes}m`;
+            } catch {
+                return '-';
+            }
+        }
+
+        // Generate text diagnosis for copying
+        function generateDiagnosisText(parsed, problems, config, operations, missingInfo) {
+            let text = '=== PlexCache-R Log Diagnosis ===\n\n';
+
+            text += 'Summary:\n';
+            text += `  Lines: ${parsed.lines.length}\n`;
+            text += `  Errors: ${parsed.errors.length}\n`;
+            text += `  Warnings: ${parsed.warnings.length}\n`;
+            text += `  Duration: ${calculateDuration(parsed.startTime, parsed.endTime)}\n\n`;
+
+            if (config.length > 0) {
+                text += 'Configuration:\n';
+                config.forEach(c => {
+                    text += `  ${c.key}: ${c.value}\n`;
+                });
+                text += '\n';
+            }
+
+            if (operations.length > 0) {
+                text += 'Operations:\n';
+                operations.forEach(o => {
+                    text += `  ${o.key}: ${o.value}\n`;
+                });
+                text += '\n';
+            }
+
+            if (problems.length > 0) {
+                text += 'Problems Found:\n';
+                problems.forEach(p => {
+                    const icon = p.severity === 'error' ? '❌' : p.severity === 'warning' ? '⚠️' : 'ℹ️';
+                    text += `  ${icon} ${p.title}`;
+                    if (p.detail) text += ` (${p.detail})`;
+                    text += ` [line ${p.lineNum}]\n`;
+                    if (p.suggestion) {
+                        text += `     → ${p.suggestion}\n`;
+                    }
+                });
+                text += '\n';
+            } else {
+                text += 'No problems detected! ✓\n\n';
+            }
+
+            if (missingInfo && missingInfo.length > 0) {
+                text += 'Missing Information:\n';
+                missingInfo.forEach(m => {
+                    text += `  💡 ${m.title}\n`;
+                    text += `     → ${m.suggestion}\n`;
+                });
+            }
+
+            return text;
+        }
+
+        // Render results to DOM
+        function renderResults(parsed, problems, config, operations, timeline, missingInfo) {
+            // Stats
+            const errorStat = document.getElementById('stat-errors');
+            const warnStat = document.getElementById('stat-warnings');
+            errorStat.querySelector('.stat-value').textContent = parsed.errors.length;
+            errorStat.className = `stat ${parsed.errors.length > 0 ? 'error' : 'success'}`;
+            warnStat.querySelector('.stat-value').textContent = parsed.warnings.length;
+            warnStat.className = `stat ${parsed.warnings.length > 0 ? 'warning' : 'success'}`;
+            document.querySelector('#stat-lines .stat-value').textContent = parsed.lines.length;
+            document.querySelector('#stat-duration .stat-value').textContent = calculateDuration(parsed.startTime, parsed.endTime);
+
+            // Config
+            const configList = document.getElementById('config-list');
+            configList.innerHTML = config.map(c => `
+                <li class="config-item">
+                    <span class="config-key">${c.key}</span>
+                    <span class="config-value ${c.class}">${c.value}</span>
+                </li>
+            `).join('') || '<li class="config-item"><span class="config-key">No configuration detected</span></li>';
+
+            // Operations
+            const opsList = document.getElementById('operations-list');
+            opsList.innerHTML = operations.map(o => `
+                <li class="config-item">
+                    <span class="config-key">${o.key}</span>
+                    <span class="config-value">${o.value}</span>
+                </li>
+            `).join('') || '<li class="config-item"><span class="config-key">No operations detected</span></li>';
+
+            // Problems
+            const problemList = document.getElementById('problem-list');
+            if (problems.length === 0) {
+                problemList.innerHTML = `
+                    <div class="no-problems">
+                        <div class="icon">✓</div>
+                        <div>No problems detected!</div>
+                        <div style="font-size: 0.9rem; margin-top: 10px; color: var(--text-secondary)">
+                            The log appears healthy. If there's still an issue, check for missing context or request verbose logs.
+                        </div>
+                    </div>
+                `;
+            } else {
+                problemList.innerHTML = problems.map(p => {
+                    const icon = p.severity === 'error' ? '❌' : p.severity === 'warning' ? '⚠️' : 'ℹ️';
+                    return `
+                        <li class="problem-item ${p.severity}">
+                            <div class="problem-header">
+                                <span class="problem-title">
+                                    <span class="icon">${icon}</span>
+                                    ${p.title}
+                                </span>
+                                <span class="problem-line">Line ${p.lineNum}</span>
+                            </div>
+                            ${p.detail ? `<div class="problem-detail">${p.detail}</div>` : ''}
+                            ${p.suggestion ? `<div class="problem-suggestion">→ ${p.suggestion}</div>` : ''}
+                        </li>
+                    `;
+                }).join('');
+            }
+
+            // Timeline
+            const timelineEl = document.getElementById('timeline');
+            if (timeline.length === 0) {
+                timelineEl.innerHTML = '<div style="color: var(--text-secondary)">No timeline events detected</div>';
+            } else {
+                timelineEl.innerHTML = timeline.map(t => `
+                    <div class="timeline-item ${t.type}">
+                        <div class="timeline-time">${t.time || ''}</div>
+                        <div class="timeline-event">${t.event}</div>
+                    </div>
+                `).join('');
+            }
+
+            // Log lines
+            renderLogLines(parsed.lines, 'all');
+
+            // Missing info
+            const missingCard = document.getElementById('missing-info-card');
+            const missingList = document.getElementById('missing-info-list');
+            if (missingInfo && missingInfo.length > 0) {
+                missingCard.style.display = 'block';
+                missingList.innerHTML = missingInfo.map(m => `
+                    <li class="problem-item info">
+                        <div class="problem-header">
+                            <span class="problem-title">
+                                <span class="icon">💡</span>
+                                ${m.title}
+                            </span>
+                        </div>
+                        <div class="problem-suggestion">→ ${m.suggestion}</div>
+                    </li>
+                `).join('');
+            } else {
+                missingCard.style.display = 'none';
+            }
+
+            // Show results section
+            document.getElementById('results').classList.add('visible');
+        }
+
+        // Search state
+        let searchState = {
+            query: '',
+            matches: [],
+            currentIndex: 0
+        };
+
+        // Render filtered log lines with search highlighting
+        function renderLogLines(lines, filter, searchQuery = '', userFilter = 'all') {
+            const container = document.getElementById('log-lines');
+            let filtered = filter === 'all' ? lines : lines.filter(l => l.level.toLowerCase() === filter);
+
+            // Apply user filter
+            // Prioritizes new [USER:name] format, falls back to legacy patterns
+            if (userFilter !== 'all') {
+                filtered = filtered.filter(l => {
+                    // New structured format: [USER:name]
+                    if (l.message.includes(`[USER:${userFilter}]`)) {
+                        return true;
+                    }
+                    // Legacy fallback patterns
+                    const msg = l.message.toLowerCase();
+                    const user = userFilter.toLowerCase();
+                    return msg.includes(`[${user}]`) || msg.includes(`'${user}'`) || msg.includes(`${user}'s `);
+                });
+            }
+
+            // Track search matches
+            searchState.matches = [];
+
+            container.innerHTML = filtered.map((l, idx) => {
+                const levelClass = l.level.toLowerCase();
+                let content = escapeHtml(l.raw);
+
+                // Apply search highlighting
+                if (searchQuery && searchQuery.length >= 2) {
+                    const regex = new RegExp(`(${escapeRegex(searchQuery)})`, 'gi');
+                    if (regex.test(l.raw)) {
+                        searchState.matches.push(idx);
+                        content = content.replace(regex, '<span class="search-highlight">$1</span>');
+                    }
+                }
+
+                const isCurrentMatch = searchState.matches.length > 0 &&
+                                       searchState.matches[searchState.currentIndex] === idx;
+
+                return `<div class="log-line ${levelClass} ${isCurrentMatch ? 'current-match' : ''}" data-idx="${idx}">
+                    <span class="log-line-num">${l.lineNum}</span>
+                    <span class="log-line-content">${content}</span>
+                </div>`;
+            }).join('') || '<div style="color: var(--text-secondary)">No matching log lines</div>';
+
+            // Update search count
+            updateSearchCount();
+        }
+
+        // Escape regex special characters
+        function escapeRegex(string) {
+            return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        // Update search results count display
+        function updateSearchCount() {
+            const countEl = document.getElementById('search-results-count');
+            if (searchState.matches.length > 0) {
+                countEl.textContent = `${searchState.currentIndex + 1} / ${searchState.matches.length}`;
+                countEl.classList.add('has-results');
+            } else if (searchState.query.length >= 2) {
+                countEl.textContent = '0 results';
+                countEl.classList.remove('has-results');
+            } else {
+                countEl.textContent = '0 results';
+                countEl.classList.remove('has-results');
+            }
+        }
+
+        // Navigate to search match
+        function navigateSearch(direction) {
+            if (searchState.matches.length === 0) return;
+
+            if (direction === 'next') {
+                searchState.currentIndex = (searchState.currentIndex + 1) % searchState.matches.length;
+            } else {
+                searchState.currentIndex = (searchState.currentIndex - 1 + searchState.matches.length) % searchState.matches.length;
+            }
+
+            // Re-render with updated current match
+            const currentFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'all';
+            const currentUser = document.getElementById('user-filter')?.value || 'all';
+            renderLogLines(window.lastParsed.lines, currentFilter, searchState.query, currentUser);
+
+            // Scroll to match
+            const matchEl = document.querySelector('.log-line.current-match');
+            if (matchEl) {
+                matchEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        // Jump to specific line
+        function jumpToLine(lineNum) {
+            const container = document.getElementById('log-lines');
+            const logLines = container.querySelectorAll('.log-line');
+
+            for (const line of logLines) {
+                const numSpan = line.querySelector('.log-line-num');
+                if (numSpan && parseInt(numSpan.textContent) === lineNum) {
+                    line.classList.add('highlight');
+                    line.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    setTimeout(() => line.classList.remove('highlight'), 2000);
+                    break;
+                }
+            }
+        }
+
+        // Render section navigation tabs
+        function renderSectionNav(sections, totalLines) {
+            const nav = document.getElementById('section-nav');
+
+            // Generate section tabs (count is included in the generated HTML)
+            let tabsHtml = `<button class="section-tab active" data-section="all">All <span class="count">${totalLines}</span></button>`;
+
+            LOG_SECTIONS.forEach(section => {
+                const sectionData = sections[section.id];
+                if (sectionData.lines.length > 0) {
+                    let classes = 'section-tab';
+                    if (sectionData.hasErrors) classes += ' has-errors';
+                    else if (sectionData.hasWarnings) classes += ' has-warnings';
+
+                    tabsHtml += `<button class="${classes}" data-section="${section.id}">
+                        ${section.name} <span class="count">${sectionData.lines.length}</span>
+                    </button>`;
+                }
+            });
+
+            nav.innerHTML = tabsHtml;
+
+            // Add click handlers
+            nav.querySelectorAll('.section-tab').forEach(tab => {
+                tab.addEventListener('click', () => {
+                    nav.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+
+                    const sectionId = tab.dataset.section;
+                    if (sectionId === 'all') {
+                        renderLogLines(window.lastParsed.lines, 'all', searchState.query);
+                    } else {
+                        const sectionLines = sections[sectionId].lines;
+                        renderLogLines(sectionLines, 'all', searchState.query);
+                    }
+                });
+            });
+        }
+
+        // Render user filter dropdown
+        function renderUserFilter(users) {
+            const select = document.getElementById('user-filter');
+            select.innerHTML = '<option value="all">All Users</option>';
+
+            users.forEach(user => {
+                select.innerHTML += `<option value="${escapeHtml(user)}">${escapeHtml(user)}</option>`;
+            });
+        }
+
+        // Render path mappings
+        function renderPathMappings(mappings) {
+            const card = document.getElementById('path-mappings-card');
+            const list = document.getElementById('path-mapping-list');
+
+            if (mappings.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+            list.innerHTML = mappings.map(m => `
+                <li class="path-mapping-item ${m.enabled ? '' : 'disabled'}">
+                    <div class="path-mapping-name">${escapeHtml(m.name)} ${m.enabled ? '' : '(disabled)'}</div>
+                    <div class="path-mapping-stats">
+                        <span class="path-mapping-stat">Conversions: <span>${m.conversions}</span></span>
+                    </div>
+                </li>
+            `).join('');
+        }
+
+        // Render retention analysis
+        function renderRetentionAnalysis(retention) {
+            const card = document.getElementById('retention-card');
+            const tbody = document.getElementById('retention-tbody');
+
+            if (retention.length === 0) {
+                card.style.display = 'none';
+                return;
+            }
+
+            card.style.display = 'block';
+            tbody.innerHTML = retention.map((r, idx) => {
+                const hasFiles = r.files && r.files.length > 0;
+                const toggleClass = hasFiles ? 'retention-expandable' : '';
+                const arrow = hasFiles ? '<span class="expand-arrow">▶</span>' : '<span class="expand-arrow-placeholder"></span>';
+
+                // Build file details HTML
+                let filesHtml = '';
+                if (hasFiles) {
+                    const expiredFiles = r.files.filter(f => f.status === 'expired');
+                    const retainedFiles = r.files.filter(f => f.status === 'retained');
+
+                    filesHtml = '<div class="retention-files">';
+                    if (expiredFiles.length > 0) {
+                        filesHtml += '<div class="retention-files-section"><strong>Expired:</strong>';
+                        filesHtml += '<ul>' + expiredFiles.map(f =>
+                            `<li><span class="file-status expired">✗</span> ${escapeHtml(f.filename)} <span class="file-details">(${escapeHtml(f.details)})</span></li>`
+                        ).join('') + '</ul></div>';
+                    }
+                    if (retainedFiles.length > 0) {
+                        filesHtml += '<div class="retention-files-section"><strong>Retained:</strong>';
+                        filesHtml += '<ul>' + retainedFiles.map(f =>
+                            `<li><span class="file-status retained">✓</span> ${escapeHtml(f.filename)} <span class="file-details">(${escapeHtml(f.details)})</span></li>`
+                        ).join('') + '</ul></div>';
+                    }
+                    filesHtml += '</div>';
+                }
+
+                return `
+                    <tr class="${toggleClass}" data-retention-idx="${idx}">
+                        <td>${arrow} ${escapeHtml(r.user)}</td>
+                        <td class="${r.expired > 0 ? 'expired' : ''}">${r.expired}</td>
+                        <td class="${r.retained > 0 ? 'retained' : ''}">${r.retained}</td>
+                        <td>${r.expired > 0 ? 'Exceeded retention limit' : 'Within retention period'}</td>
+                    </tr>
+                    ${hasFiles ? `<tr class="retention-details-row" data-retention-parent="${idx}" style="display: none;"><td colspan="4">${filesHtml}</td></tr>` : ''}
+                `;
+            }).join('');
+
+            // Add click handlers for expandable rows
+            tbody.querySelectorAll('.retention-expandable').forEach(row => {
+                row.addEventListener('click', () => {
+                    const idx = row.dataset.retentionIdx;
+                    const detailsRow = tbody.querySelector(`tr[data-retention-parent="${idx}"]`);
+                    const arrow = row.querySelector('.expand-arrow');
+                    if (detailsRow) {
+                        const isExpanded = detailsRow.style.display !== 'none';
+                        detailsRow.style.display = isExpanded ? 'none' : 'table-row';
+                        arrow.textContent = isExpanded ? '▶' : '▼';
+                        row.classList.toggle('expanded', !isExpanded);
+                    }
+                });
+            });
+        }
+
+        // Escape HTML
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Main analyze function
+        function analyzeLog() {
+            const logText = document.getElementById('log-input').value.trim();
+            if (!logText) {
+                alert('Please paste a log file first.');
+                return;
+            }
+
+            const parsed = parseLog(logText);
+            if (parsed.lines.length === 0) {
+                alert('Could not parse any log lines. Make sure this is a valid PlexCache-R log.');
+                return;
+            }
+
+            const problems = detectProblems(parsed);
+            const config = extractConfig(parsed);
+            const operations = extractOperations(parsed);
+            const timeline = buildTimeline(parsed);
+            const missingInfo = detectMissingInfo(parsed);
+
+            // New extractions
+            const sections = detectSections(parsed);
+            const users = extractUsers(parsed);
+            const pathMappings = extractPathMappings(parsed);
+            const retention = extractRetentionAnalysis(parsed);
+            const mediaOps = extractMediaOperations(parsed);
+
+            // Store for copy function and filtering
+            window.lastDiagnosis = generateDiagnosisText(parsed, problems, config, operations, missingInfo);
+            window.lastParsed = parsed;
+            window.lastSections = sections;
+            window.lastUsers = users;
+
+            // Reset search state
+            searchState = { query: '', matches: [], currentIndex: 0 };
+
+            // Render all results
+            renderResults(parsed, problems, config, operations, timeline, missingInfo);
+            renderSectionNav(sections, parsed.lines.length);
+            renderUserFilter(users);
+            renderPathMappings(pathMappings);
+            renderRetentionAnalysis(retention);
+            renderMediaOperations(mediaOps);
+
+            // Update quick stats
+            document.getElementById('qs-lines').textContent = parsed.lines.length;
+            document.getElementById('qs-errors').textContent = parsed.errors.length;
+            document.getElementById('qs-warnings').textContent = parsed.warnings.length;
+            document.getElementById('qs-duration').textContent = calculateDuration(parsed.startTime, parsed.endTime);
+            document.getElementById('qs-users').textContent = users.length;
+
+            // Style error/warning quick stats
+            const errContainer = document.getElementById('qs-errors-container');
+            const warnContainer = document.getElementById('qs-warnings-container');
+            errContainer.style.borderColor = parsed.errors.length > 0 ? 'var(--error)' : 'var(--border)';
+            warnContainer.style.borderColor = parsed.warnings.length > 0 ? 'var(--warning)' : 'var(--border)';
+
+            // Switch from input view to log viewer view
+            document.getElementById('input-section').style.display = 'none';
+            document.getElementById('log-viewer-section').style.display = 'block';
+        }
+
+        // Switch back to input mode
+        function resetToInputMode() {
+            // Switch views
+            document.getElementById('input-section').style.display = 'block';
+            document.getElementById('log-viewer-section').style.display = 'none';
+            document.getElementById('results').classList.remove('visible');
+
+            // Clear input
+            document.getElementById('log-input').value = '';
+
+            // Reset search state
+            searchState = { query: '', matches: [], currentIndex: 0 };
+            document.getElementById('search-input').value = '';
+
+            // Reset filter buttons to "All"
+            document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+            document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+
+            // Reset user filter dropdown
+            document.getElementById('user-filter').value = 'all';
+
+            // Reset collapse DEBUG button and state
+            const collapseBtn = document.getElementById('collapse-debug-btn');
+            collapseBtn.textContent = 'Collapse DEBUG';
+            collapseBtn.classList.remove('active');
+            debugCollapsed = false;
+
+            // Clear stored data
+            window.lastParsed = null;
+            window.lastDiagnosis = null;
+            window.lastSections = null;
+            window.lastUsers = null;
+            window.mediaOpsData = null;
+        }
+
+        // Event listeners
+        document.getElementById('analyze-btn').addEventListener('click', analyzeLog);
+
+        document.getElementById('clear-btn').addEventListener('click', resetToInputMode);
+
+        // New Log button (in viewer mode)
+        document.getElementById('new-log-btn').addEventListener('click', resetToInputMode);
+
+        // Copy diagnosis buttons (there are two - one in results, one in viewer header)
+        function copyDiagnosis(btn) {
+            if (window.lastDiagnosis) {
+                navigator.clipboard.writeText(window.lastDiagnosis).then(() => {
+                    const originalText = btn.textContent;
+                    btn.textContent = 'Copied!';
+                    setTimeout(() => btn.textContent = originalText, 2000);
+                });
+            }
+        }
+
+        document.getElementById('copy-diagnosis-btn').addEventListener('click', (e) => copyDiagnosis(e.target));
+        document.getElementById('copy-diagnosis-btn-top').addEventListener('click', (e) => copyDiagnosis(e.target));
+
+        // Filter buttons
+        document.querySelectorAll('.filter-btn[data-filter]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                if (window.lastParsed) {
+                    const userFilter = document.getElementById('user-filter')?.value || 'all';
+                    renderLogLines(window.lastParsed.lines, btn.dataset.filter, searchState.query, userFilter);
+                }
+            });
+        });
+
+        // Search input
+        document.getElementById('search-input').addEventListener('input', (e) => {
+            searchState.query = e.target.value;
+            searchState.currentIndex = 0;
+            if (window.lastParsed) {
+                const currentFilter = document.querySelector('.filter-btn[data-filter].active')?.dataset.filter || 'all';
+                const userFilter = document.getElementById('user-filter')?.value || 'all';
+                renderLogLines(window.lastParsed.lines, currentFilter, searchState.query, userFilter);
+
+                // Auto-scroll to first match
+                if (searchState.matches.length > 0) {
+                    const matchEl = document.querySelector('.log-line.current-match');
+                    if (matchEl) {
+                        matchEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }
+                }
+            }
+        });
+
+        // Search navigation
+        document.getElementById('search-prev').addEventListener('click', () => navigateSearch('prev'));
+        document.getElementById('search-next').addEventListener('click', () => navigateSearch('next'));
+
+        // Keyboard shortcuts for search
+        document.addEventListener('keydown', (e) => {
+            // Ctrl+F to focus search
+            if (e.ctrlKey && e.key === 'f') {
+                e.preventDefault();
+                document.getElementById('search-input').focus();
+            }
+            // Enter to go to next match when search focused
+            if (e.key === 'Enter' && document.activeElement === document.getElementById('search-input')) {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    navigateSearch('prev');
+                } else {
+                    navigateSearch('next');
+                }
+            }
+            // F3 for next/prev match
+            if (e.key === 'F3') {
+                e.preventDefault();
+                if (e.shiftKey) {
+                    navigateSearch('prev');
+                } else {
+                    navigateSearch('next');
+                }
+            }
+        });
+
+        // User filter
+        document.getElementById('user-filter').addEventListener('change', (e) => {
+            if (window.lastParsed) {
+                const currentFilter = document.querySelector('.filter-btn[data-filter].active')?.dataset.filter || 'all';
+                renderLogLines(window.lastParsed.lines, currentFilter, searchState.query, e.target.value);
+            }
+        });
+
+        // Collapse DEBUG button
+        let debugCollapsed = false;
+        document.getElementById('collapse-debug-btn').addEventListener('click', (e) => {
+            debugCollapsed = !debugCollapsed;
+            e.target.textContent = debugCollapsed ? 'Expand DEBUG' : 'Collapse DEBUG';
+            e.target.classList.toggle('active', debugCollapsed);
+
+            if (window.lastParsed) {
+                if (debugCollapsed) {
+                    // Filter out debug lines
+                    const nonDebug = window.lastParsed.lines.filter(l => l.level !== 'DEBUG');
+                    const userFilter = document.getElementById('user-filter')?.value || 'all';
+                    renderLogLines(nonDebug, 'all', searchState.query, userFilter);
+                } else {
+                    const currentFilter = document.querySelector('.filter-btn[data-filter].active')?.dataset.filter || 'all';
+                    const userFilter = document.getElementById('user-filter')?.value || 'all';
+                    renderLogLines(window.lastParsed.lines, currentFilter, searchState.query, userFilter);
+                }
+            }
+        });
+
+        // Click on problem line number to jump to that line
+        document.addEventListener('click', (e) => {
+            if (e.target.classList.contains('problem-line')) {
+                const lineNum = parseInt(e.target.textContent.replace('Line ', ''));
+                if (lineNum) {
+                    // Reset filters to show all
+                    document.querySelectorAll('.filter-btn[data-filter]').forEach(b => b.classList.remove('active'));
+                    document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+                    document.getElementById('user-filter').value = 'all';
+
+                    // Reset section nav
+                    document.querySelectorAll('.section-tab').forEach(t => t.classList.remove('active'));
+                    document.querySelector('.section-tab[data-section="all"]')?.classList.add('active');
+
+                    // Render all and jump
+                    renderLogLines(window.lastParsed.lines, 'all', '', 'all');
+                    setTimeout(() => jumpToLine(lineNum), 100);
+                }
+            }
+        });
+
+        // Drag and drop
+        const dropZone = document.getElementById('drop-zone');
+        const textarea = document.getElementById('log-input');
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, e => {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(event => {
+            dropZone.addEventListener(event, () => dropZone.classList.add('drag-over'));
+        });
+
+        ['dragleave', 'drop'].forEach(event => {
+            dropZone.addEventListener(event, () => dropZone.classList.remove('drag-over'));
+        });
+
+        dropZone.addEventListener('drop', e => {
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                const file = files[0];
+                const reader = new FileReader();
+                reader.onload = e => {
+                    textarea.value = e.target.result;
+                };
+                reader.readAsText(file);
+            }
+        });
+
+        // Sample log for testing - comprehensive example showing all features
+        document.getElementById('sample-btn').addEventListener('click', () => {
+            textarea.value = `2024-01-15 10:30:22,123 - INFO -
+2024-01-15 10:30:22,124 - INFO - === PlexCache-R ===
+2024-01-15 10:30:22,456 - DEBUG - Loading configuration...
+2024-01-15 10:30:22,789 - DEBUG - Initializing components...
+2024-01-15 10:30:23,012 - INFO - VERBOSE MODE enabled
+2024-01-15 10:30:23,100 - INFO - Using multi-path mode with 3 mappings (2 enabled)
+2024-01-15 10:30:23,345 - DEBUG - Connecting to Plex server: http://192.168.1.100:32400
+2024-01-15 10:30:24,678 - INFO - Connected to Plex (5 users)
+2024-01-15 10:30:24,800 - DEBUG - Cache retention: 24 hours
+2024-01-15 10:30:24,801 - DEBUG - Watchlist retention: 7 days
+2024-01-15 10:30:24,901 - DEBUG - Validating paths...
+2024-01-15 10:30:25,123 - INFO -
+2024-01-15 10:30:25,124 - INFO - --- Fetching Media ---
+2024-01-15 10:30:25,456 - DEBUG - Fetching OnDeck media for Admin...
+2024-01-15 10:30:26,100 - DEBUG - [Admin] OnDeck found: Movie1.mkv
+2024-01-15 10:30:26,200 - DEBUG - [Admin] OnDeck found: Episode S01E01.mkv
+2024-01-15 10:30:26,789 - DEBUG - Fetching OnDeck media for Sarah...
+2024-01-15 10:30:27,100 - DEBUG - [Sarah] OnDeck found: Documentary.mp4
+2024-01-15 10:30:27,500 - DEBUG - Fetching OnDeck media for Mike...
+2024-01-15 10:30:27,800 - DEBUG - [Mike] OnDeck found: ShowS02E05.mkv
+2024-01-15 10:30:28,789 - INFO - OnDeck: 12 items from 3 users
+2024-01-15 10:30:29,012 - DEBUG - Processing watchlist media...
+2024-01-15 10:30:29,500 - DEBUG - Converted path using 'Movies' mapping
+2024-01-15 10:30:29,600 - DEBUG - Converted path using 'Movies' mapping
+2024-01-15 10:30:29,700 - DEBUG - Converted path using 'TV Shows' mapping
+2024-01-15 10:30:29,800 - DEBUG - Skipping disabled path mapping 'Anime'
+2024-01-15 10:30:30,000 - DEBUG - Processing watchlist for User 'Admin'
+2024-01-15 10:30:30,500 - DEBUG - Admin watchlist: 5 items
+2024-01-15 10:30:31,000 - DEBUG - Processing watchlist for User 'Sarah'
+2024-01-15 10:30:31,500 - DEBUG - Sarah watchlist: 3 items
+2024-01-15 10:30:32,000 - INFO - Watchlist: 8 items from 2 users
+2024-01-15 10:30:32,345 - WARNING - [PLEX API] No cached token for GuestUser, fetching fresh...
+2024-01-15 10:30:33,000 - DEBUG - Finding subtitles for Movie1.mkv
+2024-01-15 10:30:33,200 - DEBUG - subtitle found: Movie1.srt
+2024-01-15 10:30:33,500 - DEBUG - Finding subtitles for Documentary.mp4
+2024-01-15 10:30:35,000 - DEBUG - Checking retention expiry...
+2024-01-15 10:30:35,200 - INFO - Watchlist retention expired: 2 items for Admin moved to array
+2024-01-15 10:30:35,678 - INFO - Total media to cache: 8 files
+2024-01-15 10:30:36,000 - DEBUG - File already on cache: Episode S01E01.mkv
+2024-01-15 10:30:36,200 - DEBUG - File already on cache: ShowS02E05.mkv
+2024-01-15 10:30:36,500 - DEBUG - Moving Movie1.mkv to cache...
+2024-01-15 10:30:36,901 - DEBUG - Checking for files to move back to array...
+2024-01-15 10:30:37,123 - WARNING - Skipping array restore - watchlist data incomplete (plex.tv unreachable)
+2024-01-15 10:30:37,456 - WARNING - Files will remain on cache until next successful run
+2024-01-15 10:30:38,789 - INFO - Skipped 2 active session(s)
+2024-01-15 10:30:40,000 - DEBUG - Moving Documentary.mp4 to cache...
+2024-01-15 10:30:42,000 - DEBUG - Moving NewRelease.mkv to cache...
+2024-01-15 10:30:44,000 - DEBUG - Moving files to array: OldMovie.mkv
+2024-01-15 10:30:45,012 - SUMMARY - Moved 5 files to cache (12.3 GB)
+2024-01-15 10:30:45,100 - SUMMARY - Moved 3 files to array (8.7 GB)
+2024-01-15 10:30:45,200 - INFO - Completed in 23 seconds`;
+            analyzeLog();
+        });
+
+        // Allow Ctrl+Enter to analyze
+        textarea.addEventListener('keydown', e => {
+            if (e.ctrlKey && e.key === 'Enter') {
+                analyzeLog();
+            }
+        });
+    </script>
+</body>
+</html>
