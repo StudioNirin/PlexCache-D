@@ -2208,7 +2208,7 @@ Example log format:
                         const files = byUser[user];
                         html += '<div class="media-ops-user-section">';
                         html += `<div class="media-ops-user-header${idx === 0 ? ' expanded' : ''}" onclick="toggleMediaOpsSection(this)">
-                            <span class="media-ops-user-arrow">${idx === 0 ? '▼' : '▶'}</span>
+                            <span class="media-ops-user-arrow">▶</span>
                             <span class="media-ops-user-name">${escapeHtml(user)}</span>
                             <span class="media-ops-user-count">${files.length} items</span>
                         </div>`;
@@ -2296,7 +2296,7 @@ Example log format:
                     if (byReason.retention.length > 0) {
                         html += '<div class="media-ops-user-section">';
                         html += `<div class="media-ops-user-header expanded" onclick="toggleMediaOpsSection(this)">
-                            <span class="media-ops-user-arrow">▼</span>
+                            <span class="media-ops-user-arrow">▶</span>
                             <span class="media-ops-user-name">Time-Based Retention</span>
                             <span class="media-ops-user-count">${byReason.retention.length} items</span>
                         </div>`;
