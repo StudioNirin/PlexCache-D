@@ -80,6 +80,13 @@ class PlexCacheApp:
             # Set up notification handlers now that config is loaded
             self._setup_notification_handlers()
 
+            # Set debug mode early so all debug messages show
+            self._set_debug_mode()
+
+            # Log startup diagnostics after log level is configured
+            if self.verbose:
+                self._log_startup_diagnostics()
+
             # Initialize components that depend on config
             logging.debug("Initializing components...")
             self._initialize_components()
@@ -93,9 +100,6 @@ class PlexCacheApp:
 
             # Connect to Plex
             self._connect_to_plex()
-
-            # Set debug mode (before processing)
-            self._set_debug_mode()
 
             # Check for active sessions
             self._check_active_sessions()
@@ -197,7 +201,42 @@ class PlexCacheApp:
             self.system_detector.is_unraid,
             self.system_detector.is_docker
         )
-    
+
+    def _log_startup_diagnostics(self) -> None:
+        """Log system diagnostics at startup in verbose mode for debugging."""
+        import platform
+
+        logging.debug("=== Startup Diagnostics ===")
+        logging.debug(f"Platform: {platform.system()} {platform.release()}")
+        logging.debug(f"Python: {platform.python_version()}")
+
+        if self.system_detector.is_linux:
+            try:
+                import pwd
+                uid = os.getuid()
+                gid = os.getgid()
+                username = pwd.getpwuid(uid).pw_name
+                logging.debug(f"Running as: {username} (uid={uid}, gid={gid})")
+            except Exception as e:
+                logging.debug(f"Could not get user info: {e}")
+        else:
+            logging.debug(f"Running as: {os.getlogin() if hasattr(os, 'getlogin') else 'unknown'}")
+
+        logging.debug(f"Unraid detected: {self.system_detector.is_unraid}")
+        logging.debug(f"Docker detected: {self.system_detector.is_docker}")
+        logging.debug("===========================")
+
+    def _log_diagnostic_summary(self, folders_cleaned: int, folders_failed: int) -> None:
+        """Log diagnostic summary at end of run in verbose mode."""
+        logging.debug("")
+        logging.debug("=== Diagnostic Summary ===")
+        logging.debug(f"Files moved to cache: {len(self.media_to_cache)}")
+        logging.debug(f"Files moved to array: {len(self.media_to_array)}")
+        logging.debug(f"Empty folders removed: {folders_cleaned}")
+        if folders_failed > 0:
+            logging.debug(f"Empty folders failed: {folders_failed}")
+        logging.debug("==========================")
+
     def _initialize_components(self) -> None:
         """Initialize components that depend on configuration."""
         logging.debug("Initializing application components...")
@@ -789,7 +828,7 @@ class PlexCacheApp:
         self.logging_manager.log_summary()
 
         # Clean up empty folders in cache
-        self.cache_cleanup.cleanup_empty_folders()
+        folders_cleaned, folders_failed = self.cache_cleanup.cleanup_empty_folders()
 
         # Clean up stale timestamp entries for files that no longer exist
         if hasattr(self, 'timestamp_tracker') and self.timestamp_tracker:
@@ -799,6 +838,10 @@ class PlexCacheApp:
         if hasattr(self, 'watchlist_tracker') and self.watchlist_tracker:
             self.watchlist_tracker.cleanup_stale_entries()
             self.watchlist_tracker.cleanup_missing_files()
+
+        # Log diagnostic summary in verbose mode
+        if self.verbose:
+            self._log_diagnostic_summary(folders_cleaned, folders_failed)
 
         logging.info("")
         logging.info(f"Completed in {execution_time}")

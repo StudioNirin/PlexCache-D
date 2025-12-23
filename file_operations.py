@@ -665,8 +665,20 @@ class PlexcachedMigration:
                 if not os.path.exists(array_dir):
                     os.makedirs(array_dir, exist_ok=True)
 
-                # Copy cache file to array as .plexcached
-                shutil.copy2(cache_file, plexcached_file)
+                # Copy cache file to array as .plexcached (preserving ownership on Linux)
+                if self.is_unraid:
+                    # Get source ownership before copy
+                    stat_info = os.stat(cache_file)
+                    src_uid = stat_info.st_uid
+                    src_gid = stat_info.st_gid
+
+                    shutil.copy2(cache_file, plexcached_file)
+
+                    # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
+                    os.chown(plexcached_file, src_uid, src_gid)
+                    logging.debug(f"  Preserved ownership: uid={src_uid}, gid={src_gid}")
+                else:
+                    shutil.copy2(cache_file, plexcached_file)
 
                 # Verify copy succeeded
                 if os.path.isfile(plexcached_file):
@@ -1760,9 +1772,9 @@ class FileMover:
                     # The exclude list stores full cache paths, so join the cache directory with the old filename
                     old_cache_file_to_remove = os.path.join(os.path.dirname(cache_file_name), old_name)
 
-            # Step 1: Copy file from array to cache (preserving metadata)
+            # Step 1: Copy file from array to cache (preserving metadata and ownership)
             logging.debug(f"Starting copy: {array_file} -> {cache_file_name}")
-            shutil.copy2(array_file, cache_file_name)
+            self.file_utils.copy_file_with_permissions(array_file, cache_file_name, verbose=True)
             logging.debug(f"Copy complete: {os.path.basename(array_file)}")
 
             # Validate copy succeeded
@@ -1833,7 +1845,7 @@ class FileMover:
                     # In-place upgrade: same filename but different file content
                     logging.info(f"In-place upgrade detected ({self._format_size(plexcached_size)} -> {self._format_size(cache_size)}): {os.path.basename(cache_file)}")
                     os.remove(plexcached_file)
-                    shutil.copy2(cache_file, array_file)
+                    self.file_utils.copy_file_with_permissions(cache_file, array_file, verbose=True)
                     logging.debug(f"Copied upgraded file to array: {array_file}")
 
                     # Verify copy succeeded
@@ -1863,9 +1875,9 @@ class FileMover:
                     os.remove(old_plexcached)
                     logging.debug(f"Deleted old .plexcached: {old_plexcached}")
 
-                    # Copy the upgraded cache file to array
+                    # Copy the upgraded cache file to array (preserving ownership)
                     cache_size = os.path.getsize(cache_file)
-                    shutil.copy2(cache_file, array_file)
+                    self.file_utils.copy_file_with_permissions(cache_file, array_file, verbose=True)
                     logging.debug(f"Copied upgraded file to array: {array_file}")
 
                     # Verify copy succeeded
@@ -1876,11 +1888,11 @@ class FileMover:
                             os.remove(array_file)
                             return 1
 
-                # Scenario 3: No .plexcached at all - copy to array
+                # Scenario 3: No .plexcached at all - copy to array (preserving ownership)
                 elif not os.path.isfile(array_file):
                     logging.debug(f"No .plexcached found, copying from cache to array: {cache_file}")
                     cache_size = os.path.getsize(cache_file)
-                    shutil.copy2(cache_file, array_file)
+                    self.file_utils.copy_file_with_permissions(cache_file, array_file, verbose=True)
                     logging.debug(f"Copied to array: {array_file}")
 
                     # Verify copy succeeded by comparing file sizes
@@ -2027,10 +2039,15 @@ class CacheCleanup:
         self.cache_dir = cache_dir
         self.library_folders = library_folders or []
 
-    def cleanup_empty_folders(self) -> None:
-        """Remove empty folders from cache directories."""
+    def cleanup_empty_folders(self) -> Tuple[int, int]:
+        """Remove empty folders from cache directories.
+
+        Returns:
+            Tuple of (cleaned_count, failed_count)
+        """
         logging.debug("Starting cache cleanup process...")
         cleaned_count = 0
+        failed_count = 0
 
         # Use configured library folders, or fall back to scanning cache_dir subdirectories
         if self.library_folders:
@@ -2048,17 +2065,26 @@ class CacheCleanup:
             subdir_path = os.path.join(self.cache_dir, subdir)
             if os.path.exists(subdir_path):
                 logging.debug(f"Cleaning up {subdir} directory: {subdir_path}")
-                cleaned_count += self._cleanup_directory(subdir_path)
+                cleaned, failed = self._cleanup_directory(subdir_path)
+                cleaned_count += cleaned
+                failed_count += failed
             else:
                 logging.debug(f"Directory does not exist, skipping: {subdir_path}")
-        
+
         if cleaned_count > 0:
             logging.info(f"Cleaned up {cleaned_count} empty folders")
+
+        return cleaned_count, failed_count
     
-    def _cleanup_directory(self, directory_path: str) -> int:
-        """Recursively remove empty folders from a directory."""
+    def _cleanup_directory(self, directory_path: str) -> Tuple[int, int]:
+        """Recursively remove empty folders from a directory.
+
+        Returns:
+            Tuple of (cleaned_count, failed_count)
+        """
         cleaned_count = 0
-        
+        failed_count = 0
+
         try:
             # Walk through the directory tree from bottom up
             for root, dirs, files in os.walk(directory_path, topdown=False):
@@ -2066,13 +2092,63 @@ class CacheCleanup:
                     dir_path = os.path.join(root, dir_name)
                     try:
                         # Check if directory is empty
-                        if not os.listdir(dir_path):
-                            os.rmdir(dir_path)
+                        contents = os.listdir(dir_path)
+                        if contents:
+                            # Separate files from subdirectories for clearer logging
+                            files = []
+                            subdirs = []
+                            hidden = []
+                            for item in contents:
+                                item_path = os.path.join(dir_path, item)
+                                if item.startswith('.'):
+                                    hidden.append(item)
+                                elif os.path.isdir(item_path):
+                                    subdirs.append(item)
+                                else:
+                                    files.append(item)
+
+                            logging.debug(f"Folder not empty, skipping: {dir_path}")
+                            if subdirs:
+                                logging.debug(f"  Subdirectories ({len(subdirs)}): {subdirs[:5]}{'...' if len(subdirs) > 5 else ''}")
+                                # Show files inside each subdirectory for debugging
+                                for subdir in subdirs[:3]:  # Limit to first 3 subdirs
+                                    subdir_path = os.path.join(dir_path, subdir)
+                                    try:
+                                        subdir_files = [f for f in os.listdir(subdir_path) if not os.path.isdir(os.path.join(subdir_path, f))]
+                                        if subdir_files:
+                                            logging.debug(f"    {subdir}/ contains ({len(subdir_files)}): {subdir_files[:3]}{'...' if len(subdir_files) > 3 else ''}")
+                                    except Exception:
+                                        pass
+                            if files:
+                                logging.debug(f"  Files ({len(files)}): {files[:5]}{'...' if len(files) > 5 else ''}")
+                            if hidden:
+                                logging.debug(f"  Hidden ({len(hidden)}): {hidden[:5]}{'...' if len(hidden) > 5 else ''}")
+                            continue
+
+                        # Attempt deletion
+                        os.rmdir(dir_path)
+
+                        # VERIFY deletion actually worked
+                        if os.path.exists(dir_path):
+                            failed_count += 1
+                            logging.warning(f"Folder deletion FAILED silently: {dir_path}")
+                            # Try to figure out why
+                            try:
+                                post_contents = os.listdir(dir_path)
+                                if post_contents:
+                                    logging.warning(f"  Contents after failed delete: {post_contents[:10]}")
+                            except Exception:
+                                pass
+                        else:
                             logging.debug(f"Removed empty folder: {dir_path}")
                             cleaned_count += 1
                     except OSError as e:
-                        logging.debug(f"Could not remove directory {dir_path}: {type(e).__name__}: {e}")
+                        failed_count += 1
+                        logging.warning(f"Could not remove directory {dir_path}: {type(e).__name__}: {e}")
         except Exception as e:
             logging.error(f"Error cleaning up directory {directory_path}: {type(e).__name__}: {e}")
-        
-        return cleaned_count 
+
+        if failed_count > 0:
+            logging.warning(f"Failed to remove {failed_count} empty folders (check permissions or hidden files)")
+
+        return cleaned_count, failed_count 

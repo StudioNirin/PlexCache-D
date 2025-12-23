@@ -318,7 +318,45 @@ class FileUtils:
         except (FileNotFoundError, PermissionError, Exception) as e:
             logging.error(f"Error moving file from {src} to {dest}: {str(e)}")
             raise RuntimeError(f"Error moving file: {str(e)}")
-    
+
+    def copy_file_with_permissions(self, src: str, dest: str, verbose: bool = False) -> int:
+        """Copy a file preserving original ownership and permissions (Linux only)."""
+        logging.debug(f"Copying file from {src} to {dest}")
+
+        try:
+            if self.is_linux:
+                # Get source file ownership before copy
+                stat_info = os.stat(src)
+                src_uid = stat_info.st_uid
+                src_gid = stat_info.st_gid
+                src_mode = stat_info.st_mode
+
+                # Copy the file (preserves metadata like timestamps)
+                shutil.copy2(src, dest)
+
+                # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
+                os.chown(dest, src_uid, src_gid)
+                original_umask = os.umask(0)
+                os.chmod(dest, self.permissions)
+                os.umask(original_umask)
+
+                if verbose:
+                    # Log ownership details for debugging
+                    dest_stat = os.stat(dest)
+                    logging.debug(f"File copied: {src} -> {dest}")
+                    logging.debug(f"  Preserved ownership: uid={dest_stat.st_uid}, gid={dest_stat.st_gid}")
+                    logging.debug(f"  Mode: {oct(dest_stat.st_mode)}")
+                else:
+                    logging.debug(f"File copied with permissions preserved: {dest}")
+            else:  # Windows logic
+                shutil.copy2(src, dest)
+                logging.debug(f"File copied (Windows): {src} -> {dest}")
+
+            return 0
+        except (FileNotFoundError, PermissionError, Exception) as e:
+            logging.error(f"Error copying file from {src} to {dest}: {str(e)}")
+            raise RuntimeError(f"Error copying file: {str(e)}")
+
     def create_directory_with_permissions(self, path: str, src_file_for_permissions: str) -> None:
         """Create directory with proper permissions."""
         logging.debug(f"Creating directory with permissions: {path}")

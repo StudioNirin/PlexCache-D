@@ -391,10 +391,59 @@ class PlexManager:
                 username = "main"
             return username, PlexServer(self.plex_url, self.plex_token)
     
-    def search_plex(self, title: str):
-        """Search for a file in the Plex server."""
+    def search_plex(self, title: str, guid: str = None, expected_type: str = None,
+                     valid_sections: List[int] = None):
+        """Search for a file in the Plex server.
+
+        Args:
+            title: The title to search for (used as fallback)
+            guid: IMDB/TVDB GUID like 'imdb://tt0898367' or 'tvdb://267247' (preferred)
+            expected_type: Expected type ('movie' or 'show') to filter results
+            valid_sections: List of section IDs to search in (None = all sections)
+
+        Returns:
+            Matched Plex item or None if not found
+        """
+        # Try GUID lookup first (most accurate)
+        if guid:
+            for section in self.plex.library.sections():
+                # Skip sections not in valid_sections if specified
+                if valid_sections and int(section.key) not in valid_sections:
+                    continue
+                try:
+                    item = section.getGuid(guid)
+                    if item:
+                        # Verify the item actually has this GUID (defensive check against PlexAPI bugs)
+                        item_guids = [g.id for g in getattr(item, 'guids', [])]
+                        if guid in item_guids:
+                            logging.debug(f"GUID lookup matched '{item.title}' ({item.TYPE}) for {guid}")
+                            return item
+                        # getGuid returned wrong item (can happen with items that have empty GUIDs)
+                        continue
+                except NotFound:
+                    pass
+                except Exception as e:
+                    logging.debug(f"GUID lookup error for {guid}: {e}")
+
+        # Fallback to title search
         results = self.plex.search(title)
-        return results[0] if len(results) > 0 else None
+        if not results:
+            return None
+
+        # If expected_type specified, find first result matching that type
+        if expected_type:
+            for r in results:
+                if r.TYPE == expected_type:
+                    # Also verify section if valid_sections specified
+                    if valid_sections and r.librarySectionID not in valid_sections:
+                        continue
+                    logging.debug(f"Title search matched '{r.title}' ({r.TYPE}) for '{title}'")
+                    return r
+            # No match with expected type - don't return wrong type
+            logging.debug(f"Title search found results for '{title}' but none matched expected type '{expected_type}'")
+            return None
+
+        return results[0]
     
     def get_active_sessions(self) -> List:
         """Get active sessions from Plex."""
@@ -554,16 +603,22 @@ class PlexManager:
         if home_users is None:
             home_users = []
 
-        def fetch_rss_titles(url: str) -> List[Tuple[str, str, Optional[datetime], str]]:
-            """Fetch titles, categories, pubDate, and author ID from a Plex RSS feed.
+        def fetch_rss_titles(url: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
+            """Fetch titles, categories, pubDate, author ID, and GUID from a Plex RSS feed.
 
             Retries up to RSS_MAX_RETRIES times with exponential backoff.
             Falls back to cached data if all retries fail.
+
+            Returns list of tuples: (title, category, pub_date, author_id, guid)
             """
             from email.utils import parsedate_to_datetime
 
-            def _parse_rss_response(text: str) -> List[Tuple[str, str, Optional[datetime], str]]:
-                """Parse RSS XML response into list of items."""
+            def _parse_rss_response(text: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
+                """Parse RSS XML response into list of items.
+
+                Returns list of tuples: (title, category, pub_date, author_id, guid)
+                The guid contains IMDB/TVDB IDs like 'imdb://tt0898367' or 'tvdb://267247'
+                """
                 root = ET.fromstring(text)
                 items = []
                 for item in root.findall("channel/item"):
@@ -583,18 +638,23 @@ class PlexManager:
                     author_elem = item.find("author")
                     if author_elem is not None and author_elem.text:
                         author_id = author_elem.text
-                    items.append((title, category, pub_date, author_id))
+                    # Get GUID (IMDB/TVDB ID) for accurate matching
+                    guid = ""
+                    guid_elem = item.find("guid")
+                    if guid_elem is not None and guid_elem.text:
+                        guid = guid_elem.text
+                    items.append((title, category, pub_date, author_id, guid))
                 return items
 
-            def _save_rss_cache(items: List[Tuple[str, str, Optional[datetime], str]]) -> None:
+            def _save_rss_cache(items: List[Tuple[str, str, Optional[datetime], str, str]]) -> None:
                 """Save RSS items to cache file."""
                 try:
                     cache_data = {
                         'timestamp': datetime.now().isoformat(),
                         'url': url,
                         'items': [
-                            (title, category, pub_date.isoformat() if pub_date else None, author_id)
-                            for title, category, pub_date, author_id in items
+                            (title, category, pub_date.isoformat() if pub_date else None, author_id, guid)
+                            for title, category, pub_date, author_id, guid in items
                         ]
                     }
                     with open(RSS_CACHE_FILE, 'w') as f:
@@ -603,16 +663,22 @@ class PlexManager:
                 except Exception as e:
                     logging.debug(f"Failed to save RSS cache: {e}")
 
-            def _load_rss_cache() -> List[Tuple[str, str, Optional[datetime], str]]:
+            def _load_rss_cache() -> List[Tuple[str, str, Optional[datetime], str, str]]:
                 """Load RSS items from cache file."""
                 try:
                     if os.path.exists(RSS_CACHE_FILE):
                         with open(RSS_CACHE_FILE, 'r') as f:
                             cache_data = json.load(f)
                         items = []
-                        for title, category, pub_date_str, author_id in cache_data['items']:
+                        for item_data in cache_data['items']:
+                            # Handle both old format (4 fields) and new format (5 fields with guid)
+                            if len(item_data) == 4:
+                                title, category, pub_date_str, author_id = item_data
+                                guid = ""
+                            else:
+                                title, category, pub_date_str, author_id, guid = item_data
                             pub_date = datetime.fromisoformat(pub_date_str) if pub_date_str else None
-                            items.append((title, category, pub_date, author_id))
+                            items.append((title, category, pub_date, author_id, guid))
                         cache_time = datetime.fromisoformat(cache_data['timestamp'])
                         cache_age = datetime.now() - cache_time
                         cache_age_hours = cache_age.total_seconds() / 3600
@@ -755,7 +821,8 @@ class PlexManager:
                 rss_items = fetch_rss_titles(rss_url)
                 logging.info(f"RSS feed contains {len(rss_items)} items")
                 unknown_user_ids = set()  # Track unknown IDs to log once
-                for title, category, pub_date, author_id in rss_items:
+                rss_not_found = []  # Collect not-found items for summary logging
+                for title, category, pub_date, author_id, guid in rss_items:
                     # Look up username from author ID, fall back to ID or "Unknown"
                     if author_id and author_id in self._user_id_to_name:
                         rss_username = self._user_id_to_name[author_id]
@@ -765,23 +832,29 @@ class PlexManager:
                     else:
                         rss_username = "Friends (RSS)"
                     cleaned_title = self.clean_rss_title(title)
-                    file = self.search_plex(cleaned_title)
+                    # Use GUID for accurate matching, with title as fallback
+                    # Pass expected_type to prevent type mismatches (e.g., episode returned for show)
+                    file = self.search_plex(cleaned_title, guid=guid, expected_type=category,
+                                           valid_sections=filtered_sections)
                     if file:
                         logging.debug(f"RSS title '{title}' matched Plex item '{file.title}' ({file.TYPE})")
-                        if not filtered_sections or file.librarySectionID in filtered_sections:
-                            try:
-                                if category == 'show' or file.TYPE == 'show':
-                                    yield from process_show(file, watchlist_episodes, rss_username, pub_date)
-                                elif file.TYPE == 'movie':
-                                    yield from process_movie(file, rss_username, pub_date)
-                                else:
-                                    logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
-                            except Exception as e:
-                                logging.warning(f"Error processing '{file.title}': {e}")
-                        else:
-                            logging.debug(f"Skipping RSS item '{file.title}' — section {file.librarySectionID} not in valid_sections {filtered_sections}")
+                        try:
+                            # Type is guaranteed correct by search_plex with expected_type
+                            if file.TYPE == 'show':
+                                yield from process_show(file, watchlist_episodes, rss_username, pub_date)
+                            elif file.TYPE == 'movie':
+                                yield from process_movie(file, rss_username, pub_date)
+                            else:
+                                logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
+                        except Exception as e:
+                            logging.warning(f"Error processing '{file.title}': {e}")
                     else:
-                        logging.warning(f"RSS title '{title}' (added by {rss_username}) not found in Plex — discarded")
+                        rss_not_found.append((title, rss_username))
+                # Log summary of not-found items (DEBUG level - expected behavior for items not in library)
+                if rss_not_found:
+                    logging.debug(f"RSS: {len(rss_not_found)} items not found in library (not owned or type mismatch)")
+                    for not_found_title, not_found_user in rss_not_found:
+                        logging.debug(f"  - '{not_found_title}' (added by {not_found_user})")
                 # Log unknown user IDs once at the end
                 if unknown_user_ids:
                     logging.debug(f"[PLEX API] {len(unknown_user_ids)} unknown user ID(s) in RSS feed: {', '.join(sorted(unknown_user_ids))}. Run 'python3 plexcache_setup.py' and refresh users to resolve.")
