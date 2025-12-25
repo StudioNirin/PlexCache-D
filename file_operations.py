@@ -1273,44 +1273,34 @@ class PlexcachedMigration:
         """Check if migration has already been completed."""
         return not os.path.exists(self.flag_file)
 
-    def run_migration(self, dry_run: bool = False, max_concurrent: int = 5) -> Tuple[int, int, int]:
-        """Run the migration to create .plexcached backups.
-
-        Args:
-            dry_run: If True, only log what would be done without making changes.
-            max_concurrent: Maximum number of concurrent file copies.
+    def _read_exclude_file(self) -> Tuple[List[str], int]:
+        """Read and deduplicate the exclude file.
 
         Returns:
-            Tuple of (files_migrated, files_skipped, errors)
+            Tuple of (deduplicated_cache_files, duplicates_removed_count)
         """
-        if not self.needs_migration():
-            logging.info("Migration already complete, skipping")
-            return 0, 0, 0
-
         if not os.path.exists(self.exclude_file):
-            logging.info("No exclude file found, nothing to migrate")
-            self._mark_complete()
-            return 0, 0, 0
+            return [], 0
 
-        # Read exclude file to get list of cached files (deduplicated)
         with open(self.exclude_file, 'r') as f:
             all_lines = [line.strip() for line in f if line.strip()]
             cache_files = list(dict.fromkeys(all_lines))
             duplicates_removed = len(all_lines) - len(cache_files)
 
-        if not cache_files:
-            logging.info("Exclude file is empty, nothing to migrate")
-            self._mark_complete()
-            return 0, 0, 0
+        return cache_files, duplicates_removed
 
-        logging.info("=== PlexCache-R Migration ===")
-        if duplicates_removed > 0:
-            logging.info(f"Removed {duplicates_removed} duplicate entries from exclude list")
-        logging.info(f"Checking {len(cache_files)} unique files in exclude list...")
+    def _find_files_needing_migration(self, cache_files: List[str]) -> Tuple[List[Tuple[str, str, str]], int]:
+        """Find files that need .plexcached backup creation.
 
+        Args:
+            cache_files: List of cache file paths from exclude file.
+
+        Returns:
+            Tuple of (files_needing_migration, total_bytes)
+            where files_needing_migration is a list of (cache_file, array_file, plexcached_file) tuples.
+        """
         files_needing_migration = []
 
-        # Find files that need migration (on cache but no .plexcached on array)
         for cache_file in cache_files:
             if not os.path.isfile(cache_file):
                 logging.debug(f"Cache file no longer exists, skipping: {cache_file}")
@@ -1339,12 +1329,7 @@ class PlexcachedMigration:
             # This file needs migration
             files_needing_migration.append((cache_file, array_file_check, plexcached_file))
 
-        if not files_needing_migration:
-            logging.info("All files already have backups, no migration needed")
-            self._mark_complete()
-            return 0, len(cache_files), 0
-
-        # Calculate total size of files to migrate
+        # Calculate total size
         total_bytes = 0
         for cache_file, _, _ in files_needing_migration:
             try:
@@ -1352,94 +1337,140 @@ class PlexcachedMigration:
             except OSError:
                 pass
 
-        total_gb = total_bytes / (1024 ** 3)
-        logging.info(f"Found {len(files_needing_migration)} files needing .plexcached backup ({total_gb:.2f} GB)")
+        return files_needing_migration, total_bytes
 
-        if dry_run:
-            logging.info("[DRY RUN] Would create the following backups:")
-            for cache_file, array_file, plexcached_file in files_needing_migration:
-                logging.info(f"  {cache_file} -> {plexcached_file}")
-            return 0, 0, 0
+    def _migrate_single_file(self, args: Tuple[str, str, str]) -> int:
+        """Migrate a single file by creating its .plexcached backup.
 
-        # Perform migration with progress tracking using thread pool
-        logging.info(f"Starting migration with {max_concurrent} concurrent copies...")
+        Args:
+            args: Tuple of (cache_file, array_file, plexcached_file)
 
-        # Thread-safe counters and state
-        self._migration_lock = threading.Lock()
-        self._migrated = 0
-        self._errors = 0
-        self._completed_bytes = 0
-        self._total_files = len(files_needing_migration)
-        self._total_bytes = total_bytes
-        self._active_files = {}  # Thread ID -> (filename, size)
-        self._last_display_lines = 0
+        Returns:
+            0 on success, 1 on error
+        """
+        cache_file, array_file, plexcached_file = args
+        thread_id = threading.get_ident()
 
-        def migrate_file(args):
-            cache_file, array_file, plexcached_file = args
-            thread_id = threading.get_ident()
+        try:
+            # Get file size for progress
             try:
-                # Get file size for progress
-                try:
-                    file_size = os.path.getsize(cache_file)
-                except OSError:
-                    file_size = 0
+                file_size = os.path.getsize(cache_file)
+            except OSError:
+                file_size = 0
 
-                filename = os.path.basename(cache_file)
+            filename = os.path.basename(cache_file)
 
-                # Register as active before starting copy
+            # Register as active before starting copy
+            with self._migration_lock:
+                self._active_files[thread_id] = (filename, file_size)
+                self._print_progress()
+
+            # Ensure directory exists
+            array_dir = os.path.dirname(plexcached_file)
+            if not os.path.exists(array_dir):
+                os.makedirs(array_dir, exist_ok=True)
+
+            # Copy cache file to array as .plexcached (preserving ownership on Linux)
+            if self.is_unraid:
+                # Get source ownership before copy
+                stat_info = os.stat(cache_file)
+                src_uid = stat_info.st_uid
+                src_gid = stat_info.st_gid
+
+                shutil.copy2(cache_file, plexcached_file)
+
+                # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
+                os.chown(plexcached_file, src_uid, src_gid)
+                logging.debug(f"  Preserved ownership: uid={src_uid}, gid={src_gid}")
+            else:
+                shutil.copy2(cache_file, plexcached_file)
+
+            # Verify copy succeeded
+            if os.path.isfile(plexcached_file):
                 with self._migration_lock:
-                    self._active_files[thread_id] = (filename, file_size)
+                    self._migrated += 1
+                    self._completed_bytes += file_size
+                    if thread_id in self._active_files:
+                        del self._active_files[thread_id]
                     self._print_progress()
-
-                # Ensure directory exists
-                array_dir = os.path.dirname(plexcached_file)
-                if not os.path.exists(array_dir):
-                    os.makedirs(array_dir, exist_ok=True)
-
-                # Copy cache file to array as .plexcached (preserving ownership on Linux)
-                if self.is_unraid:
-                    # Get source ownership before copy
-                    stat_info = os.stat(cache_file)
-                    src_uid = stat_info.st_uid
-                    src_gid = stat_info.st_gid
-
-                    shutil.copy2(cache_file, plexcached_file)
-
-                    # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
-                    os.chown(plexcached_file, src_uid, src_gid)
-                    logging.debug(f"  Preserved ownership: uid={src_uid}, gid={src_gid}")
-                else:
-                    shutil.copy2(cache_file, plexcached_file)
-
-                # Verify copy succeeded
-                if os.path.isfile(plexcached_file):
-                    with self._migration_lock:
-                        self._migrated += 1
-                        self._completed_bytes += file_size
-                        if thread_id in self._active_files:
-                            del self._active_files[thread_id]
-                        self._print_progress()
-                    # Log to file (outside lock for performance)
-                    logging.info(f"Migrated: {filename} ({format_bytes(file_size)})")
-                    return 0
-                else:
-                    logging.error(f"Failed to verify: {plexcached_file}")
-                    with self._migration_lock:
-                        self._errors += 1
-                        if thread_id in self._active_files:
-                            del self._active_files[thread_id]
-                    return 1
-
-            except Exception as e:
-                logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
+                # Log to file (outside lock for performance)
+                logging.info(f"Migrated: {filename} ({format_bytes(file_size)})")
+                return 0
+            else:
+                logging.error(f"Failed to verify: {plexcached_file}")
                 with self._migration_lock:
                     self._errors += 1
                     if thread_id in self._active_files:
                         del self._active_files[thread_id]
                 return 1
 
+        except Exception as e:
+            logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
+            with self._migration_lock:
+                self._errors += 1
+                if thread_id in self._active_files:
+                    del self._active_files[thread_id]
+            return 1
+
+    def run_migration(self, dry_run: bool = False, max_concurrent: int = 5) -> Tuple[int, int, int]:
+        """Run the migration to create .plexcached backups.
+
+        Args:
+            dry_run: If True, only log what would be done without making changes.
+            max_concurrent: Maximum number of concurrent file copies.
+
+        Returns:
+            Tuple of (files_migrated, files_skipped, errors)
+        """
+        if not self.needs_migration():
+            logging.info("Migration already complete, skipping")
+            return 0, 0, 0
+
+        # Read and deduplicate exclude file
+        cache_files, duplicates_removed = self._read_exclude_file()
+
+        if not cache_files:
+            logging.info("No exclude file or empty, nothing to migrate")
+            self._mark_complete()
+            return 0, 0, 0
+
+        logging.info("=== PlexCache-R Migration ===")
+        if duplicates_removed > 0:
+            logging.info(f"Removed {duplicates_removed} duplicate entries from exclude list")
+        logging.info(f"Checking {len(cache_files)} unique files in exclude list...")
+
+        # Find files that need migration
+        files_needing_migration, total_bytes = self._find_files_needing_migration(cache_files)
+
+        if not files_needing_migration:
+            logging.info("All files already have backups, no migration needed")
+            self._mark_complete()
+            return 0, len(cache_files), 0
+
+        total_gb = total_bytes / (1024 ** 3)
+        logging.info(f"Found {len(files_needing_migration)} files needing .plexcached backup ({total_gb:.2f} GB)")
+
+        if dry_run:
+            logging.info("[DRY RUN] Would create the following backups:")
+            for cache_file, _, plexcached_file in files_needing_migration:
+                logging.info(f"  {cache_file} -> {plexcached_file}")
+            return 0, 0, 0
+
+        # Perform migration with progress tracking
+        logging.info(f"Starting migration with {max_concurrent} concurrent copies...")
+
+        # Initialize thread-safe counters
+        self._migration_lock = threading.Lock()
+        self._migrated = 0
+        self._errors = 0
+        self._completed_bytes = 0
+        self._total_files = len(files_needing_migration)
+        self._total_bytes = total_bytes
+        self._active_files = {}
+        self._last_display_lines = 0
+
         with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-            list(executor.map(migrate_file, files_needing_migration))
+            list(executor.map(self._migrate_single_file, files_needing_migration))
 
         # Print final progress
         with self._migration_lock:
@@ -1447,8 +1478,8 @@ class PlexcachedMigration:
 
         migrated = self._migrated
         errors = self._errors
-
         skipped = len(cache_files) - len(files_needing_migration)
+
         logging.info(f"=== Migration Complete ===")
         logging.info(f"  Migrated: {migrated} files")
         logging.info(f"  Skipped (already had backup): {skipped} files")
@@ -2011,6 +2042,80 @@ class FileFilter:
         cache_file_name = os.path.join(cache_path, os.path.basename(file))
         return cache_path, cache_file_name
 
+    def _build_needed_media_sets(self, current_ondeck_items: Set[str],
+                                  current_watchlist_items: Set[str]) -> Tuple[Dict[str, Dict[int, int]], Set[str]]:
+        """Build tracking sets of media that should be kept in cache.
+
+        Args:
+            current_ondeck_items: Set of OnDeck file paths.
+            current_watchlist_items: Set of watchlist file paths.
+
+        Returns:
+            Tuple of (tv_show_min_episodes dict, needed_movies set).
+            tv_show_min_episodes maps show_name -> {season: min_episode_to_keep}
+        """
+        tv_show_min_episodes: Dict[str, Dict[int, int]] = {}
+        needed_movies: Set[str] = set()
+
+        for item in current_ondeck_items | current_watchlist_items:
+            tv_info = self._extract_tv_info(item)
+            if tv_info:
+                show_name, season_num, episode_num = tv_info
+                if show_name not in tv_show_min_episodes:
+                    tv_show_min_episodes[show_name] = {}
+                # Keep minimum episode for each season (the "current" episode)
+                if season_num not in tv_show_min_episodes[show_name]:
+                    tv_show_min_episodes[show_name][season_num] = episode_num
+                else:
+                    tv_show_min_episodes[show_name][season_num] = min(
+                        tv_show_min_episodes[show_name][season_num], episode_num
+                    )
+            else:
+                # It's a movie
+                media_name = self._extract_media_name(item)
+                if media_name:
+                    needed_movies.add(media_name)
+
+        logging.debug(f"TV shows on deck/watchlist: {list(tv_show_min_episodes.keys())}")
+        logging.debug(f"Movies on deck/watchlist: {len(needed_movies)}")
+        return tv_show_min_episodes, needed_movies
+
+    def _is_tv_episode_still_needed(self, show_name: str, season_num: int, episode_num: int,
+                                     tv_show_min_episodes: Dict[str, Dict[int, int]]) -> bool:
+        """Check if a TV episode should be kept in cache based on OnDeck position.
+
+        Args:
+            show_name: Name of the TV show.
+            season_num: Season number of the episode.
+            episode_num: Episode number.
+            tv_show_min_episodes: Dict of show -> {season: min_episode}.
+
+        Returns:
+            True if episode should be kept, False if it can be moved back.
+        """
+        if show_name not in tv_show_min_episodes:
+            return False  # Show not on deck/watchlist
+
+        min_ondeck_season = min(tv_show_min_episodes[show_name].keys())
+
+        if season_num < min_ondeck_season:
+            # Previous season - user has moved past this
+            logging.debug(f"TV episode in previous season (S{season_num:02d} < S{min_ondeck_season:02d}): {show_name}")
+            return False
+        elif season_num > min_ondeck_season:
+            # Future season - keep (user may have pre-cached ahead)
+            logging.debug(f"TV episode in future season, keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
+            return True
+        else:
+            # Same season - check episode number
+            min_episode = tv_show_min_episodes[show_name][season_num]
+            if episode_num >= min_episode:
+                logging.debug(f"TV episode still needed (E{episode_num:02d} >= E{min_episode:02d}): {show_name}")
+                return True
+            else:
+                logging.debug(f"TV episode watched (E{episode_num:02d} < E{min_episode:02d}): {show_name}")
+                return False
+
     def get_files_to_move_back_to_array(self, current_ondeck_items: Set[str],
                                        current_watchlist_items: Set[str]) -> Tuple[List[str], List[str]]:
         """Get files in cache that should be moved back to array because they're no longer needed.
@@ -2024,112 +2129,59 @@ class FileFilter:
         """
         files_to_move_back = []
         cache_paths_to_remove = []
-        retention_holds = []  # Collect (media_name, hours_remaining, display_name) tuples
+        retention_holds = []
 
         try:
-            # Read the exclude file to get all files currently in cache
+            # Read exclude file
             if not os.path.exists(self.mover_cache_exclude_file):
                 logging.info("No exclude file found, nothing to move back")
                 return files_to_move_back, cache_paths_to_remove
 
             with open(self.mover_cache_exclude_file, 'r') as f:
                 cache_files = [line.strip() for line in f if line.strip()]
-
             logging.debug(f"Found {len(cache_files)} files in exclude list")
 
-            # Build TV show tracking: {show_name: {season: min_episode}}
-            # This tracks the minimum episode number that should be kept for each show/season
-            tv_show_min_episodes: Dict[str, Dict[int, int]] = {}
+            # Build tracking sets for needed media
+            tv_show_min_episodes, needed_movies = self._build_needed_media_sets(
+                current_ondeck_items, current_watchlist_items
+            )
 
-            # Build movie set for simple name matching
-            needed_movies = set()
-
-            # Process OnDeck and watchlist items
-            for item in current_ondeck_items | current_watchlist_items:
-                tv_info = self._extract_tv_info(item)
-                if tv_info:
-                    show_name, season_num, episode_num = tv_info
-                    if show_name not in tv_show_min_episodes:
-                        tv_show_min_episodes[show_name] = {}
-                    # Keep the minimum episode number for each season (the "current" episode)
-                    if season_num not in tv_show_min_episodes[show_name]:
-                        tv_show_min_episodes[show_name][season_num] = episode_num
-                    else:
-                        tv_show_min_episodes[show_name][season_num] = min(
-                            tv_show_min_episodes[show_name][season_num], episode_num
-                        )
-                else:
-                    # It's a movie - use filename matching
-                    media_name = self._extract_media_name(item)
-                    if media_name:
-                        needed_movies.add(media_name)
-
-            logging.debug(f"TV shows on deck/watchlist: {list(tv_show_min_episodes.keys())}")
-            logging.debug(f"Movies on deck/watchlist: {len(needed_movies)}")
-
-            # Check each file in cache
+            # Check each cached file
             for cache_file in cache_files:
                 if not os.path.exists(cache_file):
                     logging.debug(f"Cache file no longer exists: {cache_file}")
                     cache_paths_to_remove.append(cache_file)
                     continue
 
-                # Check if this is a TV show
+                # Determine if file should be kept
                 tv_info = self._extract_tv_info(cache_file)
-
                 if tv_info:
-                    # TV show episode logic
                     show_name, season_num, episode_num = tv_info
-
-                    # Check if this show is still being watched
-                    if show_name in tv_show_min_episodes:
-                        # Find the minimum (current) season for this show
-                        min_ondeck_season = min(tv_show_min_episodes[show_name].keys())
-
-                        if season_num < min_ondeck_season:
-                            # Previous season - user has moved past this season
-                            logging.debug(f"TV episode in previous season (S{season_num:02d} < S{min_ondeck_season:02d}), will check retention: {show_name} S{season_num:02d}E{episode_num:02d}")
-                        elif season_num > min_ondeck_season:
-                            # Future season - keep (user may have pre-cached ahead)
-                            logging.debug(f"TV episode in future season (S{season_num:02d} > S{min_ondeck_season:02d}), keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
-                            continue
-                        else:
-                            # Same season as OnDeck - check episode number
-                            min_episode = tv_show_min_episodes[show_name][season_num]
-                            if episode_num >= min_episode:
-                                # Current or upcoming episode
-                                logging.debug(f"TV episode still needed (E{episode_num:02d} >= E{min_episode:02d}), keeping: {show_name} S{season_num:02d}E{episode_num:02d}")
-                                continue
-                            else:
-                                # Watched episode in current season
-                                logging.debug(f"TV episode watched (E{episode_num:02d} < E{min_episode:02d}), will check retention: {show_name} S{season_num:02d}E{episode_num:02d}")
-                    # Show not on deck/watchlist - will be moved back
+                    if self._is_tv_episode_still_needed(show_name, season_num, episode_num, tv_show_min_episodes):
+                        continue
                     media_name = show_name
                 else:
-                    # Movie logic - use filename matching
                     media_name = self._extract_media_name(cache_file)
                     if media_name is None:
                         logging.warning(f"Could not extract media name from path: {cache_file}")
                         continue
-
                     if media_name in needed_movies:
                         logging.debug(f"Movie still needed, keeping in cache: {media_name}")
                         continue
 
-                # Media is no longer needed - check if retention period applies
+                # Check retention period
                 if self.timestamp_tracker and self.cache_retention_hours > 0:
                     if self.timestamp_tracker.is_within_retention_period(cache_file, self.cache_retention_hours):
                         remaining = self.timestamp_tracker.get_retention_remaining(cache_file, self.cache_retention_hours)
                         display_name = self._extract_display_name(cache_file)
                         retention_holds.append((media_name, remaining, display_name))
-                        # Log individual hold at DEBUG level with episode details
                         remaining_str = f"{remaining:.0f}h" if remaining >= 1 else f"{remaining * 60:.0f}m"
                         logging.debug(f"Retention hold ({remaining_str} left): {display_name}")
                         continue
 
-                # Media is no longer needed and retention doesn't apply, move this file back to array
+                # Move file back to array
                 if self.path_modifier:
-                    array_file, mapping = self.path_modifier.convert_cache_to_real(cache_file)
+                    array_file, _ = self.path_modifier.convert_cache_to_real(cache_file)
                     if array_file is None:
                         logging.warning(f"Could not convert cache path to array path: {cache_file}")
                         continue
@@ -2141,11 +2193,10 @@ class FileFilter:
                 files_to_move_back.append(array_file)
                 cache_paths_to_remove.append(cache_file)
 
-            # Log grouped retention holds summary at INFO level
+            # Log retention summary
             if retention_holds:
                 grouped = self._group_retention_holds(retention_holds)
-                summary_lines = self._format_retention_summary(grouped)
-                for line in summary_lines:
+                for line in self._format_retention_summary(grouped):
                     logging.info(line)
             if files_to_move_back:
                 logging.debug(f"Found {len(files_to_move_back)} files to move back to array")

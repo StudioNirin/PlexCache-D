@@ -999,12 +999,26 @@ def _configure_eviction_settings():
 
 
 def _setup_legacy_paths_if_needed():
-    """Helper: Configure legacy cache/array paths if not using path_mappings."""
+    """Helper: Configure legacy cache/array paths if not using path_mappings.
+
+    DEPRECATED: This function uses the legacy single-path configuration.
+    New installations should use path_mappings via configure_path_mappings().
+    This is maintained for backward compatibility with existing setups.
+    """
     global settings_data
 
-    # Skip if path_mappings already configured
+    # Skip if path_mappings already configured (preferred approach)
     if settings_data.get('path_mappings'):
         return
+
+    # Show deprecation notice for legacy path configuration
+    print('\n' + '=' * 60)
+    print('NOTE: Legacy Path Configuration')
+    print('=' * 60)
+    print('You are using the legacy single-path configuration.')
+    print('Consider migrating to "path_mappings" for better flexibility.')
+    print('Re-run setup and choose "Configure path mappings" when prompted.')
+    print('=' * 60)
 
     # Legacy cache_dir configuration
     if 'cache_dir' not in settings_data:
@@ -1035,14 +1049,16 @@ def _setup_legacy_paths_if_needed():
     # Multi-path mapping prompt (for legacy users)
     if 'path_mappings' not in settings_data:
         print('\n' + '-' * 60)
-        print('ADVANCED: MULTI-PATH MAPPING')
+        print('RECOMMENDED: PATH MAPPINGS CONFIGURATION')
         print('-' * 60)
-        print('\nMulti-path mapping allows you to configure multiple source paths')
-        print('with different caching behavior. This is useful if you have:')
+        print('\nPath mappings (recommended) allow you to configure multiple source paths')
+        print('with different caching behavior. This is the preferred configuration method.')
+        print('\nUseful if you have:')
         print('  - Multiple Docker path mappings (e.g., /data and /nas)')
         print('  - Remote/network storage that should not be cached')
         print('  - Different cache destinations for different libraries')
-        print('\nMost users can skip this - your paths above will work as-is.')
+        print('\nChoose "yes" to configure path mappings (recommended for new setups).')
+        print('Choose "no" to use legacy single-path mode (for simple configurations).')
 
         configure_multi = input('\nWould you like to configure multiple path mappings? [y/N] ') or 'no'
         if configure_multi.lower() in ['y', 'yes']:

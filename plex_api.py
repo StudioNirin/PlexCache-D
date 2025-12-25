@@ -11,7 +11,7 @@ import time
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Optional, Generator, Tuple, Dict
+from typing import List, Optional, Generator, Tuple, Dict, Set
 from dataclasses import dataclass
 
 from plexapi.server import PlexServer
@@ -150,7 +150,7 @@ class UserTokenCache:
                 data = json.load(f)
                 self._memory_cache = data.get('tokens', {})
                 logging.debug(f"[TOKEN CACHE] Loaded {len(self._memory_cache)} cached tokens from disk")
-        except Exception as e:
+        except (json.JSONDecodeError, IOError) as e:
             logging.warning(f"[TOKEN CACHE] Could not load cache file: {e}")
             self._memory_cache = {}
 
@@ -161,7 +161,7 @@ class UserTokenCache:
         try:
             with open(self._cache_file, 'w') as f:
                 json.dump({'tokens': self._memory_cache}, f)
-        except Exception as e:
+        except IOError as e:
             logging.warning(f"[TOKEN CACHE] Could not save cache file: {e}")
 
 
@@ -199,6 +199,156 @@ class PlexManager:
         with self._api_lock:
             time.sleep(PLEX_API_DELAY)
 
+    def _load_tokens_from_settings(self, settings_users: List[dict],
+                                    skip_users: List[str], machine_id: str) -> Set[str]:
+        """Load user tokens from settings file (no plex.tv needed).
+
+        Args:
+            settings_users: List of user dicts from settings file with tokens.
+            skip_users: List of usernames or tokens to skip.
+            machine_id: Plex server machine identifier.
+
+        Returns:
+            Set of usernames loaded from settings.
+        """
+        settings_loaded = 0
+        settings_usernames = set()
+
+        for user_entry in settings_users:
+            username = user_entry.get("title")
+            token = user_entry.get("token")
+            is_local = user_entry.get("is_local", False)
+            user_id = user_entry.get("id")
+
+            if not username or not token:
+                continue
+
+            settings_usernames.add(username)
+
+            # Build user ID -> username map for RSS author lookup
+            if user_id:
+                self._user_id_to_name[str(user_id)] = username
+                logging.debug(f"[PLEX API] Mapped ID {user_id} -> {username}")
+            user_uuid = user_entry.get("uuid")
+            if user_uuid:
+                self._user_id_to_name[str(user_uuid)] = username
+                logging.debug(f"[PLEX API] Mapped UUID {user_uuid} -> {username}")
+
+            # Check skip list
+            if username in skip_users or token in skip_users:
+                logging.debug(f"[USER:{username}] Skipping (in skip list)")
+                continue
+
+            self._user_tokens[username] = token
+            self._token_cache.set_token(username, token, machine_id)
+            user_type = "home" if is_local else "remote"
+            logging.debug(f"[USER:{username}] Loaded from settings ({user_type})")
+            settings_loaded += 1
+
+        logging.debug(f"[PLEX API] Loaded {settings_loaded} users from settings file")
+        return settings_usernames
+
+    def _get_main_account(self, main_username: Optional[str]) -> Optional['MyPlexAccount']:
+        """Try to get main account info from plex.tv.
+
+        Args:
+            main_username: Main account username from settings (fallback).
+
+        Returns:
+            MyPlexAccount object if plex.tv reachable, None otherwise.
+        """
+        try:
+            self._rate_limited_api_call()
+            account = self.plex.myPlexAccount()
+            actual_main_username = account.title
+
+            # Update main account token with actual username from plex.tv
+            if actual_main_username != main_username:
+                if main_username and main_username in self._user_tokens:
+                    del self._user_tokens[main_username]
+                self._user_tokens[actual_main_username] = self.plex_token
+                logging.debug(f"[PLEX API] Main account: {actual_main_username}")
+            return account
+        except Exception as e:
+            _log_api_error("load user tokens", e)
+            self._plex_tv_reachable = False
+            self._watchlist_data_complete = False
+            logging.warning("[PLEX API] plex.tv unreachable - using cached user data only")
+            logging.warning("[PLEX API] Watchlist data will be incomplete - array restore will be skipped")
+            return None
+
+    def _discover_new_users(self, account: 'MyPlexAccount', settings_usernames: Set[str],
+                            skip_users: List[str], machine_id: str) -> None:
+        """Check plex.tv for new users not in settings.
+
+        Args:
+            account: MyPlexAccount object.
+            settings_usernames: Set of usernames already loaded from settings.
+            skip_users: List of usernames or tokens to skip.
+            machine_id: Plex server machine identifier.
+        """
+        try:
+            self._rate_limited_api_call()
+            users = account.users()
+            new_users = 0
+
+            for user in users:
+                username = user.title
+
+                # Build user ID -> username map (even if skipped)
+                if hasattr(user, 'id') and user.id:
+                    self._user_id_to_name[str(user.id)] = username
+                # Extract uuid from thumb URL
+                thumb = getattr(user, 'thumb', '')
+                if thumb and '/users/' in thumb:
+                    try:
+                        user_uuid = thumb.split('/users/')[1].split('/')[0]
+                        self._user_id_to_name[user_uuid] = username
+                    except (IndexError, AttributeError):
+                        pass
+
+                # Skip if already loaded from settings
+                if username in settings_usernames:
+                    continue
+
+                # Check skip list
+                if username in skip_users:
+                    logging.debug(f"[USER:{username}] Skipping (in skip list)")
+                    continue
+
+                # Try to get token from disk cache first
+                cached_token = self._token_cache.get_token(username, machine_id)
+                if cached_token:
+                    if cached_token in skip_users:
+                        logging.debug(f"[USER:{username}] Skipping (token in skip list)")
+                        continue
+                    self._user_tokens[username] = cached_token
+                    logging.debug(f"[USER:{username}] Using cached token")
+                    new_users += 1
+                    continue
+
+                # Fetch fresh token from plex.tv
+                try:
+                    self._rate_limited_api_call()
+                    token = user.get_token(machine_id)
+                    if token:
+                        if token in skip_users:
+                            logging.debug(f"[USER:{username}] Skipping (token in skip list)")
+                            continue
+                        self._user_tokens[username] = token
+                        self._token_cache.set_token(username, token, machine_id)
+                        logging.debug(f"[USER:{username}] Fetched fresh token")
+                        new_users += 1
+                    else:
+                        logging.debug(f"[USER:{username}] No token available")
+                except Exception as e:
+                    _log_api_error(f"get token for {username}", e)
+
+            if new_users > 0:
+                logging.info(f"[PLEX API] Found {new_users} new users not in settings (consider re-running setup)")
+        except Exception as e:
+            _log_api_error("check for new users", e)
+
     def load_user_tokens(self, skip_users: Optional[List[str]] = None,
                          settings_users: Optional[List[dict]] = None,
                          main_username: Optional[str] = None) -> Dict[str, str]:
@@ -226,136 +376,24 @@ class PlexManager:
         machine_id = self.plex.machineIdentifier
         logging.debug("[PLEX API] Loading user tokens...")
 
-        # Step 1: Load tokens from settings file FIRST (no plex.tv needed)
-        settings_loaded = 0
-        settings_usernames = set()
-        for user_entry in settings_users:
-            username = user_entry.get("title")
-            token = user_entry.get("token")
-            is_local = user_entry.get("is_local", False)
-            user_id = user_entry.get("id")
+        # Step 1: Load tokens from settings file (no plex.tv needed)
+        settings_usernames = self._load_tokens_from_settings(settings_users, skip_users, machine_id)
 
-            if not username or not token:
-                continue
-
-            settings_usernames.add(username)
-
-            # Build user ID -> username map for RSS author lookup
-            # RSS feed uses uuid (hex string), so store both id and uuid
-            if user_id:
-                self._user_id_to_name[str(user_id)] = username
-                logging.debug(f"[PLEX API] Mapped ID {user_id} -> {username}")
-            user_uuid = user_entry.get("uuid")
-            if user_uuid:
-                self._user_id_to_name[str(user_uuid)] = username
-                logging.debug(f"[PLEX API] Mapped UUID {user_uuid} -> {username}")
-
-            # Check skip list
-            if username in skip_users or token in skip_users:
-                logging.debug(f"[USER:{username}] Skipping (in skip list)")
-                continue
-
-            self._user_tokens[username] = token
-            self._token_cache.set_token(username, token, machine_id)
-            user_type = "home" if is_local else "remote"
-            logging.debug(f"[USER:{username}] Loaded from settings ({user_type})")
-            settings_loaded += 1
-
-        logging.debug(f"[PLEX API] Loaded {settings_loaded} users from settings file")
-
-        # Add main account token (use main_username from settings as fallback)
+        # Add main account token from settings as fallback
         if main_username and main_username not in skip_users:
             self._user_tokens[main_username] = self.plex_token
             logging.debug(f"[PLEX API] Added main account from settings: {main_username}")
 
-        # Step 2: Try to get main account info from plex.tv (optional - may fail offline)
-        account = None
-        try:
-            self._rate_limited_api_call()
-            account = self.plex.myPlexAccount()
-            actual_main_username = account.title
-            # Update main account token with actual username from plex.tv
-            if actual_main_username != main_username:
-                if main_username and main_username in self._user_tokens:
-                    del self._user_tokens[main_username]
-                self._user_tokens[actual_main_username] = self.plex_token
-                logging.debug(f"[PLEX API] Main account: {actual_main_username}")
-        except Exception as e:
-            _log_api_error("load user tokens", e)
-            self._plex_tv_reachable = False
-            self._watchlist_data_complete = False  # Can't fetch watchlists without plex.tv
-            logging.warning("[PLEX API] plex.tv unreachable - using cached user data only")
-            logging.warning("[PLEX API] Watchlist data will be incomplete - array restore will be skipped")
+        # Step 2: Try to get main account info from plex.tv
+        account = self._get_main_account(main_username)
 
-        # Step 3: Check Plex API for new users not in settings (only if plex.tv reachable)
+        # Step 3: Check for new users not in settings
         if account and self._plex_tv_reachable:
-            try:
-                self._rate_limited_api_call()
-                users = account.users()
-                new_users = 0
-
-                for user in users:
-                    username = user.title
-
-                    # Build user ID -> username map for RSS author lookup (even if skipped)
-                    # RSS feed uses uuid (hex string from thumb URL), so store both id and uuid
-                    if hasattr(user, 'id') and user.id:
-                        self._user_id_to_name[str(user.id)] = username
-                    # Extract uuid from thumb URL: https://plex.tv/users/{uuid}/avatar
-                    thumb = getattr(user, 'thumb', '')
-                    if thumb and '/users/' in thumb:
-                        try:
-                            user_uuid = thumb.split('/users/')[1].split('/')[0]
-                            self._user_id_to_name[user_uuid] = username
-                        except (IndexError, AttributeError):
-                            pass
-
-                    # Skip if already loaded from settings
-                    if username in settings_usernames:
-                        continue
-
-                    # Check skip list
-                    if username in skip_users:
-                        logging.debug(f"[USER:{username}] Skipping (in skip list)")
-                        continue
-
-                    # Try to get token from disk cache first
-                    cached_token = self._token_cache.get_token(username, machine_id)
-                    if cached_token:
-                        if cached_token in skip_users:
-                            logging.debug(f"[USER:{username}] Skipping (token in skip list)")
-                            continue
-                        self._user_tokens[username] = cached_token
-                        logging.debug(f"[USER:{username}] Using cached token")
-                        new_users += 1
-                        continue
-
-                    # Fetch fresh token from plex.tv
-                    try:
-                        self._rate_limited_api_call()
-                        token = user.get_token(machine_id)
-                        if token:
-                            if token in skip_users:
-                                logging.debug(f"[USER:{username}] Skipping (token in skip list)")
-                                continue
-                            self._user_tokens[username] = token
-                            self._token_cache.set_token(username, token, machine_id)
-                            logging.debug(f"[USER:{username}] Fetched fresh token")
-                            new_users += 1
-                        else:
-                            logging.debug(f"[USER:{username}] No token available")
-                    except Exception as e:
-                        _log_api_error(f"get token for {username}", e)
-
-                if new_users > 0:
-                    logging.info(f"[PLEX API] Found {new_users} new users not in settings (consider re-running setup)")
-            except Exception as e:
-                _log_api_error("check for new users", e)
+            self._discover_new_users(account, settings_usernames, skip_users, machine_id)
 
         self._users_loaded = True
         total_users = len(self._user_tokens)
         logging.info(f"Connected to Plex ({total_users} users)")
-        # Log all active users for easy filtering in Log Analyzer
         if self._user_tokens:
             user_names = sorted(self._user_tokens.keys(), key=str.lower)
             logging.info(f"USERS: {', '.join(user_names)}")
@@ -749,8 +787,8 @@ class PlexManager:
             if pub_date_elem is not None and pub_date_elem.text:
                 try:
                     pub_date = parsedate_to_datetime(pub_date_elem.text)
-                except Exception:
-                    pass
+                except (ValueError, TypeError):
+                    pass  # Invalid date format, use None
             # Get author ID (Plex user ID who added to watchlist)
             author_id = ""
             author_elem = item.find("author")
@@ -778,7 +816,7 @@ class PlexManager:
             with open(RSS_CACHE_FILE, 'w') as f:
                 json.dump(cache_data, f)
             logging.debug(f"Saved {len(items)} RSS items to cache")
-        except Exception as e:
+        except IOError as e:
             logging.debug(f"Failed to save RSS cache: {e}")
 
     def _load_rss_cache(self) -> List[Tuple[str, str, Optional[datetime], str, str]]:
@@ -823,7 +861,7 @@ class PlexManager:
                 items = self._parse_rss_response(resp.text)
                 self._save_rss_cache(url, items)  # Cache successful result
                 return items
-            except Exception as e:
+            except (requests.RequestException, ET.ParseError) as e:
                 last_error = e
                 if attempt < RSS_MAX_RETRIES - 1:
                     wait_time = 2 ** attempt  # 1s, 2s, 4s
