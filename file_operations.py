@@ -2850,7 +2850,12 @@ class FileMover:
                     # The exclude list stores full cache paths, so join the cache directory with the old filename
                     old_cache_file_to_remove = os.path.join(os.path.dirname(cache_file_name), old_name)
 
-            # Step 1: Copy file from array to cache (preserving metadata and ownership)
+            # Step 1: Ensure cache directory exists, then copy file
+            cache_dir = os.path.dirname(cache_file_name)
+            if not os.path.exists(cache_dir):
+                self.file_utils.create_directory_with_permissions(cache_dir, array_file)
+                logging.debug(f"Created cache directory: {cache_dir}")
+
             logging.debug(f"Starting copy: {array_file} -> {cache_file_name}")
             self.file_utils.copy_file_with_permissions(array_file, cache_file_name, verbose=True)
             logging.debug(f"Copy complete: {os.path.basename(array_file)}")
