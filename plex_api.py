@@ -727,6 +727,299 @@ class PlexManager:
         import re
         return re.sub(r"\s\(\d{4}\)$", "", title)
 
+    # -------------------- Watchlist Helper Methods --------------------
+
+    def _parse_rss_response(self, text: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
+        """Parse RSS XML response into list of items.
+
+        Returns list of tuples: (title, category, pub_date, author_id, guid)
+        The guid contains IMDB/TVDB IDs like 'imdb://tt0898367' or 'tvdb://267247'
+        """
+        from email.utils import parsedate_to_datetime
+
+        root = ET.fromstring(text)
+        items = []
+        for item in root.findall("channel/item"):
+            title = item.find("title").text
+            category_elem = item.find("category")
+            category = category_elem.text if category_elem is not None else ""
+            # Parse pubDate (RFC 822 format) - this is when item was added to watchlist
+            pub_date = None
+            pub_date_elem = item.find("pubDate")
+            if pub_date_elem is not None and pub_date_elem.text:
+                try:
+                    pub_date = parsedate_to_datetime(pub_date_elem.text)
+                except Exception:
+                    pass
+            # Get author ID (Plex user ID who added to watchlist)
+            author_id = ""
+            author_elem = item.find("author")
+            if author_elem is not None and author_elem.text:
+                author_id = author_elem.text
+            # Get GUID (IMDB/TVDB ID) for accurate matching
+            guid = ""
+            guid_elem = item.find("guid")
+            if guid_elem is not None and guid_elem.text:
+                guid = guid_elem.text
+            items.append((title, category, pub_date, author_id, guid))
+        return items
+
+    def _save_rss_cache(self, url: str, items: List[Tuple[str, str, Optional[datetime], str, str]]) -> None:
+        """Save RSS items to cache file."""
+        try:
+            cache_data = {
+                'timestamp': datetime.now().isoformat(),
+                'url': url,
+                'items': [
+                    (title, category, pub_date.isoformat() if pub_date else None, author_id, guid)
+                    for title, category, pub_date, author_id, guid in items
+                ]
+            }
+            with open(RSS_CACHE_FILE, 'w') as f:
+                json.dump(cache_data, f)
+            logging.debug(f"Saved {len(items)} RSS items to cache")
+        except Exception as e:
+            logging.debug(f"Failed to save RSS cache: {e}")
+
+    def _load_rss_cache(self) -> List[Tuple[str, str, Optional[datetime], str, str]]:
+        """Load RSS items from cache file."""
+        try:
+            if os.path.exists(RSS_CACHE_FILE):
+                with open(RSS_CACHE_FILE, 'r') as f:
+                    cache_data = json.load(f)
+                items = []
+                for item_data in cache_data['items']:
+                    # Handle both old format (4 fields) and new format (5 fields with guid)
+                    if len(item_data) == 4:
+                        title, category, pub_date_str, author_id = item_data
+                        guid = ""
+                    else:
+                        title, category, pub_date_str, author_id, guid = item_data
+                    pub_date = datetime.fromisoformat(pub_date_str) if pub_date_str else None
+                    items.append((title, category, pub_date, author_id, guid))
+                cache_time = datetime.fromisoformat(cache_data['timestamp'])
+                cache_age = datetime.now() - cache_time
+                cache_age_hours = cache_age.total_seconds() / 3600
+                logging.warning(f"Using cached RSS data ({len(items)} items, {cache_age_hours:.1f} hours old)")
+                return items
+        except Exception as e:
+            logging.debug(f"Failed to load RSS cache: {e}")
+        return []
+
+    def _fetch_rss_titles(self, url: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
+        """Fetch titles, categories, pubDate, author ID, and GUID from a Plex RSS feed.
+
+        Retries up to RSS_MAX_RETRIES times with exponential backoff.
+        Falls back to cached data if all retries fail.
+
+        Returns list of tuples: (title, category, pub_date, author_id, guid)
+        """
+        # Retry loop with exponential backoff
+        last_error = None
+        for attempt in range(RSS_MAX_RETRIES):
+            try:
+                resp = requests.get(url, timeout=RSS_TIMEOUT)
+                resp.raise_for_status()
+                items = self._parse_rss_response(resp.text)
+                self._save_rss_cache(url, items)  # Cache successful result
+                return items
+            except Exception as e:
+                last_error = e
+                if attempt < RSS_MAX_RETRIES - 1:
+                    wait_time = 2 ** attempt  # 1s, 2s, 4s
+                    logging.warning(f"RSS fetch attempt {attempt + 1}/{RSS_MAX_RETRIES} failed: {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+
+        # All retries failed - try cache
+        logging.error(f"Failed to fetch RSS feed after {RSS_MAX_RETRIES} attempts: {last_error}")
+        cached_items = self._load_rss_cache()
+        if cached_items:
+            return cached_items
+
+        logging.error("No cached RSS data available - remote watchlist items will be missing!")
+        return []
+
+    def _process_watchlist_show(self, file, watchlist_episodes: int, username: str,
+                                 watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
+        """Process a show and yield episode file paths with metadata."""
+        episodes = file.episodes()
+        episodes_to_process = episodes[:watchlist_episodes]
+        logging.debug(f"Processing show {file.title} with {len(episodes)} episodes (limit: {watchlist_episodes})")
+
+        yielded_count = 0
+        skipped_watched = 0
+        skipped_no_media = 0
+
+        for episode in episodes_to_process:
+            if len(episode.media) > 0 and len(episode.media[0].parts) > 0:
+                if not episode.isPlayed:
+                    file_path = episode.media[0].parts[0].file
+                    logging.debug(f"[USER:{username}] Watchlist found: {file_path}")
+                    yield (file_path, username, watchlisted_at)
+                    yielded_count += 1
+                else:
+                    skipped_watched += 1
+            else:
+                skipped_no_media += 1
+
+        # Log summary for this show
+        if skipped_watched > 0:
+            logging.debug(f"  {file.title}: {yielded_count} episodes to cache, {skipped_watched} skipped (already watched)")
+        if skipped_no_media > 0:
+            logging.warning(f"  {file.title}: {skipped_no_media} episodes skipped (no media files)")
+
+    def _process_watchlist_movie(self, file, username: str,
+                                  watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
+        """Process a movie and yield file path with metadata."""
+        if len(file.media) > 0 and len(file.media[0].parts) > 0:
+            file_path = file.media[0].parts[0].file
+            logging.debug(f"[USER:{username}] Watchlist found: {file_path}")
+            yield (file_path, username, watchlisted_at)
+
+    def _fetch_user_watchlist(self, user, valid_sections: List[int], watchlist_episodes: int,
+                               skip_watchlist: List[str], rss_url: Optional[str],
+                               filtered_sections: List[int]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
+        """Fetch watchlist media for a user, yielding file paths with metadata.
+
+        Uses separate MyPlexAccount instances per user to avoid session state contamination.
+        See: https://github.com/StudioNirin/PlexCache-R/issues/20
+        """
+        current_username = user.title if user else "main"
+
+        # Use rate limiting
+        self._rate_limited_api_call()
+
+        # Get username from cached tokens if available
+        if user is None:
+            try:
+                current_username = self.plex.myPlexAccount().title
+            except Exception:
+                current_username = "main"
+        else:
+            current_username = user.title
+
+        logging.debug(f"[USER:{current_username}] Fetching watchlist media")
+
+        # Skip users in the skip list (use cached tokens)
+        if user:
+            token = self._user_tokens.get(current_username)
+            if not token:
+                logging.warning(f"[USER:{current_username}] No cached token; skipping watchlist")
+                return
+            if token in skip_watchlist or current_username in skip_watchlist:
+                logging.info(f"[USER:{current_username}] Skipping — in watchlist skip list")
+                return
+
+        # --- Obtain Plex account instance ---
+        try:
+            import requests as req
+            fresh_session = req.Session()
+
+            if user is None:
+                # Main account - use the main token with a fresh session
+                self._rate_limited_api_call()
+                account = MyPlexAccount(token=self.plex_token, session=fresh_session)
+                logging.debug(f"[USER:{current_username}] Created fresh MyPlexAccount (main user)")
+            else:
+                # Home/managed user - create fresh admin account then switch to home user
+                try:
+                    self._rate_limited_api_call()
+                    fresh_admin_account = MyPlexAccount(token=self.plex_token, session=fresh_session)
+                    self._rate_limited_api_call()
+                    account = fresh_admin_account.switchHomeUser(current_username)
+                    logging.debug(f"[USER:{current_username}] Switched to home user via fresh admin account")
+                except Exception as e:
+                    _log_api_error(f"switch to home user {current_username}", e)
+                    self.mark_watchlist_incomplete()
+                    return
+        except Exception as e:
+            _log_api_error(f"get Plex account for {current_username}", e)
+            self.mark_watchlist_incomplete()
+            return
+
+        # --- RSS feed processing ---
+        if rss_url:
+            yield from self._process_rss_watchlist(rss_url, current_username, filtered_sections, watchlist_episodes)
+            return
+
+        # --- Local Plex watchlist processing ---
+        try:
+            self._rate_limited_api_call()
+            watchlist = account.watchlist(filter='released', sort='watchlistedAt:desc')
+            logging.debug(f"[USER:{current_username}] Found {len(watchlist)} watchlist items")
+            for item in watchlist:
+                watchlisted_at = None
+                try:
+                    user_state = account.userState(item)
+                    watchlisted_at = getattr(user_state, 'watchlistedAt', None)
+                except Exception as e:
+                    logging.debug(f"Could not get userState for {item.title}: {e}")
+                file = self.search_plex(item.title)
+                if file and (not filtered_sections or file.librarySectionID in filtered_sections):
+                    try:
+                        if file.TYPE == 'show':
+                            yield from self._process_watchlist_show(file, watchlist_episodes, current_username, watchlisted_at)
+                        elif file.TYPE == 'movie':
+                            yield from self._process_watchlist_movie(file, current_username, watchlisted_at)
+                        else:
+                            logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
+                    except Exception as e:
+                        logging.warning(f"Error processing '{file.title}': {e}")
+                elif file:
+                    logging.debug(f"Skipping watchlist item '{file.title}' — section {file.librarySectionID} not in valid_sections {filtered_sections}")
+        except Exception as e:
+            logging.error(f"[USER:{current_username}] Error fetching watchlist: {e}")
+            self.mark_watchlist_incomplete()
+
+    def _process_rss_watchlist(self, rss_url: str, current_username: str,
+                                filtered_sections: List[int], watchlist_episodes: int) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
+        """Process RSS feed items and yield matching media files."""
+        rss_items = self._fetch_rss_titles(rss_url)
+        logging.debug(f"RSS feed contains {len(rss_items)} items")
+        unknown_user_ids = set()
+        rss_not_found = []
+
+        for title, category, pub_date, author_id, guid in rss_items:
+            # Look up username from author ID
+            if author_id and author_id in self._user_id_to_name:
+                rss_username = self._user_id_to_name[author_id]
+            elif author_id:
+                resolved_name = self.resolve_user_uuid(author_id)
+                if resolved_name:
+                    rss_username = resolved_name
+                else:
+                    rss_username = f"User#{author_id}"
+                    unknown_user_ids.add(author_id)
+            else:
+                rss_username = "Friends (RSS)"
+
+            cleaned_title = self.clean_rss_title(title)
+            file = self.search_plex(cleaned_title, guid=guid, expected_type=category,
+                                   valid_sections=filtered_sections)
+            if file:
+                logging.debug(f"RSS title '{title}' matched Plex item '{file.title}' ({file.TYPE})")
+                try:
+                    if file.TYPE == 'show':
+                        yield from self._process_watchlist_show(file, watchlist_episodes, rss_username, pub_date)
+                    elif file.TYPE == 'movie':
+                        yield from self._process_watchlist_movie(file, rss_username, pub_date)
+                    else:
+                        logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
+                except Exception as e:
+                    logging.warning(f"Error processing '{file.title}': {e}")
+            else:
+                rss_not_found.append((title, rss_username))
+                logging.debug(f"RSS title '{title}' (added by {rss_username}) not found in Plex — discarded")
+
+        # Log summary of not-found items
+        if rss_not_found:
+            if logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
+                logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library")
+            else:
+                logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library (use --verbose for details)")
+
+        if unknown_user_ids:
+            logging.debug(f"[PLEX API] {len(unknown_user_ids)} unknown user ID(s) in RSS feed: {', '.join(sorted(unknown_user_ids))}. Run 'python3 plexcache_setup.py' and refresh users to resolve.")
 
     def get_watchlist_media(self, valid_sections: List[int], watchlist_episodes: int,
                             users_toggle: bool, skip_watchlist: List[str], rss_url: Optional[str] = None,
@@ -734,8 +1027,12 @@ class PlexManager:
         """Get watchlist media files, optionally via RSS, with proper user filtering.
 
         Args:
+            valid_sections: List of library section IDs to include.
+            watchlist_episodes: Number of episodes to fetch per show.
+            users_toggle: Whether to include other users' media.
+            skip_watchlist: List of usernames or tokens to skip.
+            rss_url: Optional RSS feed URL for remote user watchlists.
             home_users: List of usernames that are home/managed users (can access watchlist).
-                       Remote users (friends) cannot have their watchlists accessed.
 
         Yields:
             Tuples of (file_path, username, watchlisted_at) where watchlisted_at is the
@@ -744,333 +1041,35 @@ class PlexManager:
         if home_users is None:
             home_users = []
 
-        def fetch_rss_titles(url: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
-            """Fetch titles, categories, pubDate, author ID, and GUID from a Plex RSS feed.
+        # Build filtered sections list
+        available_sections = [section.key for section in self.plex.library.sections()]
+        filtered_sections = list(set(available_sections) & set(valid_sections))
 
-            Retries up to RSS_MAX_RETRIES times with exponential backoff.
-            Falls back to cached data if all retries fail.
-
-            Returns list of tuples: (title, category, pub_date, author_id, guid)
-            """
-            from email.utils import parsedate_to_datetime
-
-            def _parse_rss_response(text: str) -> List[Tuple[str, str, Optional[datetime], str, str]]:
-                """Parse RSS XML response into list of items.
-
-                Returns list of tuples: (title, category, pub_date, author_id, guid)
-                The guid contains IMDB/TVDB IDs like 'imdb://tt0898367' or 'tvdb://267247'
-                """
-                root = ET.fromstring(text)
-                items = []
-                for item in root.findall("channel/item"):
-                    title = item.find("title").text
-                    category_elem = item.find("category")
-                    category = category_elem.text if category_elem is not None else ""
-                    # Parse pubDate (RFC 822 format) - this is when item was added to watchlist
-                    pub_date = None
-                    pub_date_elem = item.find("pubDate")
-                    if pub_date_elem is not None and pub_date_elem.text:
-                        try:
-                            pub_date = parsedate_to_datetime(pub_date_elem.text)
-                        except Exception:
-                            pass
-                    # Get author ID (Plex user ID who added to watchlist)
-                    author_id = ""
-                    author_elem = item.find("author")
-                    if author_elem is not None and author_elem.text:
-                        author_id = author_elem.text
-                    # Get GUID (IMDB/TVDB ID) for accurate matching
-                    guid = ""
-                    guid_elem = item.find("guid")
-                    if guid_elem is not None and guid_elem.text:
-                        guid = guid_elem.text
-                    items.append((title, category, pub_date, author_id, guid))
-                return items
-
-            def _save_rss_cache(items: List[Tuple[str, str, Optional[datetime], str, str]]) -> None:
-                """Save RSS items to cache file."""
-                try:
-                    cache_data = {
-                        'timestamp': datetime.now().isoformat(),
-                        'url': url,
-                        'items': [
-                            (title, category, pub_date.isoformat() if pub_date else None, author_id, guid)
-                            for title, category, pub_date, author_id, guid in items
-                        ]
-                    }
-                    with open(RSS_CACHE_FILE, 'w') as f:
-                        json.dump(cache_data, f)
-                    logging.debug(f"Saved {len(items)} RSS items to cache")
-                except Exception as e:
-                    logging.debug(f"Failed to save RSS cache: {e}")
-
-            def _load_rss_cache() -> List[Tuple[str, str, Optional[datetime], str, str]]:
-                """Load RSS items from cache file."""
-                try:
-                    if os.path.exists(RSS_CACHE_FILE):
-                        with open(RSS_CACHE_FILE, 'r') as f:
-                            cache_data = json.load(f)
-                        items = []
-                        for item_data in cache_data['items']:
-                            # Handle both old format (4 fields) and new format (5 fields with guid)
-                            if len(item_data) == 4:
-                                title, category, pub_date_str, author_id = item_data
-                                guid = ""
-                            else:
-                                title, category, pub_date_str, author_id, guid = item_data
-                            pub_date = datetime.fromisoformat(pub_date_str) if pub_date_str else None
-                            items.append((title, category, pub_date, author_id, guid))
-                        cache_time = datetime.fromisoformat(cache_data['timestamp'])
-                        cache_age = datetime.now() - cache_time
-                        cache_age_hours = cache_age.total_seconds() / 3600
-                        logging.warning(f"Using cached RSS data ({len(items)} items, {cache_age_hours:.1f} hours old)")
-                        return items
-                except Exception as e:
-                    logging.debug(f"Failed to load RSS cache: {e}")
-                return []
-
-            # Retry loop with exponential backoff
-            last_error = None
-            for attempt in range(RSS_MAX_RETRIES):
-                try:
-                    resp = requests.get(url, timeout=RSS_TIMEOUT)
-                    resp.raise_for_status()
-                    items = _parse_rss_response(resp.text)
-                    _save_rss_cache(items)  # Cache successful result
-                    return items
-                except Exception as e:
-                    last_error = e
-                    if attempt < RSS_MAX_RETRIES - 1:
-                        wait_time = 2 ** attempt  # 1s, 2s, 4s
-                        logging.warning(f"RSS fetch attempt {attempt + 1}/{RSS_MAX_RETRIES} failed: {e}. Retrying in {wait_time}s...")
-                        time.sleep(wait_time)
-
-            # All retries failed - try cache
-            logging.error(f"Failed to fetch RSS feed after {RSS_MAX_RETRIES} attempts: {last_error}")
-            cached_items = _load_rss_cache()
-            if cached_items:
-                return cached_items
-
-            logging.error("No cached RSS data available - remote watchlist items will be missing!")
-            return []
-
-        def process_show(file, watchlist_episodes: int, username: str, watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
-            """Process a show and yield episode file paths with metadata."""
-            episodes = file.episodes()
-            episodes_to_process = episodes[:watchlist_episodes]
-            logging.debug(f"Processing show {file.title} with {len(episodes)} episodes (limit: {watchlist_episodes})")
-
-            yielded_count = 0
-            skipped_watched = 0
-            skipped_no_media = 0
-
-            for episode in episodes_to_process:
-                if len(episode.media) > 0 and len(episode.media[0].parts) > 0:
-                    if not episode.isPlayed:
-                        file_path = episode.media[0].parts[0].file
-                        logging.debug(f"[USER:{username}] Watchlist found: {file_path}")
-                        yield (file_path, username, watchlisted_at)
-                        yielded_count += 1
-                    else:
-                        skipped_watched += 1
-                else:
-                    skipped_no_media += 1
-
-            # Log summary for this show
-            if skipped_watched > 0:
-                logging.debug(f"  {file.title}: {yielded_count} episodes to cache, {skipped_watched} skipped (already watched)")
-            if skipped_no_media > 0:
-                logging.warning(f"  {file.title}: {skipped_no_media} episodes skipped (no media files)")
-
-        def process_movie(file, username: str, watchlisted_at: Optional[datetime]) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
-            """Process a movie and yield file path with metadata."""
-            if len(file.media) > 0 and len(file.media[0].parts) > 0:
-                file_path = file.media[0].parts[0].file
-                logging.debug(f"[USER:{username}] Watchlist found: {file_path}")
-                yield (file_path, username, watchlisted_at)
-
-
-        def fetch_user_watchlist(user) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
-            """Fetch watchlist media for a user, optionally via RSS, yielding file paths with metadata.
-
-            Uses separate MyPlexAccount instances per user to avoid session state contamination.
-            See: https://github.com/StudioNirin/PlexCache-R/issues/20
-            """
-            current_username = user.title if user else "main"
-
-            # Use rate limiting
-            self._rate_limited_api_call()
-
-            # Get username from cached tokens if available
-            if user is None:
-                try:
-                    current_username = self.plex.myPlexAccount().title
-                except Exception:
-                    current_username = "main"
-            else:
-                current_username = user.title
-
-            logging.debug(f"[USER:{current_username}] Fetching watchlist media")
-
-            # Build list of valid sections for filtering
-            available_sections = [section.key for section in self.plex.library.sections()]
-            filtered_sections = list(set(available_sections) & set(valid_sections))
-
-            # Skip users in the skip list (use cached tokens)
-            if user:
-                token = self._user_tokens.get(current_username)
-                if not token:
-                    logging.warning(f"[USER:{current_username}] No cached token; skipping watchlist")
-                    return
-                if token in skip_watchlist or current_username in skip_watchlist:
-                    logging.info(f"[USER:{current_username}] Skipping — in watchlist skip list")
-                    return
-
-            # --- Obtain Plex account instance ---
-            # IMPORTANT: We create fresh MyPlexAccount instances with fresh HTTP sessions
-            # to avoid session state contamination that can cause cross-user data leakage (Issue #20).
-            #
-            # For main account: Create fresh MyPlexAccount with admin token + fresh session
-            # For home/managed users: Create fresh admin account + fresh session, then switchHomeUser()
-            #   (Home users don't have standalone plex.tv accounts, so we can't use
-            #    MyPlexAccount(token=their_token) directly - their tokens only work locally)
-            try:
-                import requests as req
-                fresh_session = req.Session()
-
-                if user is None:
-                    # Main account - use the main token with a fresh session
-                    self._rate_limited_api_call()
-                    account = MyPlexAccount(token=self.plex_token, session=fresh_session)
-                    logging.debug(f"[USER:{current_username}] Created fresh MyPlexAccount (main user)")
-                else:
-                    # Home/managed user - create fresh admin account then switch to home user
-                    # This isolates each request while still allowing access to home user watchlists
-                    try:
-                        self._rate_limited_api_call()
-                        fresh_admin_account = MyPlexAccount(token=self.plex_token, session=fresh_session)
-                        self._rate_limited_api_call()
-                        account = fresh_admin_account.switchHomeUser(current_username)
-                        logging.debug(f"[USER:{current_username}] Switched to home user via fresh admin account")
-                    except Exception as e:
-                        _log_api_error(f"switch to home user {current_username}", e)
-                        self.mark_watchlist_incomplete()
-                        return
-            except Exception as e:
-                _log_api_error(f"get Plex account for {current_username}", e)
-                self.mark_watchlist_incomplete()
-                return
-
-            # --- RSS feed processing (pubDate = when added to watchlist) ---
-            if rss_url:
-                rss_items = fetch_rss_titles(rss_url)
-                logging.debug(f"RSS feed contains {len(rss_items)} items")
-                unknown_user_ids = set()  # Track unknown IDs to log once
-                rss_not_found = []  # Track items not found in library for summary
-                for title, category, pub_date, author_id, guid in rss_items:
-                    # Look up username from author ID, fall back to ID or "Unknown"
-                    if author_id and author_id in self._user_id_to_name:
-                        rss_username = self._user_id_to_name[author_id]
-                    elif author_id:
-                        # Try to resolve the unknown UUID via API
-                        resolved_name = self.resolve_user_uuid(author_id)
-                        if resolved_name:
-                            rss_username = resolved_name
-                        else:
-                            rss_username = f"User#{author_id}"
-                            unknown_user_ids.add(author_id)
-                    else:
-                        rss_username = "Friends (RSS)"
-                    cleaned_title = self.clean_rss_title(title)
-                    # Use GUID for accurate matching, with title as fallback
-                    # Pass expected_type to prevent type mismatches (e.g., episode returned for show)
-                    file = self.search_plex(cleaned_title, guid=guid, expected_type=category,
-                                           valid_sections=filtered_sections)
-                    if file:
-                        logging.debug(f"RSS title '{title}' matched Plex item '{file.title}' ({file.TYPE})")
-                        try:
-                            # Type is guaranteed correct by search_plex with expected_type
-                            if file.TYPE == 'show':
-                                yield from process_show(file, watchlist_episodes, rss_username, pub_date)
-                            elif file.TYPE == 'movie':
-                                yield from process_movie(file, rss_username, pub_date)
-                            else:
-                                logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
-                        except Exception as e:
-                            logging.warning(f"Error processing '{file.title}': {e}")
-                    else:
-                        # Collect not-found items for summary instead of individual warnings
-                        rss_not_found.append((title, rss_username))
-                        logging.debug(f"RSS title '{title}' (added by {rss_username}) not found in Plex — discarded")
-                # Log summary of not-found items (INFO level - expected behavior)
-                if rss_not_found:
-                    # Don't show "--verbose" hint if already in verbose/debug mode
-                    if logging.getLogger().getEffectiveLevel() <= logging.DEBUG:
-                        logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library")
-                    else:
-                        logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library (use --verbose for details)")
-                # Log unknown user IDs once at the end
-                if unknown_user_ids:
-                    logging.debug(f"[PLEX API] {len(unknown_user_ids)} unknown user ID(s) in RSS feed: {', '.join(sorted(unknown_user_ids))}. Run 'python3 plexcache_setup.py' and refresh users to resolve.")
-                return
-
-            # --- Local Plex watchlist processing ---
-            try:
-                # Rate limit the watchlist API call (hits plex.tv)
-                self._rate_limited_api_call()
-                # Sort by watchlistedAt descending to get most recent add date first
-                watchlist = account.watchlist(filter='released', sort='watchlistedAt:desc')
-                logging.debug(f"[USER:{current_username}] Found {len(watchlist)} watchlist items")
-                for item in watchlist:
-                    # Get watchlistedAt timestamp from userState (addedAt is the media release date, not when added to watchlist)
-                    watchlisted_at = None
-                    try:
-                        user_state = account.userState(item)
-                        watchlisted_at = getattr(user_state, 'watchlistedAt', None)
-                    except Exception as e:
-                        logging.debug(f"Could not get userState for {item.title}: {e}")
-                    file = self.search_plex(item.title)
-                    if file and (not filtered_sections or file.librarySectionID in filtered_sections):
-                        try:
-                            if file.TYPE == 'show':
-                                yield from process_show(file, watchlist_episodes, current_username, watchlisted_at)
-                            elif file.TYPE == 'movie':
-                                yield from process_movie(file, current_username, watchlisted_at)
-                            else:
-                                logging.debug(f"Ignoring item '{file.title}' of type '{file.TYPE}'")
-                        except Exception as e:
-                            logging.warning(f"Error processing '{file.title}': {e}")
-                    elif file:
-                        logging.debug(f"Skipping watchlist item '{file.title}' — section {file.librarySectionID} not in valid_sections {filtered_sections}")
-            except Exception as e:
-                logging.error(f"[USER:{current_username}] Error fetching watchlist: {e}")
-                self.mark_watchlist_incomplete()
-
-
-        # --- Prepare users to fetch ---
-        # Only the main account and home/managed users have accessible watchlists
-        # Remote users (friends) have their own separate Plex accounts we can't access
+        # Prepare users to fetch
         users_to_fetch = [None]  # always include the main local account
 
         if users_toggle:
             for username, token in self._user_tokens.items():
-                # Skip main account (already added as None)
                 if token == self.plex_token:
                     continue
-                # Check skip list
                 if username in skip_watchlist or token in skip_watchlist:
                     logging.info(f"[USER:{username}] Skipping for watchlist — in skip list")
                     continue
-                # Only include home/managed users - remote users' watchlists are handled via RSS feed
                 if username not in home_users:
                     continue
                 users_to_fetch.append(UserProxy(username))
 
         logging.debug(f"Processing {len(users_to_fetch)} users for watchlist (main + {len(users_to_fetch)-1} home users)")
 
-        # --- Fetch concurrently ---
+        # Fetch concurrently using extracted helper methods
         with ThreadPoolExecutor(max_workers=10) as executor:
-            futures = {executor.submit(fetch_user_watchlist, user) for user in users_to_fetch}
+            futures = {
+                executor.submit(
+                    self._fetch_user_watchlist, user, valid_sections, watchlist_episodes,
+                    skip_watchlist, rss_url, filtered_sections
+                )
+                for user in users_to_fetch
+            }
             for future in as_completed(futures):
                 retries = 0
                 while retries < self.retry_limit:

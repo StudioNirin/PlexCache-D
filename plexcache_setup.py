@@ -561,6 +561,9 @@ def plex_oauth_authenticate(settings: dict, timeout_seconds: int = 300):
 
 # ---------------- Setup Function ----------------
 
+TOTAL_SETUP_STEPS = 5  # Connection, Libraries, Behavior, Users, Advanced
+
+
 def print_step_header(step: int, total: int, title: str):
     """Print a formatted step header with progress indicator."""
     print("\n" + "=" * 60)
@@ -568,22 +571,15 @@ def print_step_header(step: int, total: int, title: str):
     print("=" * 60)
 
 
-def setup(advanced_mode: bool = False):
-    """Run the PlexCache-R setup wizard.
+def _setup_plex_connection():
+    """Step 1: Configure Plex connection and library paths.
 
-    Args:
-        advanced_mode: If True, show all configuration options.
-                      If False, use sensible defaults for most settings.
+    Returns:
+        PlexServer instance on success, None on failure.
     """
     global settings_data
-    settings_data['firststart'] = False
 
-    total_steps = 5  # Connection, Libraries, Behavior, Users, Final
-
-    # ============================================================
-    # STEP 1: PLEX CONNECTION
-    # ============================================================
-    print_step_header(1, total_steps, "PLEX CONNECTION")
+    print_step_header(1, TOTAL_SETUP_STEPS, "PLEX CONNECTION")
 
     # Plex URL
     while 'PLEX_URL' not in settings_data:
@@ -595,6 +591,7 @@ def setup(advanced_mode: bool = False):
             print("✗ Invalid URL format")
 
     # Plex Token
+    plex = None
     while 'PLEX_TOKEN' not in settings_data:
         token = None
 
@@ -632,87 +629,8 @@ def setup(advanced_mode: bool = False):
             plex = PlexServer(settings_data['PLEX_URL'], token)
             user = plex.myPlexAccount().username
             print(f"\n✓ Connected as: {user}")
-            libraries = plex.library.sections()
             settings_data['PLEX_TOKEN'] = token
             print(f"✓ Plex platform: {plex.platform}")
-
-            valid_sections = []
-            selected_libraries = []
-            path_mappings = []
-
-            # ============================================================
-            # STEP 2: LIBRARY SELECTION & PATH CONFIGURATION
-            # ============================================================
-            print_step_header(2, total_steps, "LIBRARY SELECTION")
-
-            # Ask for cache root ONCE at the beginning
-            print("\nWhere is your cache drive located?")
-            print("(All cacheable libraries will use subdirectories here)")
-            default_cache = '/mnt/cache' if is_unraid() else '/mnt/cache'
-            cache_root = input(f"Cache drive path [{default_cache}]: ").strip() or default_cache
-            if not cache_root.endswith('/'):
-                cache_root = cache_root + '/'
-
-            print(f"\n✓ Cache root: {cache_root}")
-            print("\nNow select which libraries to include and configure their paths.")
-            print("For each library, you'll specify where files are actually stored.\n")
-
-            while not valid_sections:
-                for library in libraries:
-                    # Get library locations
-                    try:
-                        locs = library.locations
-                        if isinstance(locs, str):
-                            locs = [locs]
-                    except Exception as e:
-                        print(f"\nWarning: Could not get locations for '{library.title}': {e}")
-                        locs = []
-
-                    print("-" * 60)
-                    print(f"Library: {library.title}")
-                    if locs:
-                        print(f"  Plex path: {locs[0]}" + (f" (+{len(locs)-1} more)" if len(locs) > 1 else ""))
-
-                    include = input("Include? [Y/n] ") or 'yes'
-                    if include.lower() in ['n', 'no']:
-                        print(f"  → Skipped\n")
-                        continue
-                    elif include.lower() in ['y', 'yes']:
-                        if library.key not in valid_sections:
-                            valid_sections.append(library.key)
-                            selected_libraries.append(library)
-
-                            # Collect path mappings for this library
-                            if locs:
-                                lib_mappings = prompt_library_path_mapping(
-                                    library.title,
-                                    locs,
-                                    cache_root
-                                )
-                                path_mappings.extend(lib_mappings)
-                            print()
-                    else:
-                        print("Please enter yes or no")
-
-                if not valid_sections:
-                    print("\n⚠ You must select at least one library. Please try again.\n")
-
-            settings_data['valid_sections'] = valid_sections
-            settings_data['path_mappings'] = path_mappings
-            settings_data['cache_dir'] = cache_root  # Store cache root
-
-            # Note: Legacy fields (plex_source, real_source, plex_library_folders,
-            # nas_library_folders) are deprecated and no longer generated.
-            # Path conversion now uses path_mappings exclusively.
-
-            # Show library summary
-            print("-" * 60)
-            print(f"✓ Configured {len(path_mappings)} library path(s)")
-            for m in path_mappings:
-                status = "cacheable" if m.get('cacheable', True) else "non-cacheable"
-                print(f"  • {m['name']}: {status}")
-
-
         except (BadRequest, requests.exceptions.RequestException) as e:
             print(f'Unable to connect to Plex server. Error: {e}')
         except ValueError as e:
@@ -720,10 +638,91 @@ def setup(advanced_mode: bool = False):
         except TypeError as e:
             print(f'An unexpected error occurred: {e}')
 
-    # ============================================================
-    # STEP 3: CACHING BEHAVIOR
-    # ============================================================
-    print_step_header(3, total_steps, "CACHING BEHAVIOR")
+    return plex
+
+
+def _setup_library_paths(plex):
+    """Step 2: Configure library selection and path mappings.
+
+    Args:
+        plex: PlexServer instance.
+    """
+    global settings_data
+
+    print_step_header(2, TOTAL_SETUP_STEPS, "LIBRARY SELECTION")
+
+    libraries = plex.library.sections()
+    valid_sections = []
+    path_mappings = []
+
+    # Ask for cache root ONCE at the beginning
+    print("\nWhere is your cache drive located?")
+    print("(All cacheable libraries will use subdirectories here)")
+    default_cache = '/mnt/cache' if is_unraid() else '/mnt/cache'
+    cache_root = input(f"Cache drive path [{default_cache}]: ").strip() or default_cache
+    if not cache_root.endswith('/'):
+        cache_root = cache_root + '/'
+
+    print(f"\n✓ Cache root: {cache_root}")
+    print("\nNow select which libraries to include and configure their paths.")
+    print("For each library, you'll specify where files are actually stored.\n")
+
+    while not valid_sections:
+        for library in libraries:
+            # Get library locations
+            try:
+                locs = library.locations
+                if isinstance(locs, str):
+                    locs = [locs]
+            except Exception as e:
+                print(f"\nWarning: Could not get locations for '{library.title}': {e}")
+                locs = []
+
+            print("-" * 60)
+            print(f"Library: {library.title}")
+            if locs:
+                print(f"  Plex path: {locs[0]}" + (f" (+{len(locs)-1} more)" if len(locs) > 1 else ""))
+
+            include = input("Include? [Y/n] ") or 'yes'
+            if include.lower() in ['n', 'no']:
+                print(f"  → Skipped\n")
+                continue
+            elif include.lower() in ['y', 'yes']:
+                if library.key not in valid_sections:
+                    valid_sections.append(library.key)
+
+                    # Collect path mappings for this library
+                    if locs:
+                        lib_mappings = prompt_library_path_mapping(
+                            library.title,
+                            locs,
+                            cache_root
+                        )
+                        path_mappings.extend(lib_mappings)
+                    print()
+            else:
+                print("Please enter yes or no")
+
+        if not valid_sections:
+            print("\n⚠ You must select at least one library. Please try again.\n")
+
+    settings_data['valid_sections'] = valid_sections
+    settings_data['path_mappings'] = path_mappings
+    settings_data['cache_dir'] = cache_root
+
+    # Show library summary
+    print("-" * 60)
+    print(f"✓ Configured {len(path_mappings)} library path(s)")
+    for m in path_mappings:
+        status = "cacheable" if m.get('cacheable', True) else "non-cacheable"
+        print(f"  • {m['name']}: {status}")
+
+
+def _setup_caching_behavior():
+    """Step 3: Configure OnDeck and Watchlist settings."""
+    global settings_data
+
+    print_step_header(3, TOTAL_SETUP_STEPS, "CACHING BEHAVIOR")
 
     # OnDeck Settings
     if 'number_episodes' not in settings_data:
@@ -746,15 +745,18 @@ def setup(advanced_mode: bool = False):
         else:
             print("Please enter yes or no")
 
-    # ============================================================
-    # STEP 4: USER CONFIGURATION
-    # ============================================================
-    print_step_header(4, total_steps, "USER CONFIGURATION")
+
+def _setup_users(plex):
+    """Step 4: Configure user settings (OnDeck/Watchlist for other users).
+
+    Args:
+        plex: PlexServer instance.
+    """
+    global settings_data
+
+    print_step_header(4, TOTAL_SETUP_STEPS, "USER CONFIGURATION")
 
     while 'users_toggle' not in settings_data:
-        skip_ondeck = []
-        skip_watchlist = []
-
         fetch_all_users = input('\nFetch OnDeck media from other Plex users? [Y/n] ') or 'yes'
         if fetch_all_users.lower() not in ['y', 'yes', 'n', 'no']:
             print("Please enter yes or no")
@@ -762,130 +764,142 @@ def setup(advanced_mode: bool = False):
 
         if fetch_all_users.lower() in ['y', 'yes']:
             settings_data['users_toggle'] = True
-
-            # Build the full user list (local + remote)
-            user_entries = []
-            local_users = []
-            remote_users = []
-            skipped_users = []
-
-            for user in plex.myPlexAccount().users():
-                name = user.title
-                user_id = getattr(user, "id", None)
-                user_uuid = None
-                thumb = getattr(user, "thumb", "")
-                if thumb and "/users/" in thumb:
-                    try:
-                        user_uuid = thumb.split("/users/")[1].split("/")[0]
-                    except (IndexError, AttributeError):
-                        pass
-
-                is_home = getattr(user, "home", False)
-                is_restricted = getattr(user, "restricted", False)
-                is_local = bool(is_home) or (is_restricted == "1" or is_restricted == 1 or is_restricted is True)
-
-                try:
-                    token = user.get_token(plex.machineIdentifier)
-                except Exception:
-                    skipped_users.append((name, "no server access"))
-                    continue
-
-                if token is None:
-                    skipped_users.append((name, "no token"))
-                    continue
-
-                user_entry = {
-                    "title": name,
-                    "id": user_id,
-                    "uuid": user_uuid,
-                    "token": token,
-                    "is_local": is_local,
-                    "skip_ondeck": False,
-                    "skip_watchlist": False
-                }
-                user_entries.append(user_entry)
-
-                if is_local:
-                    local_users.append(name)
-                else:
-                    remote_users.append(name)
-
-            # Display user summary
-            print(f"\nFound {len(user_entries)} accessible user(s):")
-            if local_users:
-                print(f"  Local/Home ({len(local_users)}): {', '.join(local_users)}")
-                print("    → Can fetch OnDeck + Watchlist")
-            if remote_users:
-                print(f"  Remote/Friends ({len(remote_users)}): {', '.join(remote_users)}")
-                print("    → OnDeck only (Watchlist via RSS)")
-            if skipped_users:
-                print(f"  Skipped ({len(skipped_users)}):")
-                for name, reason in skipped_users:
-                    print(f"    • {name} ({reason})")
-
-            settings_data["users"] = user_entries
-
-            # --- Skip OnDeck ---
-            if user_entries:
-                skip_users_choice = input('\nSkip OnDeck for specific users? [y/N] ') or 'no'
-                if skip_users_choice.lower() in ['y', 'yes']:
-                    for u in settings_data["users"]:
-                        answer = input(f'  Skip OnDeck for {u["title"]}? [y/N] ') or 'no'
-                        if answer.lower() in ['y', 'yes']:
-                            u["skip_ondeck"] = True
-
-            # --- Skip Watchlist (local users only) ---
-            local_user_entries = [u for u in settings_data["users"] if u["is_local"]]
-            if local_user_entries:
-                print("\nLocal users can have their watchlists fetched individually.")
-                for u in local_user_entries:
-                    answer = input(f'  Skip watchlist for {u["title"]}? [y/N] ') or 'no'
-                    if answer.lower() in ['y', 'yes']:
-                        u["skip_watchlist"] = True
-
-            # Build final skip lists
-            skip_ondeck = [u["token"] for u in settings_data["users"] if u["skip_ondeck"]]
-            skip_watchlist = [u["token"] for u in settings_data["users"] if u["is_local"] and u["skip_watchlist"]]
-
-            settings_data["skip_ondeck"] = skip_ondeck
-            settings_data["skip_watchlist"] = skip_watchlist
-
+            _configure_user_list(plex)
         else:
             settings_data['users_toggle'] = False
             settings_data["skip_ondeck"] = []
             settings_data["skip_watchlist"] = []
 
-    # Remote Watchlist RSS (still part of user config)
+    # Remote Watchlist RSS
     if 'remote_watchlist_toggle' not in settings_data:
         remote_watchlist = input('\nFetch watchlists from remote/friend users via RSS? [y/N] ') or 'no'
         if remote_watchlist.lower() in ['n', 'no']:
             settings_data['remote_watchlist_toggle'] = False
         elif remote_watchlist.lower() in ['y', 'yes']:
             settings_data['remote_watchlist_toggle'] = True
-            print("\nTo get the RSS feed URL:")
-            print("  1. Go to https://app.plex.tv/desktop/#!/settings/watchlist")
-            print("  2. Enable 'Friends Watchlist'")
-            print("  3. Copy the generated RSS URL")
-            while True:
-                rss_url = input('\nEnter RSS URL: ').strip()
-                if not rss_url:
-                    print("URL cannot be empty.")
-                    continue
-                try:
-                    response = requests.get(rss_url, timeout=10)
-                    if response.status_code == 200 and b'<Error' not in response.content:
-                        print("✓ RSS feed validated")
-                        settings_data['remote_watchlist_rss_url'] = rss_url
-                        break
-                    else:
-                        print("✗ Invalid RSS feed. Please check and try again.")
-                except requests.RequestException as e:
-                    print(f"✗ Error accessing URL: {e}")
+            _configure_rss_feed()
 
-    # ============================================================
-    # STEP 5: ADVANCED SETTINGS
-    # ============================================================
-    print_step_header(5, total_steps, "ADVANCED SETTINGS")
+
+def _configure_user_list(plex):
+    """Helper: Build and configure the user list from Plex API."""
+    global settings_data
+
+    # Build the full user list (local + remote)
+    user_entries = []
+    local_users = []
+    remote_users = []
+    skipped_users = []
+
+    for user in plex.myPlexAccount().users():
+        name = user.title
+        user_id = getattr(user, "id", None)
+        user_uuid = None
+        thumb = getattr(user, "thumb", "")
+        if thumb and "/users/" in thumb:
+            try:
+                user_uuid = thumb.split("/users/")[1].split("/")[0]
+            except (IndexError, AttributeError):
+                pass
+
+        is_home = getattr(user, "home", False)
+        is_restricted = getattr(user, "restricted", False)
+        is_local = bool(is_home) or (is_restricted == "1" or is_restricted == 1 or is_restricted is True)
+
+        try:
+            token = user.get_token(plex.machineIdentifier)
+        except Exception:
+            skipped_users.append((name, "no server access"))
+            continue
+
+        if token is None:
+            skipped_users.append((name, "no token"))
+            continue
+
+        user_entry = {
+            "title": name,
+            "id": user_id,
+            "uuid": user_uuid,
+            "token": token,
+            "is_local": is_local,
+            "skip_ondeck": False,
+            "skip_watchlist": False
+        }
+        user_entries.append(user_entry)
+
+        if is_local:
+            local_users.append(name)
+        else:
+            remote_users.append(name)
+
+    # Display user summary
+    print(f"\nFound {len(user_entries)} accessible user(s):")
+    if local_users:
+        print(f"  Local/Home ({len(local_users)}): {', '.join(local_users)}")
+        print("    → Can fetch OnDeck + Watchlist")
+    if remote_users:
+        print(f"  Remote/Friends ({len(remote_users)}): {', '.join(remote_users)}")
+        print("    → OnDeck only (Watchlist via RSS)")
+    if skipped_users:
+        print(f"  Skipped ({len(skipped_users)}):")
+        for name, reason in skipped_users:
+            print(f"    • {name} ({reason})")
+
+    settings_data["users"] = user_entries
+
+    # Skip OnDeck configuration
+    if user_entries:
+        skip_users_choice = input('\nSkip OnDeck for specific users? [y/N] ') or 'no'
+        if skip_users_choice.lower() in ['y', 'yes']:
+            for u in settings_data["users"]:
+                answer = input(f'  Skip OnDeck for {u["title"]}? [y/N] ') or 'no'
+                if answer.lower() in ['y', 'yes']:
+                    u["skip_ondeck"] = True
+
+    # Skip Watchlist configuration (local users only)
+    local_user_entries = [u for u in settings_data["users"] if u["is_local"]]
+    if local_user_entries:
+        print("\nLocal users can have their watchlists fetched individually.")
+        for u in local_user_entries:
+            answer = input(f'  Skip watchlist for {u["title"]}? [y/N] ') or 'no'
+            if answer.lower() in ['y', 'yes']:
+                u["skip_watchlist"] = True
+
+    # Build final skip lists
+    settings_data["skip_ondeck"] = [u["token"] for u in settings_data["users"] if u["skip_ondeck"]]
+    settings_data["skip_watchlist"] = [u["token"] for u in settings_data["users"] if u["is_local"] and u["skip_watchlist"]]
+
+
+def _configure_rss_feed():
+    """Helper: Configure and validate RSS feed URL."""
+    global settings_data
+
+    print("\nTo get the RSS feed URL:")
+    print("  1. Go to https://app.plex.tv/desktop/#!/settings/watchlist")
+    print("  2. Enable 'Friends Watchlist'")
+    print("  3. Copy the generated RSS URL")
+
+    while True:
+        rss_url = input('\nEnter RSS URL: ').strip()
+        if not rss_url:
+            print("URL cannot be empty.")
+            continue
+        try:
+            response = requests.get(rss_url, timeout=10)
+            if response.status_code == 200 and b'<Error' not in response.content:
+                print("✓ RSS feed validated")
+                settings_data['remote_watchlist_rss_url'] = rss_url
+                break
+            else:
+                print("✗ Invalid RSS feed. Please check and try again.")
+        except requests.RequestException as e:
+            print(f"✗ Error accessing URL: {e}")
+
+
+def _setup_advanced_settings():
+    """Step 5: Configure advanced settings (retention, limits, etc.)."""
+    global settings_data
+
+    print_step_header(5, TOTAL_SETUP_STEPS, "ADVANCED SETTINGS")
 
     # Watched Move
     if 'watched_move' not in settings_data:
@@ -914,32 +928,7 @@ def setup(advanced_mode: bool = False):
 
     # Smart Cache Eviction
     if 'cache_eviction_mode' not in settings_data:
-        print('\nEviction mode when cache is full:')
-        print('  none  - Skip new files (default)')
-        print('  smart - Evict lowest priority items')
-        print('  fifo  - Evict oldest items first')
-        eviction_mode = input('Eviction mode [none]: ').strip().lower() or 'none'
-        if eviction_mode not in ['none', 'smart', 'fifo']:
-            eviction_mode = 'none'
-        settings_data['cache_eviction_mode'] = eviction_mode
-
-        if eviction_mode in ['smart', 'fifo']:
-            threshold = input('Eviction threshold % [90]: ').strip() or '90'
-            # Strip % sign if user included it
-            threshold = threshold.rstrip('%').strip()
-            try:
-                settings_data['cache_eviction_threshold_percent'] = int(threshold)
-            except ValueError:
-                print(f"Invalid number '{threshold}', using default 90")
-                settings_data['cache_eviction_threshold_percent'] = 90
-
-            if eviction_mode == 'smart':
-                min_pri = input('Min priority to evict (0-100) [60]: ').strip() or '60'
-                try:
-                    settings_data['eviction_min_priority'] = int(min_pri)
-                except ValueError:
-                    print(f"Invalid number '{min_pri}', using default 60")
-                    settings_data['eviction_min_priority'] = 60
+        _configure_eviction_settings()
 
     # Notification Level
     if 'unraid_level' not in settings_data:
@@ -953,105 +942,8 @@ def setup(advanced_mode: bool = False):
             unraid_level = ''
         settings_data['unraid_level'] = unraid_level
 
-    # ---------------- Cache / Array Paths (Legacy - skip if path_mappings configured) ----------------
-    # If path_mappings were configured during library selection, skip this section
-    if settings_data.get('path_mappings'):
-        # Path mappings already configured during library selection
-        pass
-    elif 'cache_dir' not in settings_data:
-        # Legacy path configuration for users who somehow skip library-centric setup
-        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
-        while True:
-            test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
-            if test_path.lower() in ['y', 'yes']:
-                if os.path.exists(cache_dir):
-                    print('The path appears to be valid. Settings saved.')
-                    break
-                else:
-                    print('The path appears to be invalid.')
-                    edit_path = input('\nDo you want to edit the path? [y/N]  ') or 'no'
-                    if edit_path.lower() in ['y', 'yes']:
-                        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
-                    elif edit_path.lower() in ['n', 'no']:
-                        break
-                    else:
-                        print("Invalid choice. Please enter either yes or no")
-            elif test_path.lower() in ['n', 'no']:
-                break
-            else:
-                print("Invalid choice. Please enter either yes or no")
-        # Ensure trailing slash for consistency
-        if not cache_dir.endswith('/'):
-            cache_dir = cache_dir + '/'
-        settings_data['cache_dir'] = cache_dir
-
-    # Skip real_source/nas_library_folders if path_mappings configured
-    if settings_data.get('path_mappings'):
-        pass
-    elif 'real_source' not in settings_data:
-        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
-        while True:
-            test_path = input('\nDo you want to test the given path? [y/N]  ') or 'no'
-            if test_path.lower() in ['y', 'yes']:
-                if os.path.exists(real_source):
-                    print('The path appears to be valid. Settings saved.')
-                    break
-                else:
-                    print('The path appears to be invalid.')
-                    edit_path = input('\nDo you want to edit the path? [y/N]  ') or 'no'
-                    if edit_path.lower() in ['y', 'yes']:
-                        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
-                    elif edit_path.lower() in ['n', 'no']:
-                        break
-                    else:
-                        print("Invalid choice. Please enter either yes or no")
-            elif test_path.lower() in ['n', 'no']:
-                break
-            else:
-                print("Invalid choice. Please enter either yes or no")
-        # Ensure trailing slash for consistency
-        if not real_source.endswith('/'):
-            real_source = real_source + '/'
-        settings_data['real_source'] = real_source
-
-        num_folders = len(settings_data['plex_library_folders'])
-        nas_library_folder = []
-        for i in range(num_folders):
-            folder_name = input(f"\nEnter the corresponding NAS/Unraid library folder for the Plex mapped folder: (Default is the same as plex) '{settings_data['plex_library_folders'][i]}' ") or settings_data['plex_library_folders'][i]
-            folder_name = folder_name.replace(real_source, '').strip('/')
-            nas_library_folder.append(folder_name)
-        settings_data['nas_library_folders'] = nas_library_folder
-
-    # ---------------- Multi-Path Mappings (skip if already configured during library selection) ----------------
-    if settings_data.get('path_mappings'):
-        # Already configured during library selection - skip this section
-        pass
-    elif 'path_mappings' not in settings_data:
-        print('\n' + '-' * 60)
-        print('ADVANCED: MULTI-PATH MAPPING')
-        print('-' * 60)
-        print('\nMulti-path mapping allows you to configure multiple source paths')
-        print('with different caching behavior. This is useful if you have:')
-        print('  - Multiple Docker path mappings (e.g., /data and /nas)')
-        print('  - Remote/network storage that should not be cached')
-        print('  - Different cache destinations for different libraries')
-        print('\nMost users can skip this - your paths above will work as-is.')
-
-        configure_multi = input('\nWould you like to configure multiple path mappings? [y/N] ') or 'no'
-        if configure_multi.lower() in ['y', 'yes']:
-            configure_path_mappings(settings_data)
-        else:
-            # Auto-create single mapping from legacy settings for consistency
-            if settings_data.get('plex_source') and settings_data.get('real_source'):
-                settings_data['path_mappings'] = [{
-                    'name': 'Primary',
-                    'plex_path': settings_data.get('plex_source', ''),
-                    'real_path': settings_data.get('real_source', ''),
-                    'cache_path': settings_data.get('cache_dir', ''),
-                    'cacheable': True,
-                    'enabled': True
-                }]
-                print('Created default path mapping from your settings.')
+    # Legacy path configuration (skip if path_mappings already configured)
+    _setup_legacy_paths_if_needed()
 
     # Active Session Handling
     if 'exit_if_active_session' not in settings_data:
@@ -1070,16 +962,135 @@ def setup(advanced_mode: bool = False):
     if 'max_concurrent_moves_array' not in settings_data:
         prompt_user_for_number('Concurrent file moves (cache→array) [2]: ', '2', 'max_concurrent_moves_array')
 
-    # Debug/dry-run mode - default to off, users can use --dry-run flag
+    # Debug/dry-run mode - default to off
     if 'debug' not in settings_data:
         settings_data['debug'] = False
 
-    # Save settings
+
+def _configure_eviction_settings():
+    """Helper: Configure cache eviction mode and thresholds."""
+    global settings_data
+
+    print('\nEviction mode when cache is full:')
+    print('  none  - Skip new files (default)')
+    print('  smart - Evict lowest priority items')
+    print('  fifo  - Evict oldest items first')
+    eviction_mode = input('Eviction mode [none]: ').strip().lower() or 'none'
+    if eviction_mode not in ['none', 'smart', 'fifo']:
+        eviction_mode = 'none'
+    settings_data['cache_eviction_mode'] = eviction_mode
+
+    if eviction_mode in ['smart', 'fifo']:
+        threshold = input('Eviction threshold % [90]: ').strip() or '90'
+        threshold = threshold.rstrip('%').strip()
+        try:
+            settings_data['cache_eviction_threshold_percent'] = int(threshold)
+        except ValueError:
+            print(f"Invalid number '{threshold}', using default 90")
+            settings_data['cache_eviction_threshold_percent'] = 90
+
+        if eviction_mode == 'smart':
+            min_pri = input('Min priority to evict (0-100) [60]: ').strip() or '60'
+            try:
+                settings_data['eviction_min_priority'] = int(min_pri)
+            except ValueError:
+                print(f"Invalid number '{min_pri}', using default 60")
+                settings_data['eviction_min_priority'] = 60
+
+
+def _setup_legacy_paths_if_needed():
+    """Helper: Configure legacy cache/array paths if not using path_mappings."""
+    global settings_data
+
+    # Skip if path_mappings already configured
+    if settings_data.get('path_mappings'):
+        return
+
+    # Legacy cache_dir configuration
+    if 'cache_dir' not in settings_data:
+        cache_dir = input('\nInsert the path of your cache drive: (default: "/mnt/cache") ').replace('"', '').replace("'", '') or '/mnt/cache'
+        cache_dir = _prompt_test_path(cache_dir, "cache drive")
+        if not cache_dir.endswith('/'):
+            cache_dir = cache_dir + '/'
+        settings_data['cache_dir'] = cache_dir
+
+    # Legacy real_source configuration
+    if 'real_source' not in settings_data:
+        real_source = input('\nInsert the path where your media folders are located?: (default: "/mnt/user") ').replace('"', '').replace("'", '') or '/mnt/user'
+        real_source = _prompt_test_path(real_source, "media folder")
+        if not real_source.endswith('/'):
+            real_source = real_source + '/'
+        settings_data['real_source'] = real_source
+
+        # Configure NAS library folders
+        if 'plex_library_folders' in settings_data:
+            num_folders = len(settings_data['plex_library_folders'])
+            nas_library_folder = []
+            for i in range(num_folders):
+                folder_name = input(f"\nEnter the corresponding NAS/Unraid library folder for the Plex mapped folder: (Default is the same as plex) '{settings_data['plex_library_folders'][i]}' ") or settings_data['plex_library_folders'][i]
+                folder_name = folder_name.replace(real_source, '').strip('/')
+                nas_library_folder.append(folder_name)
+            settings_data['nas_library_folders'] = nas_library_folder
+
+    # Multi-path mapping prompt (for legacy users)
+    if 'path_mappings' not in settings_data:
+        print('\n' + '-' * 60)
+        print('ADVANCED: MULTI-PATH MAPPING')
+        print('-' * 60)
+        print('\nMulti-path mapping allows you to configure multiple source paths')
+        print('with different caching behavior. This is useful if you have:')
+        print('  - Multiple Docker path mappings (e.g., /data and /nas)')
+        print('  - Remote/network storage that should not be cached')
+        print('  - Different cache destinations for different libraries')
+        print('\nMost users can skip this - your paths above will work as-is.')
+
+        configure_multi = input('\nWould you like to configure multiple path mappings? [y/N] ') or 'no'
+        if configure_multi.lower() in ['y', 'yes']:
+            configure_path_mappings(settings_data)
+        else:
+            # Auto-create single mapping from legacy settings
+            if settings_data.get('plex_source') and settings_data.get('real_source'):
+                settings_data['path_mappings'] = [{
+                    'name': 'Primary',
+                    'plex_path': settings_data.get('plex_source', ''),
+                    'real_path': settings_data.get('real_source', ''),
+                    'cache_path': settings_data.get('cache_dir', ''),
+                    'cacheable': True,
+                    'enabled': True
+                }]
+                print('Created default path mapping from your settings.')
+
+
+def _prompt_test_path(path: str, path_description: str) -> str:
+    """Helper: Prompt user to test a path and optionally edit it."""
+    while True:
+        test_path = input(f'\nDo you want to test the given path? [y/N]  ') or 'no'
+        if test_path.lower() in ['y', 'yes']:
+            if os.path.exists(path):
+                print('The path appears to be valid. Settings saved.')
+                break
+            else:
+                print('The path appears to be invalid.')
+                edit_path = input('\nDo you want to edit the path? [y/N]  ') or 'no'
+                if edit_path.lower() in ['y', 'yes']:
+                    path = input(f'\nInsert the path of your {path_description}: (default: "{path}") ').replace('"', '').replace("'", '') or path
+                elif edit_path.lower() in ['n', 'no']:
+                    break
+                else:
+                    print("Invalid choice. Please enter either yes or no")
+        elif test_path.lower() in ['n', 'no']:
+            break
+        else:
+            print("Invalid choice. Please enter either yes or no")
+    return path
+
+
+def _setup_summary():
+    """Final step: Save settings and show summary."""
+    global settings_data
+
     write_settings(settings_filename, settings_data)
 
-    # ============================================================
-    # SETUP COMPLETE - SUMMARY
-    # ============================================================
     print("\n" + "=" * 60)
     print("SETUP COMPLETE!")
     print("=" * 60)
@@ -1113,6 +1124,37 @@ def setup(advanced_mode: bool = False):
         print("Or test first with: python3 plexcache_app.py --dry-run --verbose")
 
     print()
+
+
+def setup(advanced_mode: bool = False):
+    """Run the PlexCache-R setup wizard.
+
+    Args:
+        advanced_mode: If True, show all configuration options.
+                      If False, use sensible defaults for most settings.
+    """
+    global settings_data
+    settings_data['firststart'] = False
+
+    # Step 1: Plex Connection
+    plex = _setup_plex_connection()
+
+    # Step 2: Library Selection & Path Configuration
+    if plex:
+        _setup_library_paths(plex)
+
+    # Step 3: Caching Behavior
+    _setup_caching_behavior()
+
+    # Step 4: User Configuration
+    if plex:
+        _setup_users(plex)
+
+    # Step 5: Advanced Settings
+    _setup_advanced_settings()
+
+    # Save and show summary
+    _setup_summary()
 
 # ---------------- Main ----------------
 check_directory_exists(script_folder)
