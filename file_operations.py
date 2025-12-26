@@ -1253,7 +1253,8 @@ class PlexcachedMigration:
     MIGRATION_FLAG = "plexcache_migration_v2.complete"
 
     def __init__(self, exclude_file: str, cache_dir: str, real_source: str,
-                 script_folder: str, is_unraid: bool = False):
+                 script_folder: str, is_unraid: bool = False,
+                 path_modifier: Optional['MultiPathModifier'] = None):
         """Initialize the migration helper.
 
         Args:
@@ -1262,12 +1263,14 @@ class PlexcachedMigration:
             real_source: Array source path (e.g., /mnt/user/)
             script_folder: Folder where the script lives (for flag file)
             is_unraid: Whether running on Unraid (affects path handling)
+            path_modifier: MultiPathModifier for multi-path setups (uses path_mappings)
         """
         self.exclude_file = exclude_file
         self.cache_dir = cache_dir
         self.real_source = real_source
         self.flag_file = os.path.join(script_folder, self.MIGRATION_FLAG)
         self.is_unraid = is_unraid
+        self.path_modifier = path_modifier
 
     def needs_migration(self) -> bool:
         """Check if migration has already been completed."""
@@ -1306,25 +1309,45 @@ class PlexcachedMigration:
                 logging.debug(f"Cache file no longer exists, skipping: {cache_file}")
                 continue
 
-            # Derive array path from cache path
-            array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
+            # Derive array path from cache path using path_mappings if available
+            if self.path_modifier:
+                array_file, mapping = self.path_modifier.convert_cache_to_real(cache_file)
+                if array_file is None:
+                    logging.debug(f"No path mapping found for cache file, skipping: {cache_file}")
+                    continue
+            else:
+                # Legacy fallback: simple string replacement
+                array_file = cache_file.replace(self.cache_dir, self.real_source, 1)
 
-            # On Unraid, check user0 (direct array) path
+            # On Unraid, check user0 (direct array) for .plexcached
+            # This is the authoritative location - .plexcached should be on array
             if self.is_unraid:
-                array_file_check = array_file.replace("/mnt/user/", "/mnt/user0/", 1)
+                array_file_user0 = array_file.replace("/mnt/user/", "/mnt/user0/", 1)
+                plexcached_file = array_file_user0 + PLEXCACHED_EXTENSION
+
+                # Check if .plexcached exists on array
+                if os.path.isfile(plexcached_file):
+                    logging.debug(f"Already has .plexcached backup: {cache_file}")
+                    continue
+
+                # Check if original exists on array (file wasn't cached yet)
+                if os.path.isfile(array_file_user0):
+                    logging.debug(f"Original exists on array, no migration needed: {cache_file}")
+                    continue
+
+                array_file_check = array_file_user0
             else:
                 array_file_check = array_file
+                plexcached_file = array_file + PLEXCACHED_EXTENSION
 
-            plexcached_file = array_file_check + PLEXCACHED_EXTENSION
+                # Check if .plexcached already exists OR original exists on array
+                if os.path.isfile(plexcached_file):
+                    logging.debug(f"Already has .plexcached backup: {cache_file}")
+                    continue
 
-            # Check if .plexcached already exists OR original exists on array
-            if os.path.isfile(plexcached_file):
-                logging.debug(f"Already has .plexcached backup: {cache_file}")
-                continue
-
-            if os.path.isfile(array_file_check):
-                logging.debug(f"Original exists on array, no migration needed: {cache_file}")
-                continue
+                if os.path.isfile(array_file_check):
+                    logging.debug(f"Original exists on array, no migration needed: {cache_file}")
+                    continue
 
             # This file needs migration
             files_needing_migration.append((cache_file, array_file_check, plexcached_file))
