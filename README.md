@@ -49,7 +49,7 @@ The original PlexCache app only worked for local users for most features, due to
 
 ## Installation and Setup
 
-Please check out our [Wiki section](https://github.com/bexem/PlexCache/wiki) for the step-by-step guide on how to setup PlexCache on your system. The WIKI should cover basically everything. If something doesn't make sense, or doesn't work, please open a new issue for it. But don't be upset if the answer is in the WIKI and we mock you for not reading it thoroughly first. 
+Please check out our [Wiki section](https://github.com/StudioNirin/PlexCache-R/wiki) for the step-by-step guide on how to setup PlexCache on your system. The WIKI should cover basically everything. If something doesn't make sense, or doesn't work, please open a new issue for it. But don't be upset if the answer is in the WIKI and we mock you for not reading it thoroughly first. 
 
 ## Notes
 
