@@ -1,5 +1,5 @@
-# PlexCache: Automate Plex Media Management
-### Updated 12/13/25
+# PlexCache-r V2.0: Automate Plex Media Management
+### Updated 5/1/26
 
 ## Current Bugs / Todo List
 
@@ -12,17 +12,16 @@ An updated version of the "PlexCache-Refactored" script with various bugfixes an
 PlexCache efficiently transfers media from the On Deck/Watchlist to the cache and moves watched media back to their respective locations. This Python script reduces energy consumption by minimizing the need to spin up the array/hard drive(s) when watching recurrent media like TV series. It achieves this by moving the media from the OnDeck and watchlist for the main user and/or other users. For TV shows/anime, it also fetches the next specified number of episodes.
 
 ## Features
-#### I have added tags to these features to distinguish ones which work for different types of users:  
-**Local**: Users on the local or Home account.  
-**Remote**: Users that are remote, so friends that you have shared libraries with.  
-The original PlexCache app only worked for local users for most features, due to API limitations.
+The original PlexCache app only worked for local users for most features, due to API limitations. V1 of Plexcache-r had some similar limitations, but a lot of those have now been fixed.
 
 - Fetch a specified number of episodes from the "onDeck" for the main user and other users (Local/Remote).
 - Skip fetching onDeck media for specified users (Local/Remote).
-- Fetch a specified number of episodes from the "watchlist" for the main user and other users (Local/Remote[^1]).
-- Skip fetching watchlist media for specified users (Local/Remote[^2]).
+- Fetch a specified number of episodes from the "watchlist" for the main user and other users (Local/Remote).
+- Skip fetching watchlist media for specified users (Local/Remote).
+- (New v2) - .plexcached backup system, so files are not moved off the array and are instead archived to prevent unecessary move operations.
 - Search only the specified libraries.
 - Check for free space before moving any file.
+- (New v2) - Cache retention policies, with automatic removals based on age/priority settings.
 - Move watched media present on the cache drive back to the array.
 - Move respective subtitles along with the media moved to or from the cache.
 - Filter media older than a specified number of days.
@@ -32,6 +31,7 @@ The original PlexCache app only worked for local users for most features, due to
 - Use of multitasking to optimize file transfer time.
 - Exit the script if any active session or skip the currently playing media.
 - Send Webhook messages according to set log level (untested).
+- (New v2) - Unraid Mover exclusion file. This file also allows for manual custom entries. 
 
 
 
