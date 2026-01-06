@@ -36,16 +36,26 @@ The original PlexCache app only worked for local users for most features, due to
 
 
   
-### Core Modules
+### Project Structure
 
-- **`config.py`**: Configuration management with dataclasses for type safety
-- **`logging_config.py`**: Logging setup, rotation, and notification handlers
-- **`system_utils.py`**: OS detection, path conversions, and file utilities
-- **`plex_api.py`**: Plex server interactions and cache management
-- **`file_operations.py`**: File moving, filtering, and subtitle operations
-- **`plexcache_app.py`**: Main application orchestrator
+```
+PlexCache-R/
+├── plexcache.py              # Main entry point
+├── core/                     # Core application modules
+│   ├── app.py                # Main orchestrator (PlexCacheApp class)
+│   ├── setup.py              # Interactive setup wizard
+│   ├── config.py             # Configuration management (dataclasses)
+│   ├── logging_config.py     # Logging, rotation, notification handlers
+│   ├── system_utils.py       # OS detection, path conversions
+│   ├── plex_api.py           # Plex server interactions
+│   └── file_operations.py    # File moving, filtering, subtitles
+├── tools/                    # Diagnostic utilities
+│   └── audit_cache.py        # Cache diagnostic tool
+├── data/                     # Runtime tracking files (auto-created)
+└── logs/                     # Log files
+```
 
-
+**Legacy entry points** (`plexcache_app.py`, `plexcache_setup.py`) are deprecated but kept for backwards compatibility.
 
 ## Installation and Setup
 

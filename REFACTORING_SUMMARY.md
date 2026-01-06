@@ -1,61 +1,97 @@
-# PlexCache Refactoring Summary
+# PlexCache Project Structure
 
 ## Overview
 
-The original PlexCache script has been completely refactored to improve maintainability, testability, and code organization while preserving all original functionality.
+PlexCache-R has been restructured into a modular architecture for improved maintainability and organization.
 
-This refacting work was done by BBergle and I couldn't have progressed this project without his work - https://github.com/BBergle/PlexCache
+## Current Structure
 
-The below is from his documentation, and covers the things that are still relevent in my own updates on this project. 
+```
+PlexCache-R/
+├── plexcache.py              # Unified entry point (auto-setup, --setup flag)
+├── core/                     # Core application modules
+│   ├── __init__.py           # Package init with version
+│   ├── app.py                # Main orchestrator (PlexCacheApp class)
+│   ├── setup.py              # Interactive setup wizard
+│   ├── config.py             # Configuration management (dataclasses, JSON settings)
+│   ├── logging_config.py     # Logging, rotation, Unraid/webhook notification handlers
+│   ├── system_utils.py       # OS detection, path conversions, file utilities
+│   ├── plex_api.py           # Plex server interactions (OnDeck, Watchlist, RSS feeds)
+│   └── file_operations.py    # File moving, filtering, subtitles, timestamp tracking
+├── tools/                    # Diagnostic utilities
+│   └── audit_cache.py        # Cache diagnostic tool
+├── data/                     # Runtime tracking files (auto-created)
+│   ├── timestamps.json
+│   ├── ondeck_tracker.json
+│   ├── watchlist_tracker.json
+│   ├── user_tokens.json
+│   └── rss_cache.json
+├── logs/                     # Log files
+├── plexcache_settings.json   # User configuration (root - user-facing)
+└── plexcache_mover_files_to_exclude.txt  # Unraid mover exclude list
+```
 
-### Refactored Solution
+## Module Responsibilities
 
-The code has been split into 6 focused modules:
+### `core/app.py` - Main Application
+- Application lifecycle management
+- Component orchestration
+- Error handling and recovery
+- Summary generation
 
-#### 1. `config.py` - Configuration Management
-- **Purpose**: Handle all configuration loading, validation, and management
-- **Key Features**:
-  - Dataclasses for type-safe configuration
-  - Validation of required fields
-  - Path conversion utilities
-  - Automatic cleanup of deprecated settings
+### `core/setup.py` - Setup Wizard
+- Interactive configuration
+- Library-centric path mapping
+- Settings migration
+- User authentication (OAuth)
 
-#### 2. `logging_config.py` - Logging System
-- **Purpose**: Set up logging, rotation, and notification handlers
-- **Key Features**:
-  - Rotating file handlers
-  - Custom notification handlers (Unraid, Webhook)
-  - Summary logging functionality
-  - Proper log level management
+### `core/config.py` - Configuration
+- Dataclasses for type-safe configuration
+- JSON settings loading/saving
+- Validation of required fields
+- Path mapping management
 
-#### 3. `system_utils.py` - System Operations
-- **Purpose**: OS detection, path conversions, and file utilities
-- **Key Features**:
-  - System detection (Linux, Unraid, Docker)
-  - Cross-platform path conversions
-  - File operation utilities
-  - Space calculation functions
+### `core/logging_config.py` - Logging
+- Rotating file handlers
+- Unraid notification integration
+- Webhook notification support
+- Log level management
 
-#### 4. `plex_api.py` - Plex Integration
-- **Purpose**: All Plex server interactions and cache management
-- **Key Features**:
-  - Plex server connections
-  - Media fetching (onDeck, watchlist, watched)
-  - Cache management
-  - Rate limiting and retry logic
+### `core/system_utils.py` - System Utilities
+- OS detection (Linux, Unraid, Docker)
+- Cross-platform path conversions
+- File operation utilities
+- Single instance locking
 
-#### 5. `file_operations.py` - File Operations
-- **Purpose**: File moving, filtering, and subtitle operations
-- **Key Features**:
-  - Path modification utilities
-  - Subtitle discovery
-  - File filtering logic
-  - Concurrent file moving
+### `core/plex_api.py` - Plex Integration
+- Plex server connections
+- OnDeck/Watchlist fetching
+- RSS feed fallback for remote users
+- Token caching and management
 
-#### 6. `plexcache_app.py` - Main Application
-- **Purpose**: Orchestrate all components and provide main business logic
-- **Key Features**:
-  - Dependency injection
-  - Error handling
-  - Application flow control
-  - Summary generation
+### `core/file_operations.py` - File Operations
+- Multi-path file moving
+- Subtitle discovery
+- Cache timestamp tracking
+- Priority-based eviction
+- .plexcached backup system
+
+### `tools/audit_cache.py` - Diagnostics
+- Cache state analysis
+- Orphaned entry detection
+- Exclude list validation
+
+## Legacy Entry Points
+
+The following files are deprecated but kept for backwards compatibility:
+- `plexcache_app.py` - Redirects to `core/app.py`
+- `plexcache_setup.py` - Redirects to `core/setup.py`
+
+## History
+
+This project evolved through several contributors:
+1. **brimur** - Original PlexCache concept
+2. **bexem** - PlexCache improvements
+3. **BBergle** - Major refactoring into modular structure
+4. **StudioNirin** - V2.0 features and maintenance
+5. **Brandon-Haney** - V2.1 restructuring into `core/` directory
