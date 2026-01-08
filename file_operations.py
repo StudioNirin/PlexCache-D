@@ -8,6 +8,7 @@ import shutil
 import logging
 import threading
 import json
+import time
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Set, Optional, Tuple, Dict, TYPE_CHECKING
@@ -2950,6 +2951,30 @@ class FileMover:
             logging.debug(f"Renamed array file: {array_file} -> {plexcached_file}")
 
             # Validate rename succeeded
+            # On FUSE filesystems like Unraid's /mnt/user0/, directory cache may not
+            # immediately reflect the rename. Force cache invalidation by listing the
+            # parent directory, then verify with retry for slow FUSE propagation.
+            parent_dir = os.path.dirname(array_file)
+            try:
+                os.listdir(parent_dir)  # Force directory cache refresh
+            except OSError:
+                pass
+
+            # Verify with retry for slow FUSE filesystems
+            for attempt in range(3):
+                original_exists = os.path.isfile(array_file)
+                plexcached_exists = os.path.isfile(plexcached_file)
+
+                if not original_exists and plexcached_exists:
+                    break  # Verification passed
+
+                if attempt < 2:
+                    time.sleep(0.1)  # Brief delay before retry
+                    try:
+                        os.listdir(parent_dir)  # Re-invalidate cache
+                    except OSError:
+                        pass
+
             if os.path.isfile(array_file):
                 raise IOError(f"Rename verification failed: original array file still exists at {array_file}")
             if not os.path.isfile(plexcached_file):
