@@ -434,6 +434,26 @@ body {
     background: #d32f2f;
 }
 
+.btn-success {
+    background: var(--success);
+    color: white;
+}
+
+.btn-success:hover {
+    background: #388e3c;
+    transform: translateY(-1px);
+}
+
+.btn-warning {
+    background: var(--warning);
+    color: var(--plex-bg-darker);
+}
+
+.btn-warning:hover {
+    background: #f9a825;
+    transform: translateY(-1px);
+}
+
 .btn-sm {
     padding: 0.375rem 0.75rem;
     font-size: 0.8rem;
@@ -1923,6 +1943,13 @@ td.user-badges .badge {
     border-top-color: var(--plex-orange);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+}
+
+/* Animate Lucide loader icons */
+.spin-icon,
+[data-lucide="loader"],
+[data-lucide="loader-2"] {
+    animation: spin 1s linear infinite;
 }
 
 /* ==================== Footer ==================== */

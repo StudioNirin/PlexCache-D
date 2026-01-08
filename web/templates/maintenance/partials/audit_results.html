@@ -113,16 +113,16 @@
     </div>
     <div class="card-body" style="padding: 0.75rem;">
         <p class="text-muted" style="margin: 0 0 0.75rem 0;">
-            These files were recently added to cache (likely by Radarr/Sonarr). They currently have no array backup. Protecting them will copy the file to the array as a <code>.plexcached</code> backup and add to the exclude list.
+            These files were recently added to cache (likely by Radarr/Sonarr). Choose what to do with them:
         </p>
         <!-- Bulk Actions -->
         <div id="downloads-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
             <span class="text-muted">Selected: <strong id="downloads-selected-count">0</strong></span>
-            <button class="btn btn-sm btn-primary" onclick="protectDownloads(false)">
-                <i data-lucide="shield"></i> Protect
+            <button class="btn btn-sm btn-success" onclick="keepOnCacheSelected('downloads')">
+                <i data-lucide="hard-drive"></i> Keep on Cache
             </button>
-            <button class="btn btn-sm btn-warning" onclick="fixTimestampsSelected('downloads', false)">
-                <i data-lucide="clock"></i> Fix Dates
+            <button class="btn btn-sm btn-secondary" onclick="moveToArraySelected('downloads')">
+                <i data-lucide="database"></i> Move to Array
             </button>
         </div>
     </div>
@@ -182,19 +182,16 @@
     </div>
     <div class="card-body" style="padding: 0.75rem; background: var(--danger-bg);">
         <p class="text-muted" style="margin: 0 0 0.75rem 0;">
-            These files have been on cache for a while but are NOT in the exclude list. They may have been missed by PlexCache or left behind after an upgrade. The Unraid mover will move them off cache.
+            These files have been on cache for a while but are NOT in the exclude list. The Unraid mover will move them off cache. Choose what to do with them:
         </p>
         <!-- Bulk Actions -->
         <div id="unprotected-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
             <span class="text-muted">Selected: <strong id="unprotected-selected-count">0</strong></span>
-            <button class="btn btn-sm btn-primary" onclick="addToExcludeSelected(false)">
-                <i data-lucide="shield"></i> Protect
+            <button class="btn btn-sm btn-success" onclick="keepOnCacheSelected('unprotected')">
+                <i data-lucide="hard-drive"></i> Keep on Cache
             </button>
-            <button class="btn btn-sm btn-warning" onclick="fixWithBackupSelected(false)">
-                <i data-lucide="archive-restore"></i> Fix with Backup
-            </button>
-            <button class="btn btn-sm btn-warning" onclick="fixTimestampsSelected('unprotected', false)">
-                <i data-lucide="clock"></i> Fix Dates
+            <button class="btn btn-sm btn-secondary" onclick="moveToArraySelected('unprotected')">
+                <i data-lucide="database"></i> Move to Array
             </button>
         </div>
     </div>
@@ -215,15 +212,14 @@
                         <th class="sortable" data-sort="age" data-table="unprotected" onclick="sortTable('unprotected', 'age')">
                             Age <span class="sort-icon"></span>
                         </th>
-                        <th>Status</th>
-                        <th>Recommended</th>
+                        <th>Array Status</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% for file in results.critical_unprotected %}
-                    <tr data-filename="{{ file.filename|lower }}" data-size="{{ file.size }}" data-age="{{ file.age_days }}" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                    <tr data-filename="{{ file.filename|lower }}" data-size="{{ file.size }}" data-age="{{ file.age_days }}" data-has-backup="{{ file.has_plexcached_backup|lower }}" data-has-dup="{{ file.has_array_duplicate|lower }}">
                         <td>
-                            <input type="checkbox" class="unprotected-checkbox" value="{{ file.cache_path }}" onchange="toggleUnprotectedFile(this)" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                            <input type="checkbox" class="unprotected-checkbox" value="{{ file.cache_path }}" onchange="toggleUnprotectedFile(this)" data-has-backup="{{ file.has_plexcached_backup|lower }}" data-has-dup="{{ file.has_array_duplicate|lower }}">
                         </td>
                         <td title="{{ file.cache_path }}" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             {{ file.filename }}
@@ -240,20 +236,11 @@
                         </td>
                         <td>
                             {% if file.has_plexcached_backup %}
-                            <span class="badge badge-success">Has backup</span>
+                            <span class="badge badge-success" title="A .plexcached backup exists on the array">Has backup</span>
                             {% elif file.has_array_duplicate %}
-                            <span class="badge badge-info">Duplicate</span>
+                            <span class="badge badge-info" title="This file also exists on the array">Has copy</span>
                             {% else %}
-                            <span class="badge badge-warning">No backup</span>
-                            {% endif %}
-                        </td>
-                        <td>
-                            {% if file.recommended_action == 'fix_with_backup' %}
-                            <span class="text-muted">Fix with backup</span>
-                            {% elif file.recommended_action == 'sync_to_array' %}
-                            <span class="text-muted">Sync to array</span>
-                            {% else %}
-                            <span class="text-muted">Add to exclude</span>
+                            <span class="badge badge-warning" title="No copy exists on the array - only on cache">Cache only</span>
                             {% endif %}
                         </td>
                     </tr>
@@ -340,11 +327,44 @@
     <div class="card-body">
         {% if results.stale_exclude_entries %}
         <div class="cleanup-action mb-1">
-            <div class="cleanup-info">
-                <strong>Stale Exclude Entries ({{ results.stale_exclude_entries|length }})</strong>
+            <div class="cleanup-info" style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <strong>Stale Exclude Entries ({{ results.stale_exclude_entries|length }})</strong>
+                    <button class="btn btn-sm btn-secondary" onclick="toggleStaleList('exclude')" style="padding: 0.2rem 0.5rem;">
+                        <i data-lucide="chevron-down" id="exclude-chevron" style="width: 14px; height: 14px;"></i>
+                        <span id="exclude-toggle-text">View</span>
+                    </button>
+                </div>
                 <p class="text-muted" style="margin: 0.25rem 0 0 0;">
                     Files listed in exclude but no longer on cache
                 </p>
+                <!-- Expandable list -->
+                <div id="stale-exclude-list" class="stale-entries-list" style="display: none;">
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin-top: 0.75rem;">
+                        <table style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>File Path</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in results.stale_exclude_entries[:50] %}
+                                <tr>
+                                    <td class="text-muted" title="{{ entry }}" style="max-width: 600px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        {{ entry.split('/')[-1] }}
+                                        <span style="color: var(--plex-text-muted); font-size: 0.75rem; display: block;">{{ '/'.join(entry.split('/')[:-1]) }}</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% if results.stale_exclude_entries|length > 50 %}
+                                <tr>
+                                    <td class="text-muted" style="font-style: italic;">...and {{ results.stale_exclude_entries|length - 50 }} more</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
             <div class="cleanup-buttons flex gap-1">
                 <button class="btn btn-sm btn-primary" onclick="cleanExclude(false)">
@@ -356,11 +376,44 @@
 
         {% if results.stale_timestamp_entries %}
         <div class="cleanup-action">
-            <div class="cleanup-info">
-                <strong>Stale Timestamp Entries ({{ results.stale_timestamp_entries|length }})</strong>
+            <div class="cleanup-info" style="flex: 1;">
+                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                    <strong>Stale Timestamp Entries ({{ results.stale_timestamp_entries|length }})</strong>
+                    <button class="btn btn-sm btn-secondary" onclick="toggleStaleList('timestamp')" style="padding: 0.2rem 0.5rem;">
+                        <i data-lucide="chevron-down" id="timestamp-chevron" style="width: 14px; height: 14px;"></i>
+                        <span id="timestamp-toggle-text">View</span>
+                    </button>
+                </div>
                 <p class="text-muted" style="margin: 0.25rem 0 0 0;">
                     Files listed in timestamps but no longer on cache
                 </p>
+                <!-- Expandable list -->
+                <div id="stale-timestamp-list" class="stale-entries-list" style="display: none;">
+                    <div class="table-container" style="max-height: 200px; overflow-y: auto; margin-top: 0.75rem;">
+                        <table style="font-size: 0.85rem;">
+                            <thead>
+                                <tr>
+                                    <th>File Path</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for entry in results.stale_timestamp_entries[:50] %}
+                                <tr>
+                                    <td class="text-muted" title="{{ entry }}" style="max-width: 600px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                        {{ entry.split('/')[-1] }}
+                                        <span style="color: var(--plex-text-muted); font-size: 0.75rem; display: block;">{{ '/'.join(entry.split('/')[:-1]) }}</span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% if results.stale_timestamp_entries|length > 50 %}
+                                <tr>
+                                    <td class="text-muted" style="font-style: italic;">...and {{ results.stale_timestamp_entries|length - 50 }} more</td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
             <div class="cleanup-buttons flex gap-1">
                 <button class="btn btn-sm btn-primary" onclick="cleanTimestamps(false)">
@@ -388,7 +441,7 @@
 .cleanup-action {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: flex-start;
     padding: 1rem;
     background: var(--plex-bg-card);
     border-radius: 6px;
@@ -401,6 +454,23 @@
 
 .cleanup-buttons {
     flex-shrink: 0;
+    margin-left: 1rem;
+}
+
+.stale-entries-list {
+    background: var(--plex-bg);
+    border-radius: 4px;
+    border: 1px solid var(--plex-border);
+}
+
+.stale-entries-list table {
+    margin: 0;
+}
+
+.stale-entries-list th {
+    position: sticky;
+    top: 0;
+    background: var(--plex-bg-card);
 }
 
 .stat-sublabel {
@@ -507,9 +577,7 @@ function updateSortIcons(tableId, column, direction) {
     }
 }
 
-// Downloads selection
-let selectedDownloads = new Set();
-
+// Downloads selection (selectedDownloads declared in parent template)
 function toggleSelectAllDownloads(checkbox) {
     const checkboxes = document.querySelectorAll('.downloads-checkbox');
     checkboxes.forEach(cb => {
@@ -547,68 +615,155 @@ function updateDownloadsActions() {
     }
 }
 
-function protectDownloads(isDryRun = false) {
-    if (selectedDownloads.size === 0) return;
+// Outcome-based actions - Keep on Cache
+function keepOnCacheSelected(tableType) {
+    const selectedSet = tableType === 'downloads' ? selectedDownloads : selectedUnprotectedFiles;
+    if (selectedSet.size === 0) return;
 
-    const count = selectedDownloads.size;
+    const count = selectedSet.size;
     const formData = new FormData();
-    selectedDownloads.forEach(path => formData.append('paths', path));
+    selectedSet.forEach(path => formData.append('paths', path));
 
-    const action = isDryRun ? 'Preview' : 'Protect';
+    // Build file list for display
+    const fileList = Array.from(selectedSet).slice(0, 5).map(path =>
+        `<li style="font-size: 0.9em; color: var(--text-muted);">${path.split('/').pop()}</li>`
+    ).join('');
+    const moreFiles = selectedSet.size > 5 ? `<li style="font-size: 0.9em; color: var(--text-muted);">...and ${selectedSet.size - 5} more</li>` : '';
+
     const message = `
-        <p>You are about to ${isDryRun ? 'preview protecting' : 'protect'} <strong>${count}</strong> new download(s):</p>
-        <ul>
-            ${Array.from(selectedDownloads).slice(0, 10).map(path =>
-                `<li>${path.split('/').pop()}</li>`
-            ).join('')}
-            ${selectedDownloads.size > 10 ? `<li>...and ${selectedDownloads.size - 10} more</li>` : ''}
-        </ul>
-        <p>This will:</p>
-        <ol>
-            <li>Copy each file to the array as a <code>.plexcached</code> backup</li>
-            <li>Add to the exclude list (prevents Unraid mover)</li>
-            <li>Register in timestamps for PlexCache tracking</li>
-        </ol>
+        <div class="confirm-section">
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--plex-orange);">
+                <i data-lucide="hard-drive" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                Keep ${count} file(s) on Cache
+            </h4>
+            <p style="margin: 0 0 1rem 0;">These files will remain on your fast cache drive with full protection.</p>
+        </div>
+
+        <div class="confirm-section" style="background: var(--plex-surface); padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+            <strong style="color: var(--success);">What will happen:</strong>
+            <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                <li>Copy each file to the array as a <code>.plexcached</code> backup</li>
+                <li>Add to the Unraid mover exclude list</li>
+                <li>Register in PlexCache tracking</li>
+            </ol>
+        </div>
+
+        <div class="confirm-section">
+            <strong>Files:</strong>
+            <ul style="margin: 0.5rem 0 0 1rem; padding: 0; list-style: none;">
+                ${fileList}
+                ${moreFiles}
+            </ul>
+        </div>
     `;
 
-    showConfirmModal(`${action} New Downloads`, message, 'protect-with-backup', formData, isDryRun);
+    showConfirmModal('Keep on Cache', message, 'protect-with-backup', formData, false);
 }
 
-// Fix timestamps for selected files
-function fixTimestampsSelected(tableType, isDryRun = false) {
-    // Get selected files with invalid timestamps
-    const checkboxClass = tableType === 'downloads' ? '.downloads-checkbox' : '.unprotected-checkbox';
+// Outcome-based actions - Move to Array
+function moveToArraySelected(tableType) {
     const selectedSet = tableType === 'downloads' ? selectedDownloads : selectedUnprotectedFiles;
+    if (selectedSet.size === 0) return;
 
-    // Filter to only files with invalid timestamps
-    const invalidPaths = [];
-    document.querySelectorAll(`${checkboxClass}:checked`).forEach(cb => {
-        if (cb.dataset.invalidTs === 'true') {
-            invalidPaths.push(cb.value);
-        }
-    });
+    const count = selectedSet.size;
 
-    if (invalidPaths.length === 0) {
-        showInfoModal('No Invalid Timestamps', '<p>None of the selected files have invalid timestamps that need fixing.</p>');
-        return;
+    // For unprotected files, check if any have backups (which changes the operation)
+    let hasBackupCount = 0;
+    let noCopyCount = 0;
+
+    if (tableType === 'unprotected') {
+        document.querySelectorAll('.unprotected-checkbox:checked').forEach(cb => {
+            if (cb.dataset.hasBackup === 'true' || cb.dataset.hasDup === 'true') {
+                hasBackupCount++;
+            } else {
+                noCopyCount++;
+            }
+        });
+    } else {
+        // New downloads never have backups
+        noCopyCount = count;
     }
 
     const formData = new FormData();
-    invalidPaths.forEach(path => formData.append('paths', path));
+    selectedSet.forEach(path => formData.append('paths', path));
 
-    const action = isDryRun ? 'Preview' : 'Fix';
+    // Build file list for display
+    const fileList = Array.from(selectedSet).slice(0, 5).map(path =>
+        `<li style="font-size: 0.9em; color: var(--text-muted);">${path.split('/').pop()}</li>`
+    ).join('');
+    const moreFiles = selectedSet.size > 5 ? `<li style="font-size: 0.9em; color: var(--text-muted);">...and ${selectedSet.size - 5} more</li>` : '';
+
+    // Build explanation based on file types
+    let whatWillHappen = '';
+    if (hasBackupCount > 0 && noCopyCount > 0) {
+        whatWillHappen = `
+            <strong style="color: var(--warning);">What will happen:</strong>
+            <ul style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                <li><strong>${hasBackupCount}</strong> file(s) with existing backup/copy: Delete cache copy, restore array copy</li>
+                <li><strong>${noCopyCount}</strong> file(s) without backup: Copy to array first, then delete cache copy</li>
+            </ul>
+        `;
+    } else if (hasBackupCount > 0) {
+        whatWillHappen = `
+            <strong style="color: var(--warning);">What will happen:</strong>
+            <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                <li>Restore the <code>.plexcached</code> backup on array (rename to original)</li>
+                <li>Delete the cache copy</li>
+            </ol>
+        `;
+    } else {
+        whatWillHappen = `
+            <strong style="color: var(--warning);">What will happen:</strong>
+            <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                <li>Copy each file from cache to array</li>
+                <li>Verify the copy succeeded</li>
+                <li>Delete the cache copy</li>
+            </ol>
+        `;
+    }
+
     const message = `
-        <p>You are about to ${isDryRun ? 'preview fixing' : 'fix'} timestamps on <strong>${invalidPaths.length}</strong> file(s):</p>
-        <ul>
-            ${invalidPaths.slice(0, 10).map(path =>
-                `<li>${path.split('/').pop()}</li>`
-            ).join('')}
-            ${invalidPaths.length > 10 ? `<li>...and ${invalidPaths.length - 10} more</li>` : ''}
-        </ul>
-        <p>This will set the file modification time to the current time.</p>
+        <div class="confirm-section">
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--plex-orange);">
+                <i data-lucide="database" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                Move ${count} file(s) to Array
+            </h4>
+            <p style="margin: 0 0 1rem 0;">These files will be moved off the cache drive to the main array.</p>
+        </div>
+
+        <div class="confirm-section" style="background: var(--plex-surface); padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+            ${whatWillHappen}
+        </div>
+
+        <div class="confirm-section">
+            <strong>Files:</strong>
+            <ul style="margin: 0.5rem 0 0 1rem; padding: 0; list-style: none;">
+                ${fileList}
+                ${moreFiles}
+            </ul>
+        </div>
     `;
 
-    showConfirmModal(`${action} Timestamps`, message, 'fix-timestamps', formData, isDryRun);
+    // sync-to-array now handles all cases: restores backups if they exist, copies if not
+    showConfirmModal('Move to Array', message, 'sync-to-array', formData, false);
+}
+
+// Toggle stale entries list visibility
+function toggleStaleList(type) {
+    const list = document.getElementById(`stale-${type}-list`);
+    const chevron = document.getElementById(`${type}-chevron`);
+    const toggleText = document.getElementById(`${type}-toggle-text`);
+
+    if (list.style.display === 'none') {
+        list.style.display = 'block';
+        chevron.setAttribute('data-lucide', 'chevron-up');
+        toggleText.textContent = 'Hide';
+    } else {
+        list.style.display = 'none';
+        chevron.setAttribute('data-lucide', 'chevron-down');
+        toggleText.textContent = 'View';
+    }
+    lucide.createIcons();
 }
 
 // Initialize icons after content loads

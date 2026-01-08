@@ -523,7 +523,13 @@ class MaintenanceService:
         )
 
     def sync_to_array(self, paths: List[str], dry_run: bool = True) -> ActionResult:
-        """Sync unprotected cache files (without backup) to array"""
+        """Move cache files to array - handles both files with and without backups.
+
+        For each file:
+        - If a .plexcached backup exists: restore it (rename to original), delete cache copy
+        - If a duplicate exists on array: just delete cache copy
+        - If no backup/duplicate: copy to array, verify, then delete cache copy
+        """
         if not paths:
             return ActionResult(success=False, message="No paths provided")
 
@@ -536,29 +542,49 @@ class MaintenanceService:
                 errors.append(f"{os.path.basename(cache_path)}: Unknown path mapping")
                 continue
 
+            # Check for existing backup or duplicate
+            has_backup, backup_path = self._check_plexcached_backup(cache_path)
+            has_dup, _ = self._check_array_duplicate(cache_path)
+
             if dry_run:
                 affected += 1
             else:
                 try:
-                    # Create destination directory if needed
-                    array_dir = os.path.dirname(array_path)
-                    os.makedirs(array_dir, exist_ok=True)
-
-                    # Copy file to array
-                    shutil.copy2(cache_path, array_path)
-
-                    # Verify copy
-                    if os.path.exists(array_path):
-                        cache_size = os.path.getsize(cache_path)
-                        array_size = os.path.getsize(array_path)
-
-                        if cache_size == array_size:
+                    if has_backup and backup_path:
+                        # Restore the .plexcached backup first
+                        original_array_path = backup_path[:-11]  # Remove .plexcached suffix
+                        os.rename(backup_path, original_array_path)
+                        # Delete cache copy
+                        if os.path.exists(cache_path):
                             os.remove(cache_path)
-                            affected += 1
-                        else:
-                            errors.append(f"{os.path.basename(cache_path)}: Size mismatch after copy")
+                        affected += 1
+
+                    elif has_dup:
+                        # Duplicate already exists on array, just delete cache copy
+                        if os.path.exists(cache_path):
+                            os.remove(cache_path)
+                        affected += 1
+
                     else:
-                        errors.append(f"{os.path.basename(cache_path)}: Copy failed")
+                        # No backup/duplicate - copy to array first
+                        array_dir = os.path.dirname(array_path)
+                        os.makedirs(array_dir, exist_ok=True)
+
+                        # Copy file to array
+                        shutil.copy2(cache_path, array_path)
+
+                        # Verify copy
+                        if os.path.exists(array_path):
+                            cache_size = os.path.getsize(cache_path)
+                            array_size = os.path.getsize(array_path)
+
+                            if cache_size == array_size:
+                                os.remove(cache_path)
+                                affected += 1
+                            else:
+                                errors.append(f"{os.path.basename(cache_path)}: Size mismatch after copy")
+                        else:
+                            errors.append(f"{os.path.basename(cache_path)}: Copy failed")
 
                 except OSError as e:
                     errors.append(f"{os.path.basename(cache_path)}: {str(e)}")
@@ -566,7 +592,7 @@ class MaintenanceService:
         if not dry_run:
             self._cleanup_empty_directories()
 
-        action = "Would sync" if dry_run else "Synced"
+        action = "Would move" if dry_run else "Moved"
         return ActionResult(
             success=affected > 0,
             message=f"{action} {affected} file(s) to array",

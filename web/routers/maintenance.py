@@ -202,7 +202,7 @@ async def sync_to_array(
     paths: List[str] = Form(default=[]),
     dry_run: bool = Form(default=True)
 ):
-    """Sync files to array"""
+    """Move files to array - restores backups if they exist, copies if not"""
     service = get_maintenance_service()
     result = service.sync_to_array(paths, dry_run=dry_run)
 

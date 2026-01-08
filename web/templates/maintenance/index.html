@@ -32,7 +32,7 @@
 <!-- Confirmation Modal -->
 <div id="confirm-modal" class="modal" style="display: none;">
     <div class="modal-backdrop" onclick="closeConfirmModal()"></div>
-    <div class="modal-content">
+    <div class="modal-content" style="max-width: 500px;">
         <div class="modal-header">
             <h3 id="confirm-modal-title">Confirm Action</h3>
             <button class="modal-close" onclick="closeConfirmModal()">
@@ -48,6 +48,43 @@
         </div>
     </div>
 </div>
+
+<style>
+/* Enhanced modal styling for maintenance actions */
+#confirm-modal .modal-content {
+    background: var(--plex-bg-card);
+    border: 1px solid var(--plex-border);
+}
+
+#confirm-modal .modal-body {
+    padding: 1.5rem;
+}
+
+#confirm-modal .confirm-section {
+    margin-bottom: 1rem;
+}
+
+#confirm-modal .confirm-section:last-child {
+    margin-bottom: 0;
+}
+
+#confirm-modal code {
+    background: var(--plex-bg);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-size: 0.85em;
+}
+
+#confirm-modal ol, #confirm-modal ul {
+    line-height: 1.6;
+}
+
+#confirm-modal .modal-footer {
+    border-top: 1px solid var(--plex-border);
+    padding: 1rem 1.5rem;
+    gap: 0.5rem;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -55,6 +92,7 @@
 // Selected items tracking
 let selectedUnprotectedFiles = new Set();
 let selectedOrphanedBackups = new Set();
+let selectedDownloads = new Set();
 
 // Checkbox selection functions
 function toggleSelectAllUnprotected(checkbox) {
@@ -141,9 +179,26 @@ function showConfirmModal(title, message, action, formData, isDryRun = false) {
     modalTitle.textContent = title;
     modalBody.innerHTML = message;
 
-    // Update action button
-    actionBtn.className = isDryRun ? 'btn btn-secondary' : 'btn btn-danger';
-    actionBtn.textContent = isDryRun ? 'Preview' : 'Confirm';
+    // Determine button style and text based on action type
+    let btnClass = 'btn btn-primary';
+    let btnText = 'Confirm';
+
+    if (isDryRun) {
+        btnClass = 'btn btn-secondary';
+        btnText = 'Preview';
+    } else if (action === 'protect-with-backup') {
+        btnClass = 'btn btn-success';
+        btnText = 'Keep on Cache';
+    } else if (action === 'sync-to-array' || action === 'fix-with-backup') {
+        btnClass = 'btn btn-warning';
+        btnText = 'Move to Array';
+    } else if (action === 'restore-plexcached') {
+        btnClass = 'btn btn-primary';
+        btnText = 'Restore';
+    }
+
+    actionBtn.className = btnClass;
+    actionBtn.textContent = btnText;
     actionBtn.onclick = function() {
         executeAction(action, formData, isDryRun);
         closeConfirmModal();
@@ -183,8 +238,17 @@ function showInfoModal(title, message) {
     };
 }
 
-// Action execution
+// Action execution with loading state
 function executeAction(action, formData, isDryRun) {
+    const actionBtn = document.getElementById('confirm-modal-action');
+    const cancelBtn = document.querySelector('#confirm-modal .btn-secondary');
+    const originalBtnText = actionBtn.textContent;
+
+    // Show loading state
+    actionBtn.disabled = true;
+    actionBtn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; margin-right: 8px;"></span>Processing...';
+    cancelBtn.disabled = true;
+
     formData.append('dry_run', isDryRun ? 'true' : 'false');
 
     fetch(`/maintenance/${action}`, {
@@ -193,83 +257,35 @@ function executeAction(action, formData, isDryRun) {
     })
     .then(response => response.text())
     .then(html => {
+        // Close modal first
+        closeConfirmModal();
+
+        // Update the audit content with results
         document.getElementById('audit-content').innerHTML = html;
         lucide.createIcons();
+
         // Reset selections
         selectedUnprotectedFiles.clear();
         selectedOrphanedBackups.clear();
+        selectedDownloads.clear();
+
+        // Scroll to top to see the result alert
+        document.getElementById('audit-content').scrollIntoView({ behavior: 'smooth', block: 'start' });
     })
     .catch(err => {
+        closeConfirmModal();
         showAlert('error', `Error: ${err.message}`);
+    })
+    .finally(() => {
+        // Reset button state (in case modal is reused)
+        actionBtn.disabled = false;
+        actionBtn.textContent = originalBtnText;
+        cancelBtn.disabled = false;
     });
 }
 
-// Bulk action handlers
-function fixWithBackupSelected(isDryRun = false) {
-    if (selectedUnprotectedFiles.size === 0) return;
-
-    const count = selectedUnprotectedFiles.size;
-    const formData = new FormData();
-    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
-
-    const action = isDryRun ? 'Preview' : 'Fix';
-    const message = `
-        <p>You are about to ${isDryRun ? 'preview fixing' : 'fix'} <strong>${count}</strong> file(s) with backup:</p>
-        <ul>
-            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
-                `<li>${path.split('/').pop()}</li>`
-            ).join('')}
-            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
-        </ul>
-        <p>This will delete the cache copy and restore the .plexcached backup on the array.</p>
-    `;
-
-    showConfirmModal(`${action} Files with Backup`, message, 'fix-with-backup', formData, isDryRun);
-}
-
-function syncToArraySelected(isDryRun = false) {
-    if (selectedUnprotectedFiles.size === 0) return;
-
-    const count = selectedUnprotectedFiles.size;
-    const formData = new FormData();
-    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
-
-    const action = isDryRun ? 'Preview' : 'Sync';
-    const message = `
-        <p>You are about to ${isDryRun ? 'preview syncing' : 'sync'} <strong>${count}</strong> file(s) to the array:</p>
-        <ul>
-            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
-                `<li>${path.split('/').pop()}</li>`
-            ).join('')}
-            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
-        </ul>
-        <p>This will copy files from cache to array, then remove the cache copy.</p>
-    `;
-
-    showConfirmModal(`${action} Files to Array`, message, 'sync-to-array', formData, isDryRun);
-}
-
-function addToExcludeSelected(isDryRun = false) {
-    if (selectedUnprotectedFiles.size === 0) return;
-
-    const count = selectedUnprotectedFiles.size;
-    const formData = new FormData();
-    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
-
-    const action = isDryRun ? 'Preview' : 'Protect';
-    const message = `
-        <p>You are about to ${isDryRun ? 'preview protecting' : 'protect'} <strong>${count}</strong> file(s):</p>
-        <ul>
-            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
-                `<li>${path.split('/').pop()}</li>`
-            ).join('')}
-            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
-        </ul>
-        <p>This will add these files to the exclude list to protect them from the Unraid mover.</p>
-    `;
-
-    showConfirmModal(`${action} Files`, message, 'add-to-exclude', formData, isDryRun);
-}
+// Legacy bulk action handlers (kept for orphaned backups section)
+// The new outcome-based handlers (keepOnCacheSelected, moveToArraySelected) are in audit_results.html
 
 function restoreOrphanedSelected(isDryRun = false) {
     if (selectedOrphanedBackups.size === 0) return;
