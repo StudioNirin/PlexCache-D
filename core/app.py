@@ -34,7 +34,10 @@ class PlexCacheApp:
         # Initialize components
         self.config_manager = ConfigManager(config_file)
         self.system_detector = SystemDetector()
-        self.file_utils = FileUtils(self.system_detector.is_linux)
+        self.file_utils = FileUtils(
+            self.system_detector.is_linux,
+            is_docker=self.system_detector.is_docker
+        )
         
         # Will be initialized after config loading
         self.logging_manager = None

@@ -220,10 +220,13 @@ class SystemDetector:
 
 class FileUtils:
     """Utility functions for file operations."""
-    
-    def __init__(self, is_linux: bool, permissions: int = 0o777):
+
+    def __init__(self, is_linux: bool, permissions: int = 0o777, is_docker: bool = False):
         self.is_linux = is_linux
         self.permissions = permissions
+        self.is_docker = is_docker
+        if is_docker:
+            logging.info("Docker detected - skipping chown/chmod operations (permissions handled by container)")
     
     def check_path_exists(self, path: str) -> None:
         """Check if path exists, is a directory, and is writable."""
@@ -304,16 +307,23 @@ class FileUtils:
                 stat_info = os.stat(src)
                 src_uid = stat_info.st_uid
                 src_gid = stat_info.st_gid
-                src_mode = stat_info.st_mode
 
                 # Copy the file (preserves metadata like timestamps)
                 shutil.copy2(src, dest)
 
-                # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
-                os.chown(dest, src_uid, src_gid)
-                original_umask = os.umask(0)
-                os.chmod(dest, self.permissions)
-                os.umask(original_umask)
+                # Skip chown/chmod in Docker - container handles permissions via entrypoint
+                if not self.is_docker:
+                    original_umask = os.umask(0)
+                    try:
+                        os.chown(dest, src_uid, src_gid)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set file ownership (filesystem may not support it): {e}")
+
+                    try:
+                        os.chmod(dest, self.permissions)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set file permissions (filesystem may not support it): {e}")
+                    os.umask(original_umask)
 
                 if verbose:
                     # Log ownership details for debugging
@@ -335,7 +345,7 @@ class FileUtils:
     def create_directory_with_permissions(self, path: str, src_file_for_permissions: str) -> None:
         """Create directory with proper permissions."""
         logging.debug(f"Creating directory with permissions: {path}")
-        
+
         if not os.path.exists(path):
             if self.is_linux:
                 # Get the permissions of the source file
@@ -344,8 +354,19 @@ class FileUtils:
                 gid = stat_info.st_gid
                 original_umask = os.umask(0)
                 os.makedirs(path, exist_ok=True)
-                os.chown(path, uid, gid)
-                os.chmod(path, self.permissions)
+
+                # Skip chown/chmod in Docker - container handles permissions via entrypoint
+                if not self.is_docker:
+                    try:
+                        os.chown(path, uid, gid)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set directory ownership (filesystem may not support it): {e}")
+
+                    try:
+                        os.chmod(path, self.permissions)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set directory permissions (filesystem may not support it): {e}")
+
                 os.umask(original_umask)
                 logging.debug(f"Directory created with permissions (Linux): {path}")
             else:  # Windows platform
