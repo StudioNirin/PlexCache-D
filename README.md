@@ -80,6 +80,7 @@ python3 plexcache_web.py --port 8080     # Custom port
 - **Dashboard** - Real-time cache stats, Plex connection status, recent activity feed
 - **Cached Files** - Sortable file browser with filters, eviction controls
 - **Storage** - Drive analytics, breakdowns by source, largest/oldest files
+- **Maintenance** - Cache health audit, unprotected file detection, one-click fixes
 - **Settings** - Full configuration UI with Plex OAuth, library selection, user toggles
 - **Schedule** - Automatic runs with interval or cron expressions
 - **Logs** - Real-time log viewer with search, filters, and live streaming
