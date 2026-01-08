@@ -9,8 +9,9 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
 from web.config import TEMPLATES_DIR, STATIC_DIR, PROJECT_ROOT
-from web.routers import dashboard, cache, settings, operations, logs, api
+from web.routers import dashboard, cache, settings, operations, logs, api, maintenance
 from web.services import get_scheduler_service, get_settings_service
+from web.services.web_cache import init_web_cache, get_web_cache_service
 
 
 @asynccontextmanager
@@ -30,6 +31,10 @@ async def lifespan(app: FastAPI):
     settings_service = get_settings_service()
     settings_service.prefetch_plex_data()
 
+    # Initialize web cache service (loads from disk, starts background refresh)
+    print("Initializing web cache service...")
+    init_web_cache()
+
     # Start the scheduler service (includes hourly Plex cache refresh)
     scheduler = get_scheduler_service()
     scheduler.start()
@@ -39,6 +44,10 @@ async def lifespan(app: FastAPI):
     # Shutdown
     print("PlexCache-R Web UI shutting down...")
     scheduler.stop()
+
+    # Stop web cache background refresh
+    web_cache = get_web_cache_service()
+    web_cache.stop_background_refresh()
 
 
 # Create FastAPI app
@@ -62,6 +71,7 @@ app.include_router(settings.router, prefix="/settings", tags=["settings"])
 app.include_router(operations.router, prefix="/operations", tags=["operations"])
 app.include_router(logs.router, prefix="/logs", tags=["logs"])
 app.include_router(api.router, prefix="/api", tags=["api"])
+app.include_router(maintenance.router, prefix="/maintenance", tags=["maintenance"])
 
 
 @app.exception_handler(404)

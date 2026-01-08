@@ -1,5 +1,6 @@
 """API routes for HTMX partial updates"""
 
+from datetime import datetime
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -7,35 +8,55 @@ from typing import List
 from urllib.parse import unquote
 
 from web.config import TEMPLATES_DIR
-from web.services import get_cache_service, get_settings_service, get_operation_runner, get_scheduler_service, ScheduleConfig
+from web.services import get_cache_service, get_settings_service, get_operation_runner, get_scheduler_service, ScheduleConfig, get_maintenance_service
+from web.services.web_cache import get_web_cache_service, CACHE_KEY_DASHBOARD_STATS, CACHE_KEY_MAINTENANCE_HEALTH
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
 
-@router.get("/dashboard/stats", response_class=HTMLResponse)
-async def dashboard_stats(request: Request):
-    """Dashboard stats partial for HTMX polling"""
+def _get_dashboard_stats_data(use_cache: bool = True) -> tuple[dict, str | None]:
+    """Get dashboard stats, optionally from cache. Returns (stats, cache_age)"""
+    web_cache = get_web_cache_service()
     cache_service = get_cache_service()
     settings_service = get_settings_service()
     operation_runner = get_operation_runner()
     scheduler_service = get_scheduler_service()
+    maintenance_service = get_maintenance_service()
 
-    # Get real cache stats
+    # Try to get from cache first
+    if use_cache:
+        cached_stats = web_cache.get(CACHE_KEY_DASHBOARD_STATS)
+        if cached_stats:
+            # Calculate cache age
+            _, updated_at = web_cache.get_with_age(CACHE_KEY_DASHBOARD_STATS)
+            cache_age = None
+            if updated_at:
+                age_seconds = (datetime.now() - updated_at).total_seconds()
+                if age_seconds < 60:
+                    cache_age = "just now"
+                elif age_seconds < 3600:
+                    cache_age = f"{int(age_seconds / 60)} min ago"
+                else:
+                    cache_age = f"{int(age_seconds / 3600)} hr ago"
+
+            # Update dynamic fields that shouldn't be cached
+            cached_stats["is_running"] = operation_runner.is_running
+            return cached_stats, cache_age
+
+    # Compute fresh stats
     cache_stats = cache_service.get_cache_stats()
-
-    # Check Plex connection and get last run time
     plex_connected = settings_service.check_plex_connection()
     last_run = settings_service.get_last_run_time() or "Never"
-
-    # Get schedule status for next run display
     schedule_status = scheduler_service.get_status()
+    health = maintenance_service.get_health_summary()
 
     stats = {
         "cache_files": cache_stats["cache_files"],
         "cache_size": cache_stats["cache_size"],
         "cache_limit": cache_stats["cache_limit"],
         "usage_percent": cache_stats["usage_percent"],
+        "cached_files_size": cache_stats.get("cached_files_size"),
         "ondeck_count": cache_stats["ondeck_count"],
         "watchlist_count": cache_stats["watchlist_count"],
         "last_run": last_run,
@@ -43,8 +64,37 @@ async def dashboard_stats(request: Request):
         "plex_connected": plex_connected,
         "schedule_enabled": schedule_status.get("enabled", False),
         "next_run": schedule_status.get("next_run_display", "Not scheduled"),
-        "next_run_relative": schedule_status.get("next_run_relative")
+        "next_run_relative": schedule_status.get("next_run_relative"),
+        "health_status": health["status"],
+        "health_issues": health["unprotected_count"] + health["orphaned_count"],
+        "health_warnings": health["stale_exclude_count"] + health["stale_timestamp_count"]
     }
+
+    # Cache the results
+    web_cache.set(CACHE_KEY_DASHBOARD_STATS, stats)
+
+    return stats, "just now"
+
+
+@router.get("/dashboard/stats-content", response_class=HTMLResponse)
+async def dashboard_stats_content(request: Request):
+    """Full dashboard stats container for lazy loading"""
+    stats, cache_age = _get_dashboard_stats_data(use_cache=True)
+
+    return templates.TemplateResponse(
+        "partials/dashboard_stats_container.html",
+        {
+            "request": request,
+            "stats": stats,
+            "cache_age": cache_age
+        }
+    )
+
+
+@router.get("/dashboard/stats", response_class=HTMLResponse)
+async def dashboard_stats(request: Request):
+    """Dashboard stats partial for HTMX polling"""
+    stats, _ = _get_dashboard_stats_data(use_cache=True)
 
     return templates.TemplateResponse(
         "partials/dashboard_stats.html",

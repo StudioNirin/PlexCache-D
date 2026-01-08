@@ -35,6 +35,29 @@
     <div class="stat-label">items tracked</div>
 </a>
 
+<a href="/maintenance" class="stat-card stat-card-link {% if stats.health_issues > 0 %}stat-card-danger{% elif stats.health_warnings > 0 %}stat-card-warning{% else %}stat-card-success{% endif %}">
+    <div class="stat-card-header">
+        {% if stats.health_issues > 0 %}
+        <i data-lucide="alert-circle"></i>
+        {% elif stats.health_warnings > 0 %}
+        <i data-lucide="alert-triangle"></i>
+        {% else %}
+        <i data-lucide="check-circle"></i>
+        {% endif %}
+        Tracking
+    </div>
+    {% if stats.health_issues > 0 %}
+    <div class="stat-value" style="color: var(--danger);">{{ stats.health_issues }}</div>
+    <div class="stat-label">critical issues</div>
+    {% elif stats.health_warnings > 0 %}
+    <div class="stat-value" style="color: var(--warning);">{{ stats.health_warnings }}</div>
+    <div class="stat-label">warnings</div>
+    {% else %}
+    <div class="stat-value" style="color: var(--success);">OK</div>
+    <div class="stat-label">no issues</div>
+    {% endif %}
+</a>
+
 <div class="stat-card">
     <div class="stat-card-header">
         <i data-lucide="clock"></i>

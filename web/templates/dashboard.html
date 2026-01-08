@@ -46,9 +46,12 @@
     {% endif %}
 </div>
 
-<!-- Stats Row -->
-<div class="stats-row" hx-get="/api/dashboard/stats" hx-trigger="every 30s" hx-swap="innerHTML">
-    {% include "partials/dashboard_stats.html" %}
+<!-- Stats Row - lazy loaded -->
+<div id="stats-container"
+     hx-get="/api/dashboard/stats-content"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+    {% include "partials/dashboard_skeleton.html" %}
 </div>
 
 <!-- Recent Activity -->

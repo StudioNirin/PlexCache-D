@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}{{ page_title | default('PlexCache-R') }}{% endblock %} - PlexCache-R</title>
 
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
 
@@ -88,6 +91,12 @@
                     <a href="/logs" data-tooltip="Logs" {% if page_title == 'Logs' %}class="active"{% endif %}>
                         <i data-lucide="file-text"></i>
                         <span>Logs</span>
+                    </a>
+                </li>
+                <li>
+                    <a href="/maintenance" data-tooltip="Maintenance" {% if page_title == 'Maintenance' %}class="active"{% endif %}>
+                        <i data-lucide="wrench"></i>
+                        <span>Maintenance</span>
                     </a>
                 </li>
             </ul>

@@ -1,0 +1,363 @@
+{% extends "base.html" %}
+
+{% block content %}
+<!-- Page Header -->
+<header class="page-header">
+    <div class="page-title">
+        <div class="page-title-icon">
+            <i data-lucide="wrench"></i>
+        </div>
+        <div>
+            <h1>Maintenance</h1>
+            <p>Verify files are properly protected and tracked</p>
+        </div>
+    </div>
+    <div class="action-buttons">
+        <button class="btn btn-primary" hx-get="/maintenance/audit?refresh=true" hx-target="#audit-content" hx-indicator="#audit-spinner">
+            <span id="audit-spinner" class="htmx-indicator spinner"></span>
+            <i data-lucide="scan" class="htmx-hide-on-request"></i>
+            <span class="htmx-hide-on-request">Run Audit</span>
+        </button>
+    </div>
+</header>
+
+<!-- Audit Results Container - lazy loaded -->
+<div id="audit-content"
+     hx-get="/maintenance/audit"
+     hx-trigger="load"
+     hx-swap="innerHTML">
+    {% include "maintenance/partials/audit_skeleton.html" %}
+</div>
+
+<!-- Confirmation Modal -->
+<div id="confirm-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeConfirmModal()"></div>
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 id="confirm-modal-title">Confirm Action</h3>
+            <button class="modal-close" onclick="closeConfirmModal()">
+                <i data-lucide="x"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="confirm-modal-body">
+            <!-- Content will be set by JavaScript -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeConfirmModal()">Cancel</button>
+            <button id="confirm-modal-action" class="btn btn-primary">Confirm</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Selected items tracking
+let selectedUnprotectedFiles = new Set();
+let selectedOrphanedBackups = new Set();
+
+// Checkbox selection functions
+function toggleSelectAllUnprotected(checkbox) {
+    const checkboxes = document.querySelectorAll('.unprotected-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        if (checkbox.checked) {
+            selectedUnprotectedFiles.add(cb.value);
+        } else {
+            selectedUnprotectedFiles.delete(cb.value);
+        }
+    });
+    updateUnprotectedActions();
+}
+
+function toggleUnprotectedFile(checkbox) {
+    if (checkbox.checked) {
+        selectedUnprotectedFiles.add(checkbox.value);
+    } else {
+        selectedUnprotectedFiles.delete(checkbox.value);
+    }
+    updateUnprotectedActions();
+}
+
+function updateUnprotectedActions() {
+    const count = selectedUnprotectedFiles.size;
+    const bulkActions = document.getElementById('unprotected-bulk-actions');
+    const countSpan = document.getElementById('unprotected-selected-count');
+
+    if (bulkActions) {
+        if (count > 0) {
+            bulkActions.style.display = 'flex';
+            countSpan.textContent = count;
+        } else {
+            bulkActions.style.display = 'none';
+        }
+    }
+}
+
+function toggleSelectAllOrphaned(checkbox) {
+    const checkboxes = document.querySelectorAll('.orphaned-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        if (checkbox.checked) {
+            selectedOrphanedBackups.add(cb.value);
+        } else {
+            selectedOrphanedBackups.delete(cb.value);
+        }
+    });
+    updateOrphanedActions();
+}
+
+function toggleOrphanedFile(checkbox) {
+    if (checkbox.checked) {
+        selectedOrphanedBackups.add(checkbox.value);
+    } else {
+        selectedOrphanedBackups.delete(checkbox.value);
+    }
+    updateOrphanedActions();
+}
+
+function updateOrphanedActions() {
+    const count = selectedOrphanedBackups.size;
+    const bulkActions = document.getElementById('orphaned-bulk-actions');
+    const countSpan = document.getElementById('orphaned-selected-count');
+
+    if (bulkActions) {
+        if (count > 0) {
+            bulkActions.style.display = 'flex';
+            countSpan.textContent = count;
+        } else {
+            bulkActions.style.display = 'none';
+        }
+    }
+}
+
+// Confirmation modal functions
+function showConfirmModal(title, message, action, formData, isDryRun = false) {
+    const modal = document.getElementById('confirm-modal');
+    const modalTitle = document.getElementById('confirm-modal-title');
+    const modalBody = document.getElementById('confirm-modal-body');
+    const actionBtn = document.getElementById('confirm-modal-action');
+
+    modalTitle.textContent = title;
+    modalBody.innerHTML = message;
+
+    // Update action button
+    actionBtn.className = isDryRun ? 'btn btn-secondary' : 'btn btn-danger';
+    actionBtn.textContent = isDryRun ? 'Preview' : 'Confirm';
+    actionBtn.onclick = function() {
+        executeAction(action, formData, isDryRun);
+        closeConfirmModal();
+    };
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirm-modal').style.display = 'none';
+}
+
+function showInfoModal(title, message) {
+    const modal = document.getElementById('confirm-modal');
+    const modalTitle = document.getElementById('confirm-modal-title');
+    const modalBody = document.getElementById('confirm-modal-body');
+    const actionBtn = document.getElementById('confirm-modal-action');
+
+    modalTitle.textContent = title;
+    modalBody.innerHTML = message;
+
+    // Show only OK button (hide the action button, use cancel as OK)
+    actionBtn.style.display = 'none';
+    document.querySelector('#confirm-modal .modal-footer .btn-secondary').textContent = 'OK';
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+
+    // Reset when closing
+    const originalClose = closeConfirmModal;
+    closeConfirmModal = function() {
+        actionBtn.style.display = '';
+        document.querySelector('#confirm-modal .modal-footer .btn-secondary').textContent = 'Cancel';
+        closeConfirmModal = originalClose;
+        originalClose();
+    };
+}
+
+// Action execution
+function executeAction(action, formData, isDryRun) {
+    formData.append('dry_run', isDryRun ? 'true' : 'false');
+
+    fetch(`/maintenance/${action}`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => response.text())
+    .then(html => {
+        document.getElementById('audit-content').innerHTML = html;
+        lucide.createIcons();
+        // Reset selections
+        selectedUnprotectedFiles.clear();
+        selectedOrphanedBackups.clear();
+    })
+    .catch(err => {
+        showAlert('error', `Error: ${err.message}`);
+    });
+}
+
+// Bulk action handlers
+function fixWithBackupSelected(isDryRun = false) {
+    if (selectedUnprotectedFiles.size === 0) return;
+
+    const count = selectedUnprotectedFiles.size;
+    const formData = new FormData();
+    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Fix';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview fixing' : 'fix'} <strong>${count}</strong> file(s) with backup:</p>
+        <ul>
+            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
+        </ul>
+        <p>This will delete the cache copy and restore the .plexcached backup on the array.</p>
+    `;
+
+    showConfirmModal(`${action} Files with Backup`, message, 'fix-with-backup', formData, isDryRun);
+}
+
+function syncToArraySelected(isDryRun = false) {
+    if (selectedUnprotectedFiles.size === 0) return;
+
+    const count = selectedUnprotectedFiles.size;
+    const formData = new FormData();
+    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Sync';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview syncing' : 'sync'} <strong>${count}</strong> file(s) to the array:</p>
+        <ul>
+            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
+        </ul>
+        <p>This will copy files from cache to array, then remove the cache copy.</p>
+    `;
+
+    showConfirmModal(`${action} Files to Array`, message, 'sync-to-array', formData, isDryRun);
+}
+
+function addToExcludeSelected(isDryRun = false) {
+    if (selectedUnprotectedFiles.size === 0) return;
+
+    const count = selectedUnprotectedFiles.size;
+    const formData = new FormData();
+    selectedUnprotectedFiles.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Protect';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview protecting' : 'protect'} <strong>${count}</strong> file(s):</p>
+        <ul>
+            ${Array.from(selectedUnprotectedFiles).slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${selectedUnprotectedFiles.size > 10 ? `<li>...and ${selectedUnprotectedFiles.size - 10} more</li>` : ''}
+        </ul>
+        <p>This will add these files to the exclude list to protect them from the Unraid mover.</p>
+    `;
+
+    showConfirmModal(`${action} Files`, message, 'add-to-exclude', formData, isDryRun);
+}
+
+function restoreOrphanedSelected(isDryRun = false) {
+    if (selectedOrphanedBackups.size === 0) return;
+
+    const count = selectedOrphanedBackups.size;
+    const formData = new FormData();
+    selectedOrphanedBackups.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Restore';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview restoring' : 'restore'} <strong>${count}</strong> backup file(s):</p>
+        <ul>
+            ${Array.from(selectedOrphanedBackups).slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${selectedOrphanedBackups.size > 10 ? `<li>...and ${selectedOrphanedBackups.size - 10} more</li>` : ''}
+        </ul>
+        <p>This will rename .plexcached files back to their original filenames on the array.</p>
+    `;
+
+    showConfirmModal(`${action} Backups`, message, 'restore-plexcached', formData, isDryRun);
+}
+
+function restoreAllOrphaned(isDryRun = false) {
+    const formData = new FormData();
+    formData.append('restore_all', 'true');
+
+    const action = isDryRun ? 'Preview' : 'Restore';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview restoring' : 'restore'} <strong>ALL</strong> orphaned .plexcached backup files.</p>
+        <p>This will rename all .plexcached files back to their original filenames on the array.</p>
+    `;
+
+    showConfirmModal(`${action} All Backups`, message, 'restore-plexcached', formData, isDryRun);
+}
+
+function cleanExclude(isDryRun = false) {
+    const formData = new FormData();
+
+    const action = isDryRun ? 'Preview' : 'Clean';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview cleaning' : 'clean'} stale entries from the exclude list.</p>
+        <p>This will remove entries for files that no longer exist on the cache drive.</p>
+    `;
+
+    showConfirmModal(`${action} Exclude List`, message, 'clean-exclude', formData, isDryRun);
+}
+
+function cleanTimestamps(isDryRun = false) {
+    const formData = new FormData();
+
+    const action = isDryRun ? 'Preview' : 'Clean';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview cleaning' : 'clean'} stale entries from the timestamps file.</p>
+        <p>This will remove entries for files that no longer exist on the cache drive.</p>
+    `;
+
+    showConfirmModal(`${action} Timestamps`, message, 'clean-timestamps', formData, isDryRun);
+}
+
+// Alert helper
+function showAlert(type, message) {
+    const container = document.getElementById('alert-container');
+    const iconName = type === 'success' ? 'check-circle' : type === 'error' ? 'alert-circle' : 'info';
+    container.innerHTML = `
+        <div class="alert alert-${type}">
+            <i data-lucide="${iconName}"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    lucide.createIcons();
+}
+
+// Reset selection state after HTMX swaps
+document.addEventListener('htmx:afterSwap', function(e) {
+    if (e.detail.target.id === 'audit-content') {
+        selectedUnprotectedFiles.clear();
+        selectedOrphanedBackups.clear();
+        updateUnprotectedActions();
+        updateOrphanedActions();
+    }
+});
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeConfirmModal();
+    }
+});
+</script>
+{% endblock %}

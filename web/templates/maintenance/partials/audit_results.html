@@ -1,0 +1,618 @@
+<!-- Audit Header -->
+<div class="stats-header">
+    <span class="text-muted" style="font-size: 0.85rem;">
+        {% if cache_age %}Updated {{ cache_age }}{% else %}Just refreshed{% endif %}
+    </span>
+    <button class="btn btn-sm btn-secondary"
+            hx-get="/maintenance/audit?refresh=true"
+            hx-target="#audit-content"
+            hx-swap="innerHTML"
+            hx-indicator="#audit-refresh-spinner">
+        <span id="audit-refresh-spinner" class="htmx-indicator spinner" style="width: 14px; height: 14px;"></span>
+        <i data-lucide="refresh-cw" class="htmx-hide-on-request" style="width: 14px; height: 14px;"></i>
+        <span class="htmx-hide-on-request">Refresh</span>
+    </button>
+</div>
+
+<!-- Health Status Cards -->
+<div class="stats-row mb-2">
+    <div class="stat-card {% if results.health_status == 'critical' %}stat-card-danger{% elif results.health_status == 'warnings' %}stat-card-warning{% else %}stat-card-success{% endif %}">
+        <div class="stat-card-header">
+            {% if results.health_status == 'critical' %}
+            <i data-lucide="alert-circle"></i>
+            {% elif results.health_status == 'warnings' %}
+            <i data-lucide="alert-triangle"></i>
+            {% else %}
+            <i data-lucide="check-circle"></i>
+            {% endif %}
+            Tracking Health
+        </div>
+        {% if results.health_status == 'critical' %}
+        <div class="stat-value" style="color: var(--danger);">{{ results.critical_unprotected|length + results.orphaned_plexcached|length }}</div>
+        <div class="stat-label">critical issues</div>
+        {% elif results.health_status == 'warnings' %}
+        <div class="stat-value" style="color: var(--warning);">{{ results.stale_exclude_entries|length + results.stale_timestamp_entries|length }}</div>
+        <div class="stat-label">warnings</div>
+        {% else %}
+        <div class="stat-value" style="color: var(--success);">OK</div>
+        <div class="stat-label">no issues</div>
+        {% endif %}
+    </div>
+
+    <div class="stat-card {% if results.critical_unprotected|length > 20 %}stat-card-danger{% elif results.critical_unprotected|length > 0 %}stat-card-warning{% else %}stat-card-success{% endif %}">
+        <div class="stat-card-header">
+            {% if results.critical_unprotected|length == 0 %}
+            <i data-lucide="shield-check"></i>
+            {% else %}
+            <i data-lucide="shield-off"></i>
+            {% endif %}
+            Unprotected
+        </div>
+        <div class="stat-value">{{ results.critical_unprotected|length }}</div>
+        <div class="stat-label">{% if results.critical_unprotected|length == 0 %}all protected{% else %}need attention{% endif %}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <i data-lucide="download"></i>
+            New Downloads
+        </div>
+        <div class="stat-value">{{ results.new_downloads|length }}</div>
+        <div class="stat-label">recent files</div>
+    </div>
+
+    <div class="stat-card {% if results.orphaned_plexcached|length > 20 %}stat-card-danger{% elif results.orphaned_plexcached|length > 0 %}stat-card-warning{% else %}stat-card-success{% endif %}">
+        <div class="stat-card-header">
+            {% if results.orphaned_plexcached|length == 0 %}
+            <i data-lucide="check-circle"></i>
+            {% else %}
+            <i data-lucide="file-question"></i>
+            {% endif %}
+            Orphaned Backups
+        </div>
+        <div class="stat-value">{{ results.orphaned_plexcached|length }}</div>
+        <div class="stat-label">{% if results.orphaned_plexcached|length == 0 %}none found{% else %}need restore{% endif %}</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <i data-lucide="database"></i>
+            Cache Files
+        </div>
+        <div class="stat-value">{{ results.cache_file_count }}</div>
+        <div class="stat-label">{{ results.exclude_entry_count }} protected</div>
+    </div>
+</div>
+
+<!-- Action Result Alert (if present) -->
+{% if action_result is defined %}
+<div class="alert {% if action_result.success %}alert-success{% else %}alert-error{% endif %} mb-2">
+    <i data-lucide="{% if action_result.success %}check-circle{% else %}alert-circle{% endif %}"></i>
+    <div>
+        <strong>{{ action_result.message }}</strong>
+        {% if dry_run %}
+        <span class="badge badge-muted" style="margin-left: 0.5rem;">Dry Run</span>
+        {% endif %}
+        {% if action_result.errors %}
+        <ul style="margin: 0.5rem 0 0 0; padding-left: 1.5rem;">
+            {% for error in action_result.errors %}
+            <li style="color: var(--text-muted);">{{ error }}</li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- New Downloads Section (Informational - not critical) -->
+{% if results.new_downloads %}
+<div class="card mb-2">
+    <div class="card-header">
+        <i data-lucide="download"></i>
+        <h2>New Downloads ({{ results.new_downloads|length }})</h2>
+    </div>
+    <div class="card-body" style="padding: 0.75rem;">
+        <p class="text-muted" style="margin: 0 0 0.75rem 0;">
+            These files were recently added to cache (likely by Radarr/Sonarr). They currently have no array backup. Protecting them will copy the file to the array as a <code>.plexcached</code> backup and add to the exclude list.
+        </p>
+        <!-- Bulk Actions -->
+        <div id="downloads-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
+            <span class="text-muted">Selected: <strong id="downloads-selected-count">0</strong></span>
+            <button class="btn btn-sm btn-primary" onclick="protectDownloads(false)">
+                <i data-lucide="shield"></i> Protect
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="fixTimestampsSelected('downloads', false)">
+                <i data-lucide="clock"></i> Fix Dates
+            </button>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+            <table id="downloads-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" onclick="toggleSelectAllDownloads(this)" title="Select all">
+                        </th>
+                        <th class="sortable" data-sort="filename" data-table="downloads" onclick="sortTable('downloads', 'filename')">
+                            File <span class="sort-icon"><i data-lucide="chevron-up"></i></span>
+                        </th>
+                        <th class="sortable" data-sort="size" data-table="downloads" onclick="sortTable('downloads', 'size')">
+                            Size <span class="sort-icon"></span>
+                        </th>
+                        <th class="sortable" data-sort="age" data-table="downloads" onclick="sortTable('downloads', 'age')">
+                            Age <span class="sort-icon"></span>
+                        </th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in results.new_downloads %}
+                    <tr data-filename="{{ file.filename|lower }}" data-size="{{ file.size }}" data-age="{{ file.age_days }}" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                        <td>
+                            <input type="checkbox" class="downloads-checkbox" value="{{ file.cache_path }}" onchange="toggleDownloadFile(this)" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                        </td>
+                        <td title="{{ file.cache_path }}" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ file.filename }}
+                        </td>
+                        <td class="text-muted">{{ file.size_display }}</td>
+                        <td class="text-muted">
+                            {% if file.has_invalid_timestamp %}
+                            <span class="badge badge-warning">Bad date</span>
+                            {% elif file.age_days >= 365 %}
+                            Unknown
+                            {% else %}
+                            {{ "%.1f"|format(file.age_days) }}d
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Unprotected Files Section (Critical - need attention) -->
+{% if results.critical_unprotected %}
+<div class="card mb-2">
+    <div class="card-header" style="background: var(--danger-bg);">
+        <i data-lucide="shield-off"></i>
+        <h2>Unprotected Files ({{ results.critical_unprotected|length }})</h2>
+    </div>
+    <div class="card-body" style="padding: 0.75rem; background: var(--danger-bg);">
+        <p class="text-muted" style="margin: 0 0 0.75rem 0;">
+            These files have been on cache for a while but are NOT in the exclude list. They may have been missed by PlexCache or left behind after an upgrade. The Unraid mover will move them off cache.
+        </p>
+        <!-- Bulk Actions -->
+        <div id="unprotected-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
+            <span class="text-muted">Selected: <strong id="unprotected-selected-count">0</strong></span>
+            <button class="btn btn-sm btn-primary" onclick="addToExcludeSelected(false)">
+                <i data-lucide="shield"></i> Protect
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="fixWithBackupSelected(false)">
+                <i data-lucide="archive-restore"></i> Fix with Backup
+            </button>
+            <button class="btn btn-sm btn-warning" onclick="fixTimestampsSelected('unprotected', false)">
+                <i data-lucide="clock"></i> Fix Dates
+            </button>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+            <table id="unprotected-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" onclick="toggleSelectAllUnprotected(this)" title="Select all">
+                        </th>
+                        <th class="sortable" data-sort="filename" data-table="unprotected" onclick="sortTable('unprotected', 'filename')">
+                            File <span class="sort-icon"><i data-lucide="chevron-up"></i></span>
+                        </th>
+                        <th class="sortable" data-sort="size" data-table="unprotected" onclick="sortTable('unprotected', 'size')">
+                            Size <span class="sort-icon"></span>
+                        </th>
+                        <th class="sortable" data-sort="age" data-table="unprotected" onclick="sortTable('unprotected', 'age')">
+                            Age <span class="sort-icon"></span>
+                        </th>
+                        <th>Status</th>
+                        <th>Recommended</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for file in results.critical_unprotected %}
+                    <tr data-filename="{{ file.filename|lower }}" data-size="{{ file.size }}" data-age="{{ file.age_days }}" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                        <td>
+                            <input type="checkbox" class="unprotected-checkbox" value="{{ file.cache_path }}" onchange="toggleUnprotectedFile(this)" data-invalid-ts="{{ file.has_invalid_timestamp|lower }}">
+                        </td>
+                        <td title="{{ file.cache_path }}" style="max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ file.filename }}
+                        </td>
+                        <td class="text-muted">{{ file.size_display }}</td>
+                        <td class="text-muted">
+                            {% if file.has_invalid_timestamp %}
+                            <span class="badge badge-warning">Bad date</span>
+                            {% elif file.age_days >= 365 %}
+                            Unknown
+                            {% else %}
+                            {{ "%.0f"|format(file.age_days) }}d
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.has_plexcached_backup %}
+                            <span class="badge badge-success">Has backup</span>
+                            {% elif file.has_array_duplicate %}
+                            <span class="badge badge-info">Duplicate</span>
+                            {% else %}
+                            <span class="badge badge-warning">No backup</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if file.recommended_action == 'fix_with_backup' %}
+                            <span class="text-muted">Fix with backup</span>
+                            {% elif file.recommended_action == 'sync_to_array' %}
+                            <span class="text-muted">Sync to array</span>
+                            {% else %}
+                            <span class="text-muted">Add to exclude</span>
+                            {% endif %}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Orphaned .plexcached Backups Section -->
+{% if results.orphaned_plexcached %}
+<div class="card mb-2">
+    <div class="card-header" style="background: var(--danger-bg);">
+        <i data-lucide="file-question"></i>
+        <h2>Orphaned .plexcached Backups ({{ results.orphaned_plexcached|length }})</h2>
+    </div>
+    <div class="card-body" style="padding: 0.75rem; background: var(--danger-bg);">
+        <p class="text-muted" style="margin: 0 0 0.75rem 0;">
+            These backup files exist on the array but have no corresponding cache file. They should be restored to their original filenames.
+        </p>
+        <!-- Bulk Actions -->
+        <div class="flex gap-1 mb-1">
+            <div id="orphaned-bulk-actions" class="flex gap-1" style="display: none;">
+                <span class="text-muted">Selected: <strong id="orphaned-selected-count">0</strong></span>
+                <button class="btn btn-sm btn-primary" onclick="restoreOrphanedSelected(false)">
+                    <i data-lucide="archive-restore"></i> Restore Selected
+                </button>
+            </div>
+            <div class="flex gap-1" style="margin-left: auto;">
+                <button class="btn btn-sm btn-warning" onclick="restoreAllOrphaned(false)">
+                    <i data-lucide="archive-restore"></i> Restore All
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body" style="padding: 0;">
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+            <table id="orphaned-table">
+                <thead>
+                    <tr>
+                        <th style="width: 40px;">
+                            <input type="checkbox" onclick="toggleSelectAllOrphaned(this)" title="Select all">
+                        </th>
+                        <th class="sortable" data-sort="filename" data-table="orphaned" onclick="sortTable('orphaned', 'filename')">
+                            Backup File <span class="sort-icon"><i data-lucide="chevron-up"></i></span>
+                        </th>
+                        <th class="sortable" data-sort="size" data-table="orphaned" onclick="sortTable('orphaned', 'size')">
+                            Size <span class="sort-icon"></span>
+                        </th>
+                        <th>Restore To</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for backup in results.orphaned_plexcached %}
+                    <tr data-filename="{{ backup.original_filename|lower }}" data-size="{{ backup.size }}">
+                        <td>
+                            <input type="checkbox" class="orphaned-checkbox" value="{{ backup.plexcached_path }}" onchange="toggleOrphanedFile(this)">
+                        </td>
+                        <td title="{{ backup.plexcached_path }}" style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ backup.plexcached_path.split('/') | last }}
+                        </td>
+                        <td class="text-muted">{{ backup.size_display }}</td>
+                        <td class="text-muted" title="{{ backup.restore_path }}" style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            {{ backup.original_filename }}
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Quick Cleanup Actions -->
+{% if results.stale_exclude_entries or results.stale_timestamp_entries %}
+<div class="card mb-2">
+    <div class="card-header">
+        <i data-lucide="sparkles"></i>
+        <h2>Quick Cleanup Actions</h2>
+    </div>
+    <div class="card-body">
+        {% if results.stale_exclude_entries %}
+        <div class="cleanup-action mb-1">
+            <div class="cleanup-info">
+                <strong>Stale Exclude Entries ({{ results.stale_exclude_entries|length }})</strong>
+                <p class="text-muted" style="margin: 0.25rem 0 0 0;">
+                    Files listed in exclude but no longer on cache
+                </p>
+            </div>
+            <div class="cleanup-buttons flex gap-1">
+                <button class="btn btn-sm btn-primary" onclick="cleanExclude(false)">
+                    <i data-lucide="trash-2"></i> Clean
+                </button>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if results.stale_timestamp_entries %}
+        <div class="cleanup-action">
+            <div class="cleanup-info">
+                <strong>Stale Timestamp Entries ({{ results.stale_timestamp_entries|length }})</strong>
+                <p class="text-muted" style="margin: 0.25rem 0 0 0;">
+                    Files listed in timestamps but no longer on cache
+                </p>
+            </div>
+            <div class="cleanup-buttons flex gap-1">
+                <button class="btn btn-sm btn-primary" onclick="cleanTimestamps(false)">
+                    <i data-lucide="trash-2"></i> Clean
+                </button>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+<!-- No Issues Message -->
+{% if not results.unprotected_files and not results.orphaned_plexcached and not results.stale_exclude_entries and not results.stale_timestamp_entries %}
+<div class="card">
+    <div class="card-body" style="text-align: center; padding: 3rem;">
+        <i data-lucide="check-circle" style="width: 64px; height: 64px; color: var(--success); margin-bottom: 1rem;"></i>
+        <h3 style="margin-bottom: 0.5rem;">Cache is Healthy</h3>
+        <p class="text-muted">No issues found. All files are properly tracked and protected.</p>
+    </div>
+</div>
+{% endif %}
+
+<style>
+.cleanup-action {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem;
+    background: var(--plex-bg-card);
+    border-radius: 6px;
+    border: 1px solid var(--plex-border);
+}
+
+.cleanup-info {
+    flex: 1;
+}
+
+.cleanup-buttons {
+    flex-shrink: 0;
+}
+
+.stat-sublabel {
+    font-size: 0.75rem;
+    color: var(--plex-text-muted);
+    display: block;
+}
+
+.table-container {
+    overflow-x: auto;
+}
+
+/* Sortable headers */
+th.sortable {
+    cursor: pointer;
+    user-select: none;
+}
+
+th.sortable:hover {
+    background: var(--plex-bg-hover);
+}
+
+th.sortable .sort-icon {
+    display: inline-block;
+    width: 16px;
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+th.sortable .sort-icon i {
+    width: 14px;
+    height: 14px;
+}
+</style>
+
+<script>
+// Table sorting state
+const sortState = {
+    downloads: { column: 'filename', direction: 'asc' },
+    unprotected: { column: 'filename', direction: 'asc' },
+    orphaned: { column: 'filename', direction: 'asc' }
+};
+
+function sortTable(tableId, column) {
+    const state = sortState[tableId];
+    const table = document.getElementById(tableId + '-table');
+    if (!table) return;
+
+    const tbody = table.querySelector('tbody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    // Toggle direction if same column
+    if (state.column === column) {
+        state.direction = state.direction === 'asc' ? 'desc' : 'asc';
+    } else {
+        state.column = column;
+        state.direction = column === 'filename' ? 'asc' : 'desc';
+    }
+
+    // Sort rows
+    rows.sort((a, b) => {
+        let aVal, bVal;
+
+        if (column === 'filename') {
+            aVal = a.dataset.filename || '';
+            bVal = b.dataset.filename || '';
+        } else if (column === 'size') {
+            aVal = parseFloat(a.dataset.size) || 0;
+            bVal = parseFloat(b.dataset.size) || 0;
+        } else if (column === 'age') {
+            aVal = parseFloat(a.dataset.age) || 0;
+            bVal = parseFloat(b.dataset.age) || 0;
+        }
+
+        if (typeof aVal === 'string') {
+            return state.direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+        } else {
+            return state.direction === 'asc' ? aVal - bVal : bVal - aVal;
+        }
+    });
+
+    // Re-append sorted rows
+    rows.forEach(row => tbody.appendChild(row));
+
+    // Update header icons
+    updateSortIcons(tableId, column, state.direction);
+    lucide.createIcons();
+}
+
+function updateSortIcons(tableId, column, direction) {
+    const table = document.getElementById(tableId + '-table');
+    if (!table) return;
+
+    // Clear all icons in this table
+    table.querySelectorAll('th.sortable .sort-icon').forEach(icon => {
+        icon.innerHTML = '';
+    });
+
+    // Set icon on active column
+    const activeHeader = table.querySelector(`th.sortable[data-sort="${column}"] .sort-icon`);
+    if (activeHeader) {
+        const iconName = direction === 'asc' ? 'chevron-up' : 'chevron-down';
+        activeHeader.innerHTML = `<i data-lucide="${iconName}"></i>`;
+    }
+}
+
+// Downloads selection
+let selectedDownloads = new Set();
+
+function toggleSelectAllDownloads(checkbox) {
+    const checkboxes = document.querySelectorAll('.downloads-checkbox');
+    checkboxes.forEach(cb => {
+        cb.checked = checkbox.checked;
+        if (checkbox.checked) {
+            selectedDownloads.add(cb.value);
+        } else {
+            selectedDownloads.delete(cb.value);
+        }
+    });
+    updateDownloadsActions();
+}
+
+function toggleDownloadFile(checkbox) {
+    if (checkbox.checked) {
+        selectedDownloads.add(checkbox.value);
+    } else {
+        selectedDownloads.delete(checkbox.value);
+    }
+    updateDownloadsActions();
+}
+
+function updateDownloadsActions() {
+    const count = selectedDownloads.size;
+    const bulkActions = document.getElementById('downloads-bulk-actions');
+    const countSpan = document.getElementById('downloads-selected-count');
+
+    if (bulkActions) {
+        if (count > 0) {
+            bulkActions.style.display = 'flex';
+            countSpan.textContent = count;
+        } else {
+            bulkActions.style.display = 'none';
+        }
+    }
+}
+
+function protectDownloads(isDryRun = false) {
+    if (selectedDownloads.size === 0) return;
+
+    const count = selectedDownloads.size;
+    const formData = new FormData();
+    selectedDownloads.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Protect';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview protecting' : 'protect'} <strong>${count}</strong> new download(s):</p>
+        <ul>
+            ${Array.from(selectedDownloads).slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${selectedDownloads.size > 10 ? `<li>...and ${selectedDownloads.size - 10} more</li>` : ''}
+        </ul>
+        <p>This will:</p>
+        <ol>
+            <li>Copy each file to the array as a <code>.plexcached</code> backup</li>
+            <li>Add to the exclude list (prevents Unraid mover)</li>
+            <li>Register in timestamps for PlexCache tracking</li>
+        </ol>
+    `;
+
+    showConfirmModal(`${action} New Downloads`, message, 'protect-with-backup', formData, isDryRun);
+}
+
+// Fix timestamps for selected files
+function fixTimestampsSelected(tableType, isDryRun = false) {
+    // Get selected files with invalid timestamps
+    const checkboxClass = tableType === 'downloads' ? '.downloads-checkbox' : '.unprotected-checkbox';
+    const selectedSet = tableType === 'downloads' ? selectedDownloads : selectedUnprotectedFiles;
+
+    // Filter to only files with invalid timestamps
+    const invalidPaths = [];
+    document.querySelectorAll(`${checkboxClass}:checked`).forEach(cb => {
+        if (cb.dataset.invalidTs === 'true') {
+            invalidPaths.push(cb.value);
+        }
+    });
+
+    if (invalidPaths.length === 0) {
+        showInfoModal('No Invalid Timestamps', '<p>None of the selected files have invalid timestamps that need fixing.</p>');
+        return;
+    }
+
+    const formData = new FormData();
+    invalidPaths.forEach(path => formData.append('paths', path));
+
+    const action = isDryRun ? 'Preview' : 'Fix';
+    const message = `
+        <p>You are about to ${isDryRun ? 'preview fixing' : 'fix'} timestamps on <strong>${invalidPaths.length}</strong> file(s):</p>
+        <ul>
+            ${invalidPaths.slice(0, 10).map(path =>
+                `<li>${path.split('/').pop()}</li>`
+            ).join('')}
+            ${invalidPaths.length > 10 ? `<li>...and ${invalidPaths.length - 10} more</li>` : ''}
+        </ul>
+        <p>This will set the file modification time to the current time.</p>
+    `;
+
+    showConfirmModal(`${action} Timestamps`, message, 'fix-timestamps', formData, isDryRun);
+}
+
+// Initialize icons after content loads
+if (typeof lucide !== 'undefined') {
+    lucide.createIcons();
+}
+</script>

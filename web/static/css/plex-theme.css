@@ -28,6 +28,15 @@ body {
     --sidebar-width: 240px;
     --sidebar-collapsed: 60px;
 
+    /* Color aliases for convenience */
+    --success: var(--plex-success);
+    --warning: var(--plex-warning);
+    --danger: var(--plex-error);
+    --info: var(--plex-info);
+    --danger-bg: rgba(244, 67, 54, 0.1);
+    --warning-bg: rgba(255, 152, 0, 0.1);
+    --success-bg: rgba(76, 175, 80, 0.1);
+
     /* Dark theme (default) */
     --plex-bg-dark: #1f1f1f;
     --plex-bg-darker: #141414;
@@ -146,7 +155,7 @@ body {
 }
 
 .sidebar-footer {
-    padding: 1rem 1.25rem;
+    padding: 1rem 0.5rem;
     border-top: 1px solid var(--plex-border);
     color: var(--plex-text-muted);
     font-size: 0.8rem;
@@ -241,11 +250,6 @@ body {
 .sidebar.collapsed .sidebar-nav li a.active {
     border-left: none;
     border-bottom-color: var(--plex-orange);
-}
-
-.sidebar.collapsed .sidebar-footer {
-    justify-content: center;
-    padding: 1rem 0.5rem;
 }
 
 .sidebar.collapsed .sidebar-collapse-btn i {
@@ -484,6 +488,13 @@ body {
 
 /* ==================== Stats Grid ==================== */
 
+.stats-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
 .stats-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -547,6 +558,19 @@ body {
 
 .stat-value.warning {
     color: var(--plex-warning);
+}
+
+/* Stat card color variants */
+.stat-card-danger {
+    border-left: 3px solid var(--plex-error);
+}
+
+.stat-card-warning {
+    border-left: 3px solid var(--plex-warning);
+}
+
+.stat-card-success {
+    border-left: 3px solid var(--plex-success);
 }
 
 .stat-label {
@@ -1093,17 +1117,26 @@ textarea {
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.85);
+    z-index: 1000;
 }
 
 .modal-content {
     position: relative;
     background: var(--plex-bg-card);
+    background-color: #282828; /* Fallback solid color for dark theme */
     border: 1px solid var(--plex-border);
     border-radius: 8px;
     width: 100%;
-    max-width: 400px;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    max-width: 500px;
+    max-height: 80vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+    z-index: 1001;
+}
+
+[data-theme="light"] .modal-content {
+    background-color: #ffffff;
 }
 
 .modal-header {
@@ -1122,6 +1155,38 @@ textarea {
 
 .modal-body {
     padding: 1.5rem 1.25rem;
+    background: inherit;
+}
+
+.modal-body ul {
+    list-style: none;
+    padding: 0;
+    margin: 1rem 0;
+    background: var(--plex-bg);
+    border: 1px solid var(--plex-border);
+    border-radius: 4px;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.modal-body ul li {
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--plex-border);
+    font-size: 0.85rem;
+    word-break: break-all;
+}
+
+.modal-body ul li:last-child {
+    border-bottom: none;
+}
+
+.modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding: 1rem 1.25rem;
+    border-top: 1px solid var(--plex-border);
+    background: inherit;
 }
 
 .text-center {
@@ -1770,6 +1835,63 @@ td.user-badges .badge {
 .justify-between { justify-content: space-between; }
 .gap-1 { gap: 0.5rem; }
 .gap-2 { gap: 1rem; }
+
+/* ==================== Skeleton Loading ==================== */
+
+.skeleton {
+    background: linear-gradient(90deg, var(--plex-bg-card) 25%, var(--plex-bg-hover) 50%, var(--plex-bg-card) 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    border-radius: 4px;
+}
+
+@keyframes skeleton-loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+.skeleton-text {
+    height: 1em;
+    margin-bottom: 0.5em;
+}
+
+.skeleton-text-sm {
+    height: 0.85em;
+    width: 60%;
+}
+
+.skeleton-value {
+    height: 2rem;
+    width: 3rem;
+    margin-bottom: 0.25rem;
+}
+
+.skeleton-card {
+    padding: 1.25rem;
+    background: var(--plex-bg-card);
+    border: 1px solid var(--plex-border);
+    border-radius: 8px;
+}
+
+.loading-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 3rem;
+    color: var(--plex-text-muted);
+}
+
+.loading-container .spinner {
+    width: 32px;
+    height: 32px;
+    margin-bottom: 1rem;
+}
+
+.loading-container p {
+    margin: 0;
+    font-size: 0.9rem;
+}
 
 /* ==================== HTMX Loading States ==================== */
 
