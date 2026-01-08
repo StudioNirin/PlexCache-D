@@ -57,7 +57,20 @@ class PlexCacheApp:
         self.moved_to_array_count = 0
         self.moved_to_array_bytes = 0
         self.cached_bytes = 0
-        
+
+        # Stop request flag (for web UI to abort operations)
+        self._stop_requested = False
+
+    def request_stop(self) -> None:
+        """Request the operation to stop gracefully after current file."""
+        self._stop_requested = True
+        logging.info("Stop requested - operation will stop after current file completes")
+
+    @property
+    def should_stop(self) -> bool:
+        """Check if stop has been requested."""
+        return self._stop_requested
+
     def run(self) -> None:
         """Run the main application."""
         try:
@@ -105,7 +118,11 @@ class PlexCacheApp:
             self._initialize_components()
 
             # Clean up stale exclude list entries (self-healing)
-            self.file_filter.clean_stale_exclude_entries()
+            # Skip in dry-run mode to avoid modifying tracking files
+            if not self.dry_run:
+                self.file_filter.clean_stale_exclude_entries()
+            else:
+                logging.debug("[DRY RUN] Skipping stale exclude list cleanup")
 
             # Check paths
             logging.debug("Validating paths...")
@@ -117,8 +134,18 @@ class PlexCacheApp:
             # Check for active sessions
             self._check_active_sessions()
 
+            # Check for stop request before processing
+            if self.should_stop:
+                logging.info("Operation stopped before processing media")
+                return
+
             # Process media
             self._process_media()
+
+            # Check for stop request before moving files
+            if self.should_stop:
+                logging.info("Operation stopped before moving files")
+                return
 
             # Move files
             self._move_files()
@@ -266,8 +293,9 @@ class PlexCacheApp:
         moved_to_array = len(self.media_to_array)
 
         logging.info(f"Already cached: {already_cached} files")
-        logging.info(f"Moved to cache: {actually_moved} files")
-        logging.info(f"Moved to array: {moved_to_array} files")
+        move_verb = "Would move" if self.dry_run else "Moved"
+        logging.info(f"{move_verb} to cache: {actually_moved} files")
+        logging.info(f"{move_verb} to array: {moved_to_array} files")
 
         # Additional detail at DEBUG level
         # Note: Empty folder cleanup now happens immediately during file operations
@@ -1222,28 +1250,34 @@ class PlexCacheApp:
         if total_size > 0:
             logging.debug(f"Moving {total_size:.2f} {total_size_unit} to {destination}")
             # Generate summary message with restore vs move separation for array moves
+            # Use conditional wording for dry run mode
+            would_prefix = "[DRY RUN] Would have " if self.dry_run else ""
             if destination == 'array':
                 parts = []
                 if self.restored_count > 0:
                     unit = "episode" if self.restored_count == 1 else "episodes"
                     size_gb = self.restored_bytes / (1024**3)
-                    parts.append(f"Returned {self.restored_count} {unit} ({size_gb:.2f} GB) to array")
+                    verb = "return" if self.dry_run else "Returned"
+                    parts.append(f"{would_prefix}{verb} {self.restored_count} {unit} ({size_gb:.2f} GB) to array")
                 if self.moved_to_array_count > 0:
                     unit = "episode" if self.moved_to_array_count == 1 else "episodes"
                     size_gb = self.moved_to_array_bytes / (1024**3)
-                    parts.append(f"Copied {self.moved_to_array_count} {unit} ({size_gb:.2f} GB) to array")
+                    verb = "copy" if self.dry_run else "Copied"
+                    parts.append(f"{would_prefix}{verb} {self.moved_to_array_count} {unit} ({size_gb:.2f} GB) to array")
                 if parts:
                     self.logging_manager.add_summary_message(', '.join(parts))
                 else:
+                    verb = "move" if self.dry_run else "Moved"
                     self.logging_manager.add_summary_message(
-                        f"Moved {total_size:.2f} {total_size_unit} to {destination}"
+                        f"{would_prefix}{verb} {total_size:.2f} {total_size_unit} to {destination}"
                     )
             else:
                 # Track cached bytes for summary
                 size_multipliers = {'KB': 1024, 'MB': 1024**2, 'GB': 1024**3, 'TB': 1024**4}
                 self.cached_bytes = int(total_size * size_multipliers.get(total_size_unit, 1))
+                verb = "cache" if self.dry_run else "Cached"
                 self.logging_manager.add_summary_message(
-                    f"Cached {total_size:.2f} {total_size_unit}"
+                    f"{would_prefix}{verb} {total_size:.2f} {total_size_unit}"
                 )
             
             free_space, free_space_unit = self.file_utils.get_free_space(
@@ -1289,9 +1323,12 @@ class PlexCacheApp:
                 logging.debug(f"Found {len(files_to_move_back)} files to move back to array")
                 self.media_to_array.extend(files_to_move_back)
 
-            # Always clean up stale entries from exclude list (files that no longer exist on cache)
-            if cache_paths_to_remove:
+            # Clean up stale entries from exclude list (files that no longer exist on cache)
+            # Skip in dry-run mode to avoid modifying tracking files
+            if cache_paths_to_remove and not self.dry_run:
                 self.file_filter.remove_files_from_exclude_list(cache_paths_to_remove)
+            elif cache_paths_to_remove and self.dry_run:
+                logging.debug(f"[DRY RUN] Would remove {len(cache_paths_to_remove)} stale entries from exclude list")
         except Exception as e:
             logging.exception(f"Error checking files to move back to array: {type(e).__name__}: {e}")
     
@@ -1316,7 +1353,8 @@ class PlexCacheApp:
             already_cached=already_cached,
             duration_seconds=execution_time_seconds,
             had_errors=False,  # Could track this via error count if needed
-            had_warnings=False
+            had_warnings=False,
+            dry_run=self.dry_run
         )
 
         self.logging_manager.log_summary()
@@ -1325,11 +1363,13 @@ class PlexCacheApp:
         # (per File and Folder Management Policy) - no blanket cleanup needed here
 
         # Clean up stale timestamp entries for files that no longer exist
-        if hasattr(self, 'timestamp_tracker') and self.timestamp_tracker:
+        # Skip in dry-run mode to avoid modifying tracking files
+        if hasattr(self, 'timestamp_tracker') and self.timestamp_tracker and not self.dry_run:
             self.timestamp_tracker.cleanup_missing_files()
 
         # Clean up stale watchlist tracker entries
-        if hasattr(self, 'watchlist_tracker') and self.watchlist_tracker:
+        # Skip in dry-run mode to avoid modifying tracking files
+        if hasattr(self, 'watchlist_tracker') and self.watchlist_tracker and not self.dry_run:
             self.watchlist_tracker.cleanup_stale_entries()
             self.watchlist_tracker.cleanup_missing_files()
 

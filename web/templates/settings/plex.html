@@ -76,7 +76,7 @@
             <div class="form-group mb-0">
                 <label for="days_to_monitor">Days to Monitor</label>
                 <input type="number" id="days_to_monitor" name="days_to_monitor"
-                       value="{{ settings.days_to_monitor | default(7) }}" min="1" max="30">
+                       value="{{ settings.days_to_monitor | default(7) }}" min="1" max="999">
                 <div class="form-hint">How far back to check OnDeck for recently watched items</div>
             </div>
         </div>
@@ -145,7 +145,11 @@
                 {% else %}
                     <div class="no-libraries">
                         <i data-lucide="alert-circle"></i>
-                        <span>Unable to fetch users. Check Plex URL and token.</span>
+                        {% if plex_error %}
+                            <span>{{ plex_error }}</span>
+                        {% else %}
+                            <span>Unable to fetch users. Check Plex URL and token.</span>
+                        {% endif %}
                     </div>
                 {% endif %}
             </div>
@@ -155,11 +159,19 @@
 
 <div class="card">
     <div class="card-body" style="padding: 1rem 1.25rem;">
-        <div class="form-group mb-0">
+        <div class="form-group mb-0" style="display: flex; gap: 1rem; align-items: center;">
             <button type="submit" class="btn btn-primary">
                 <i data-lucide="save"></i>
                 Save All Plex Settings
             </button>
+            <button type="button" class="btn btn-secondary"
+                    hx-post="/settings/plex/test"
+                    hx-target="#plex-test-result"
+                    hx-swap="innerHTML">
+                <i data-lucide="plug"></i>
+                Test Connection
+            </button>
+            <div id="plex-test-result"></div>
         </div>
     </div>
 </div>
@@ -186,11 +198,10 @@
 </div>
 
 <script>
-    // Plex OAuth flow
+    // Plex OAuth flow (server-side)
     let oauthWindow = null;
     let oauthPollInterval = null;
-    let plexPinId = null;
-    let plexClientId = 'plexcache-r-web-' + Math.random().toString(36).substr(2, 9);
+    let oauthClientId = null;
 
     async function startPlexOAuth() {
         const modal = document.getElementById('plex-oauth-modal');
@@ -200,31 +211,27 @@
         body.innerHTML = `
             <div class="text-center">
                 <div class="spinner mb-2"></div>
-                <p>Requesting PIN from Plex...</p>
+                <p>Requesting authorization from Plex...</p>
             </div>
         `;
 
         try {
-            // Request a PIN from Plex
-            const pinResponse = await fetch('https://plex.tv/api/v2/pins', {
+            // Request OAuth start from server
+            const startResponse = await fetch('/settings/plex/oauth/start', {
                 method: 'POST',
-                headers: {
-                    'Accept': 'application/json',
-                    'X-Plex-Product': 'PlexCache-R',
-                    'X-Plex-Client-Identifier': plexClientId,
-                    'X-Plex-Version': '1.0'
-                }
+                headers: { 'Accept': 'application/json' }
             });
 
-            if (!pinResponse.ok) throw new Error('Failed to get PIN');
+            const startData = await startResponse.json();
 
-            const pinData = await pinResponse.json();
-            plexPinId = pinData.id;
-            const pinCode = pinData.code;
+            if (!startData.success) {
+                throw new Error(startData.error || 'Failed to start OAuth');
+            }
+
+            oauthClientId = startData.client_id;
 
             // Open Plex auth page
-            const authUrl = `https://app.plex.tv/auth#?clientID=${plexClientId}&code=${pinCode}&context%5Bdevice%5D%5Bproduct%5D=PlexCache-R`;
-            oauthWindow = window.open(authUrl, 'PlexAuth', 'width=800,height=600');
+            oauthWindow = window.open(startData.auth_url, 'PlexAuth', 'width=800,height=600');
 
             body.innerHTML = `
                 <div class="text-center">
@@ -235,38 +242,51 @@
                 </div>
             `;
 
-            // Poll for token
+            // Poll server for token
             oauthPollInterval = setInterval(async () => {
                 try {
-                    const checkResponse = await fetch(`https://plex.tv/api/v2/pins/${plexPinId}`, {
-                        headers: {
-                            'Accept': 'application/json',
-                            'X-Plex-Client-Identifier': plexClientId
-                        }
+                    const pollResponse = await fetch(`/settings/plex/oauth/poll?client_id=${oauthClientId}`, {
+                        headers: { 'Accept': 'application/json' }
                     });
 
-                    if (checkResponse.ok) {
-                        const checkData = await checkResponse.json();
-                        if (checkData.authToken) {
-                            // Success! Got the token
-                            clearInterval(oauthPollInterval);
-                            if (oauthWindow) oauthWindow.close();
+                    const pollData = await pollResponse.json();
 
-                            document.getElementById('plex_token').value = checkData.authToken;
+                    if (!pollData.success) {
+                        // Error occurred (e.g., expired session)
+                        clearInterval(oauthPollInterval);
+                        if (oauthWindow) oauthWindow.close();
 
-                            body.innerHTML = `
-                                <div class="text-center">
-                                    <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--plex-success);"></i>
-                                    <p class="mt-2" style="color: var(--plex-success);">Successfully signed in!</p>
-                                    <p class="text-muted">Token has been filled in. Click Save to apply.</p>
-                                    <button type="button" class="btn btn-primary mt-2" onclick="closePlexOAuthModal()">Done</button>
-                                </div>
-                            `;
-                            lucide.createIcons();
-                        }
+                        body.innerHTML = `
+                            <div class="text-center">
+                                <i data-lucide="alert-circle" style="width: 48px; height: 48px; color: var(--plex-error);"></i>
+                                <p class="mt-2" style="color: var(--plex-error);">Authentication failed</p>
+                                <p class="text-muted">${pollData.error}</p>
+                                <button type="button" class="btn btn-secondary mt-2" onclick="closePlexOAuthModal()">Close</button>
+                            </div>
+                        `;
+                        lucide.createIcons();
+                        return;
+                    }
+
+                    if (pollData.complete && pollData.token) {
+                        // Success! Got the token
+                        clearInterval(oauthPollInterval);
+                        if (oauthWindow) oauthWindow.close();
+
+                        document.getElementById('plex_token').value = pollData.token;
+
+                        body.innerHTML = `
+                            <div class="text-center">
+                                <i data-lucide="check-circle" style="width: 48px; height: 48px; color: var(--plex-success);"></i>
+                                <p class="mt-2" style="color: var(--plex-success);">Successfully signed in!</p>
+                                <p class="text-muted">Token has been filled in. Click Save to apply.</p>
+                                <button type="button" class="btn btn-primary mt-2" onclick="closePlexOAuthModal()">Done</button>
+                            </div>
+                        `;
+                        lucide.createIcons();
                     }
                 } catch (e) {
-                    console.error('Error checking PIN:', e);
+                    console.error('Error polling for token:', e);
                 }
             }, 2000);
 
@@ -295,6 +315,7 @@
             oauthWindow.close();
             oauthWindow = null;
         }
+        oauthClientId = null;
     }
 </script>
 {% endblock %}

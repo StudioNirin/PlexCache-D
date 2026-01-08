@@ -10,17 +10,7 @@
         <p class="text-muted mb-2">Configure how Plex paths map to your filesystem and cache drive.</p>
 
         <div id="path-mappings">
-            {% if mappings %}
-                {% for mapping in mappings %}
-                {% set index = loop.index0 %}
-                {% include "settings/partials/path_mapping_card.html" %}
-                {% endfor %}
-            {% else %}
-                <div class="alert alert-info" id="no-mappings-alert">
-                    <i data-lucide="info"></i>
-                    No path mappings configured. Run setup wizard or add mappings below.
-                </div>
-            {% endif %}
+            {% include "settings/partials/path_mappings_list.html" %}
         </div>
 
         <script>

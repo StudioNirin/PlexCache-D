@@ -18,8 +18,8 @@
                         </button>
                         <button type="button" class="btn btn-sm btn-danger"
                                 hx-delete="/settings/paths/{{ index }}"
-                                hx-target="#mapping-{{ index }}"
-                                hx-swap="outerHTML"
+                                hx-target="#path-mappings"
+                                hx-swap="innerHTML"
                                 hx-confirm="Delete path mapping '{{ mapping.name }}'?">
                             <i data-lucide="trash-2"></i>
                         </button>

@@ -11,7 +11,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR, SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class SchedulerService:
             }
         )
         self._config: Optional[ScheduleConfig] = None
-        self._settings_file = PROJECT_ROOT / "plexcache_settings.json"
+        self._settings_file = SETTINGS_FILE
         self._last_run: Optional[datetime] = None
         self._next_run: Optional[datetime] = None
         self._started = False
@@ -109,7 +109,7 @@ class SchedulerService:
         Falls back to recent_activity.json for backwards compatibility.
         """
         # Primary: Check last_run.txt
-        last_run_file = PROJECT_ROOT / "data" / "last_run.txt"
+        last_run_file = DATA_DIR / "last_run.txt"
         if last_run_file.exists():
             try:
                 with open(last_run_file, 'r') as f:
@@ -122,7 +122,7 @@ class SchedulerService:
                 pass
 
         # Fallback: Check recent_activity.json
-        activity_file = PROJECT_ROOT / "data" / "recent_activity.json"
+        activity_file = DATA_DIR / "recent_activity.json"
         if activity_file.exists():
             try:
                 with open(activity_file, 'r', encoding='utf-8') as f:
@@ -350,7 +350,7 @@ class SchedulerService:
 
         # Read fresh last run time from file
         last_run_dt = None
-        last_run_file = PROJECT_ROOT / "data" / "last_run.txt"
+        last_run_file = DATA_DIR / "last_run.txt"
         if last_run_file.exists():
             try:
                 with open(last_run_file, 'r') as f:

@@ -63,6 +63,39 @@ async def run_operation(
     })
 
 
+@router.post("/stop")
+async def stop_operation(request: Request):
+    """Stop the current operation"""
+    runner = get_operation_runner()
+
+    is_htmx = request.headers.get("HX-Request") == "true"
+
+    if runner.is_running:
+        success = runner.stop_operation()
+        message = "Stop requested - operation will stop after current file" if success else "Failed to stop operation"
+    else:
+        success = False
+        message = "No operation is currently running"
+
+    if is_htmx:
+        status = runner.get_status_dict()
+        return templates.TemplateResponse(
+            "components/operation_status.html",
+            {
+                "request": request,
+                "status": status,
+                "message": message,
+                "success": success
+            }
+        )
+
+    return JSONResponse({
+        "success": success,
+        "message": message,
+        "status": runner.get_status_dict()
+    })
+
+
 @router.get("/status")
 async def get_status(request: Request):
     """Get current operation status"""

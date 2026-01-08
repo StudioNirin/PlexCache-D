@@ -1393,10 +1393,14 @@ class PlexcachedMigration:
             args: Tuple of (cache_file, array_file, plexcached_file)
 
         Returns:
-            0 on success, 1 on error
+            0 on success, 1 on error, 2 on critical error (stop migration)
         """
         cache_file, array_file, plexcached_file = args
         thread_id = threading.get_ident()
+
+        # Check if critical error occurred - skip remaining files
+        if getattr(self, '_critical_error', False):
+            return 2
 
         try:
             # Get file size for progress
@@ -1450,6 +1454,28 @@ class PlexcachedMigration:
                     if thread_id in self._active_files:
                         del self._active_files[thread_id]
                 return 1
+
+        except OSError as e:
+            # Detect critical errors that should stop the entire migration
+            # errno 28 = ENOSPC (No space left on device)
+            # errno 1 = EPERM (Operation not permitted)
+            # errno 13 = EACCES (Permission denied)
+            critical_errors = {28, 1, 13}
+            is_critical = e.errno in critical_errors
+
+            logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
+
+            with self._migration_lock:
+                self._errors += 1
+                if thread_id in self._active_files:
+                    del self._active_files[thread_id]
+
+                if is_critical and not getattr(self, '_critical_error', False):
+                    self._critical_error = True
+                    error_type = {28: "No space left on device", 1: "Operation not permitted", 13: "Permission denied"}.get(e.errno, str(e))
+                    logging.error(f"CRITICAL: {error_type} - Stopping migration early")
+
+            return 2 if is_critical else 1
 
         except Exception as e:
             logging.error(f"Error migrating {cache_file}: {type(e).__name__}: {e}")
@@ -1515,6 +1541,7 @@ class PlexcachedMigration:
         self._total_bytes = total_bytes
         self._active_files = {}
         self._last_display_lines = 0
+        self._critical_error = False  # Flag to stop migration on critical errors
 
         with ThreadPoolExecutor(max_workers=max_concurrent) as executor:
             list(executor.map(self._migrate_single_file, files_needing_migration))
@@ -1527,13 +1554,19 @@ class PlexcachedMigration:
         errors = self._errors
         skipped = len(cache_files) - len(files_needing_migration)
 
-        logging.info(f"=== Migration Complete ===")
+        if self._critical_error:
+            logging.info(f"=== Migration Stopped (Critical Error) ===")
+        else:
+            logging.info(f"=== Migration Complete ===")
         logging.info(f"  Migrated: {migrated} files")
         logging.info(f"  Skipped (already had backup): {skipped} files")
         logging.info(f"  Errors: {errors}")
 
         if errors == 0:
             self._mark_complete()
+        elif self._critical_error:
+            logging.warning("Migration stopped due to critical error (disk full or permission issue)")
+            logging.warning("Please resolve the issue and restart PlexCache-R to continue migration")
         else:
             logging.warning("Migration had errors - will retry on next run")
 

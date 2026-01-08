@@ -38,7 +38,11 @@
 {% else %}
     <div class="no-libraries">
         <i data-lucide="alert-circle"></i>
-        <span>Unable to fetch users. Check Plex URL and token above.</span>
+        {% if plex_error %}
+            <span>{{ plex_error }}</span>
+        {% else %}
+            <span>Unable to fetch users. Check Plex URL and token above.</span>
+        {% endif %}
     </div>
 {% endif %}
 <script>lucide.createIcons();</script>

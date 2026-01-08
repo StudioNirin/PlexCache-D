@@ -38,8 +38,9 @@ class ThreadSafeStreamHandler(logging.StreamHandler):
             super().emit(record)
 
 
-# Define a new level called SUMMARY that is equivalent to INFO level
-SUMMARY = logging.WARNING + 1
+# Define SUMMARY as the highest level so "summary" mode webhooks only get summaries
+# CRITICAL=50, so SUMMARY=100 ensures it's higher than all standard levels
+SUMMARY = 100
 logging.addLevelName(SUMMARY, 'SUMMARY')
 
 
@@ -172,10 +173,10 @@ class WebhookHandler(logging.Handler):
         self._summary_data = data
 
     def emit(self, record):
+        # Only send SUMMARY webhooks - never spam individual error messages
+        # The summary includes error counts and status information
         if record.levelno == SUMMARY:
             self._send_summary(record)
-        else:
-            self._send_message(record)
 
     def _send_summary(self, record):
         """Send summary notification with rich formatting if available."""
@@ -313,14 +314,15 @@ class WebhookHandler(logging.Handler):
                 "inline": False
             })
 
-        # Determine title based on activity
+        # Determine title based on activity and dry run status
+        dry_run_prefix = "[DRY RUN] " if self._summary_data and self._summary_data.get('dry_run') else ""
         if self._summary_data:
             total_moved = (self._summary_data.get('cached_count', 0) +
                           self._summary_data.get('restored_count', 0))
             if total_moved > 0:
-                title = "PlexCache Summary"
+                title = f"{dry_run_prefix}PlexCache Summary"
             else:
-                title = "PlexCache - No Changes"
+                title = f"{dry_run_prefix}PlexCache - No Changes"
         else:
             title = "PlexCache Summary"
 
@@ -358,12 +360,16 @@ class WebhookHandler(logging.Handler):
 
     def _build_slack_summary(self, record) -> dict:
         """Build Slack Block Kit for summary."""
+        # Determine header text based on dry run status
+        dry_run_prefix = "[DRY RUN] " if self._summary_data and self._summary_data.get('dry_run') else ""
+        header_text = f"{dry_run_prefix}PlexCache Summary"
+
         blocks = [
             {
                 "type": "header",
                 "text": {
                     "type": "plain_text",
-                    "text": "PlexCache Summary",
+                    "text": header_text,
                     "emoji": True
                 }
             }
@@ -453,7 +459,8 @@ class WebhookHandler(logging.Handler):
     def _build_generic_summary(self, record) -> dict:
         """Build generic JSON payload for unknown webhook types."""
         # Try content first (Discord-compatible), fall back to text (Slack-compatible)
-        message = "PlexCache Summary:\n" + (record.msg or "No files moved")
+        dry_run_prefix = "[DRY RUN] " if self._summary_data and self._summary_data.get('dry_run') else ""
+        message = f"{dry_run_prefix}PlexCache Summary:\n" + (record.msg or "No files moved")
         return {"content": message, "text": message}
 
 
@@ -652,7 +659,8 @@ class LoggingManager:
     def set_summary_data(self, cached_count: int = 0, cached_bytes: int = 0,
                          restored_count: int = 0, restored_bytes: int = 0,
                          already_cached: int = 0, duration_seconds: float = 0,
-                         had_errors: bool = False, had_warnings: bool = False) -> None:
+                         had_errors: bool = False, had_warnings: bool = False,
+                         dry_run: bool = False) -> None:
         """Set structured summary data for rich webhook formatting.
 
         This data is passed to WebhookHandler to generate rich embeds
@@ -667,6 +675,7 @@ class LoggingManager:
             duration_seconds: Total execution time
             had_errors: Whether any errors occurred during run
             had_warnings: Whether any warnings occurred during run
+            dry_run: Whether this was a dry run (no files actually moved)
         """
         self._summary_data = {
             'cached_count': cached_count,
@@ -677,6 +686,7 @@ class LoggingManager:
             'duration_seconds': duration_seconds,
             'had_errors': had_errors,
             'had_warnings': had_warnings,
+            'dry_run': dry_run,
         }
 
     def log_summary(self) -> None:

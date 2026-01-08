@@ -57,6 +57,7 @@
                         <p style="margin: 0;">To import, place your CLI files in <code>/config/import/</code>:</p>
                         <ul style="margin: 0.5rem 0 0 1rem; padding: 0; list-style: disc;">
                             <li><code>plexcache_settings.json</code></li>
+                            <li><code>plexcache_mover_files_to_exclude.txt</code></li>
                             <li><code>data/</code> folder (timestamps, trackers, etc.)</li>
                         </ul>
                     </div>
@@ -85,10 +86,13 @@
                 <div style="display: flex; gap: 0.75rem;">
                     <button type="button" id="import-btn" class="btn btn-primary" style="flex: 1;" onclick="executeImport()">
                         <i data-lucide="download" class="btn-icon"></i>
-                        <span class="btn-text">Import & Complete Setup</span>
+                        <span class="btn-text">Import & Continue</span>
                         <div class="spinner btn-spinner" style="display: none;"></div>
                     </button>
                 </div>
+                <p style="margin: 0.75rem 0 0 0; font-size: 0.8rem; color: var(--plex-text-muted); text-align: center;">
+                    After import, you'll verify the Plex connection (URL may differ in Docker)
+                </p>
 
                 <div id="import-error" class="alert alert-error" style="display: none; margin-top: 1rem;">
                     <i data-lucide="alert-circle"></i>
@@ -116,10 +120,27 @@
 
 {% block scripts %}
 <script>
-    // Check for import files on page load
+    // Auto-poll interval for import file detection
+    let importPollInterval = null;
+    const POLL_INTERVAL_MS = 3000;  // Check every 3 seconds
+
+    // Check for import files on page load and start polling
     document.addEventListener('DOMContentLoaded', function() {
         checkForImportFiles();
+        startImportPolling();
     });
+
+    function startImportPolling() {
+        // Poll for import files periodically
+        importPollInterval = setInterval(checkForImportFiles, POLL_INTERVAL_MS);
+    }
+
+    function stopImportPolling() {
+        if (importPollInterval) {
+            clearInterval(importPollInterval);
+            importPollInterval = null;
+        }
+    }
 
     function checkForImportFiles() {
         const importSection = document.getElementById('import-section');
@@ -127,7 +148,7 @@
         const importFound = document.getElementById('import-found');
         const importNotFound = document.getElementById('import-not-found');
 
-        // Show section
+        // Show section (only on first check)
         importSection.style.display = 'block';
 
         fetch('/setup/import/detect')
@@ -136,12 +157,18 @@
                 importChecking.style.display = 'none';
 
                 if (data.has_import_files) {
+                    // Files found - stop polling and show import UI
+                    stopImportPolling();
                     importFound.style.display = 'block';
+                    importNotFound.style.display = 'none';
 
                     // Build summary
                     let summary = '<div style="display: grid; gap: 0.25rem;">';
                     if (data.has_settings) {
                         summary += '<div><i data-lucide="check" style="width: 14px; height: 14px; color: var(--plex-success); vertical-align: middle;"></i> Settings file found</div>';
+                    }
+                    if (data.exclude_entries_count > 0) {
+                        summary += `<div><i data-lucide="check" style="width: 14px; height: 14px; color: var(--plex-success); vertical-align: middle;"></i> ${data.exclude_entries_count} exclude file entries</div>`;
                     }
                     if (data.timestamps_count > 0) {
                         summary += `<div><i data-lucide="check" style="width: 14px; height: 14px; color: var(--plex-success); vertical-align: middle;"></i> ${data.timestamps_count} cached file timestamps</div>`;
@@ -162,6 +189,8 @@
                         document.getElementById('cli_cache_prefix').value = data.detected_cache_prefix;
                     }
                 } else {
+                    // No files - keep polling, show "not found" state
+                    importFound.style.display = 'none';
                     importNotFound.style.display = 'block';
                 }
 
@@ -202,8 +231,12 @@
         .then(data => {
             if (data.success) {
                 if (data.redirect) {
-                    // Import complete with settings - redirect to dashboard
-                    window.location.href = data.redirect;
+                    // Import complete with settings - redirect to verify Plex connection
+                    btnText.textContent = 'Import Complete!';
+                    btnSpinner.style.display = 'none';
+                    setTimeout(() => {
+                        window.location.href = data.redirect;
+                    }, 1000);
                 } else {
                     // Data imported but no settings - continue with setup
                     btnText.textContent = 'Data Imported!';
@@ -214,7 +247,7 @@
                 }
             } else {
                 // Show error
-                btnText.textContent = 'Import & Complete Setup';
+                btnText.textContent = 'Import & Continue';
                 btnIcon.style.display = 'inline';
                 btnSpinner.style.display = 'none';
                 importBtn.disabled = false;
@@ -224,7 +257,7 @@
             }
         })
         .catch(err => {
-            btnText.textContent = 'Import & Complete Setup';
+            btnText.textContent = 'Import & Continue';
             btnIcon.style.display = 'inline';
             btnSpinner.style.display = 'none';
             importBtn.disabled = false;

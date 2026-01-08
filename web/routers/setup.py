@@ -775,9 +775,11 @@ async def detect_import_files():
         "has_import_files": summary.has_import_files,
         "has_settings": summary.has_settings,
         "has_data": summary.has_data,
+        "has_exclude_file": summary.has_exclude_file,
         "timestamps_count": summary.timestamps_count,
         "ondeck_count": summary.ondeck_count,
         "watchlist_count": summary.watchlist_count,
+        "exclude_entries_count": summary.exclude_entries_count,
         "detected_cache_prefix": summary.detected_cache_prefix,
         "errors": summary.errors
     })
@@ -801,12 +803,14 @@ async def execute_import(request: Request):
     )
 
     if success and imported_settings:
-        # Clear setup state since we imported settings
-        clear_setup_state()
+        # Store imported settings in setup state for verification
+        # User needs to verify Plex URL which may differ in Docker
+        update_setup_state(imported_settings)
 
+    # Redirect to Step 2 to verify Plex connection (URL often differs CLI vs Docker)
     return JSONResponse({
         "success": success,
         "message": message,
         "imported_settings": bool(imported_settings),
-        "redirect": "/" if success and imported_settings else None
+        "redirect": "/setup?step=2" if success and imported_settings else None
     })

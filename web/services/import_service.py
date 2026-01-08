@@ -14,10 +14,12 @@ class ImportSummary:
     """Summary of detected import files"""
     has_settings: bool = False
     has_data: bool = False
+    has_exclude_file: bool = False
     timestamps_count: int = 0
     ondeck_count: int = 0
     watchlist_count: int = 0
     user_tokens_count: int = 0
+    exclude_entries_count: int = 0
     detected_cache_prefix: Optional[str] = None
     errors: list = None
 
@@ -27,7 +29,7 @@ class ImportSummary:
 
     @property
     def has_import_files(self) -> bool:
-        return self.has_settings or self.has_data
+        return self.has_settings or self.has_data or self.has_exclude_file
 
 
 class ImportService:
@@ -36,7 +38,7 @@ class ImportService:
     def __init__(self):
         self.import_dir = CONFIG_DIR / "import"
         self.import_data_dir = self.import_dir / "data"
-        self.completed_dir = CONFIG_DIR / "import_completed"
+        self.completed_dir = self.import_dir / "completed"  # Keep inside import folder
 
     def detect_import_files(self) -> ImportSummary:
         """Detect what import files are available"""
@@ -47,7 +49,7 @@ class ImportService:
 
         # Check for settings file
         settings_file = self.import_dir / "plexcache_settings.json"
-        if settings_file.exists():
+        if settings_file.exists() and settings_file.stat().st_size > 0:
             summary.has_settings = True
             # Try to detect cache prefix from settings
             try:
@@ -58,14 +60,13 @@ class ImportService:
                         summary.detected_cache_prefix = cache_dir.rstrip('/') + '/'
             except Exception as e:
                 summary.errors.append(f"Error reading settings: {e}")
+                summary.has_settings = False  # Invalid JSON doesn't count
 
-        # Check for data folder
+        # Check for data files (only if data folder exists AND has actual JSON files)
         if self.import_data_dir.exists():
-            summary.has_data = True
-
             # Count timestamps
             timestamps_file = self.import_data_dir / "timestamps.json"
-            if timestamps_file.exists():
+            if timestamps_file.exists() and timestamps_file.stat().st_size > 0:
                 try:
                     with open(timestamps_file, 'r') as f:
                         data = json.load(f)
@@ -85,7 +86,7 @@ class ImportService:
 
             # Count OnDeck items
             ondeck_file = self.import_data_dir / "ondeck_tracker.json"
-            if ondeck_file.exists():
+            if ondeck_file.exists() and ondeck_file.stat().st_size > 0:
                 try:
                     with open(ondeck_file, 'r') as f:
                         data = json.load(f)
@@ -95,7 +96,7 @@ class ImportService:
 
             # Count Watchlist items
             watchlist_file = self.import_data_dir / "watchlist_tracker.json"
-            if watchlist_file.exists():
+            if watchlist_file.exists() and watchlist_file.stat().st_size > 0:
                 try:
                     with open(watchlist_file, 'r') as f:
                         data = json.load(f)
@@ -105,13 +106,39 @@ class ImportService:
 
             # Count user tokens
             tokens_file = self.import_data_dir / "user_tokens.json"
-            if tokens_file.exists():
+            if tokens_file.exists() and tokens_file.stat().st_size > 0:
                 try:
                     with open(tokens_file, 'r') as f:
                         data = json.load(f)
                         summary.user_tokens_count = len(data)
                 except Exception as e:
                     summary.errors.append(f"Error reading user tokens: {e}")
+
+            # Only mark has_data if we found actual data files with content
+            summary.has_data = (
+                summary.timestamps_count > 0 or
+                summary.ondeck_count > 0 or
+                summary.watchlist_count > 0 or
+                summary.user_tokens_count > 0
+            )
+
+        # Check for exclude file (at root level of import folder)
+        exclude_file = self.import_dir / "plexcache_mover_files_to_exclude.txt"
+        if exclude_file.exists() and exclude_file.stat().st_size > 0:
+            try:
+                with open(exclude_file, 'r') as f:
+                    lines = [line.strip() for line in f.readlines() if line.strip()]
+                    summary.exclude_entries_count = len(lines)
+                    summary.has_exclude_file = summary.exclude_entries_count > 0
+                    # Try to detect cache prefix from exclude file paths
+                    if not summary.detected_cache_prefix and lines:
+                        first_path = lines[0]
+                        for prefix in ['/mnt/cache_downloads/', '/mnt/user/']:
+                            if first_path.startswith(prefix):
+                                summary.detected_cache_prefix = prefix
+                                break
+            except Exception as e:
+                summary.errors.append(f"Error reading exclude file: {e}")
 
         return summary
 
@@ -273,8 +300,32 @@ class ImportService:
                 except Exception as e:
                     results["errors"].append(f"RSS cache import failed: {e}")
 
+        # Import exclude file (with path conversion) - at root level, not in data folder
+        exclude_file = self.import_dir / "plexcache_mover_files_to_exclude.txt"
+        if exclude_file.exists():
+            try:
+                with open(exclude_file, 'r') as f:
+                    lines = f.readlines()
+
+                # Convert paths in exclude file
+                converted_lines = []
+                for line in lines:
+                    path = line.strip()
+                    if path:
+                        converted_path = self.convert_path(path, cli_cache_prefix, docker_cache_prefix)
+                        converted_lines.append(converted_path + '\n')
+
+                # Write to config location
+                target_exclude = CONFIG_DIR / "plexcache_mover_files_to_exclude.txt"
+                with open(target_exclude, 'w') as f:
+                    f.writelines(converted_lines)
+
+                results["exclude_entries_imported"] = len(converted_lines)
+            except Exception as e:
+                results["errors"].append(f"Exclude file import failed: {e}")
+
         # Move import files to completed folder
-        if results["settings_imported"] or results["timestamps_imported"] > 0:
+        if results["settings_imported"] or results["timestamps_imported"] > 0 or results.get("exclude_entries_imported", 0) > 0:
             try:
                 self.completed_dir.mkdir(parents=True, exist_ok=True)
 
@@ -282,6 +333,11 @@ class ImportService:
                 settings_file = self.import_dir / "plexcache_settings.json"
                 if settings_file.exists():
                     shutil.move(str(settings_file), str(self.completed_dir / "plexcache_settings.json"))
+
+                # Move exclude file
+                exclude_file = self.import_dir / "plexcache_mover_files_to_exclude.txt"
+                if exclude_file.exists():
+                    shutil.move(str(exclude_file), str(self.completed_dir / "plexcache_mover_files_to_exclude.txt"))
 
                 # Move data folder
                 if self.import_data_dir.exists():

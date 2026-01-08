@@ -1,16 +1,27 @@
 <!-- Operation status component - HTMX partial -->
 {% if status.state == 'running' %}
 <div class="alert alert-info" hx-get="/operations/status" hx-trigger="every 2s" hx-swap="outerHTML">
-    <div class="flex items-center gap-2">
-        <span class="spinner"></span>
-        <div>
-            <strong>{{ 'Dry Run' if status.dry_run else 'Operation' }} in progress...</strong>
-            {% if status.started_at %}
-            <div class="text-muted" style="font-size: 0.85rem;">Started at {{ status.started_at }}</div>
-            {% endif %}
+    <div class="flex items-center gap-2" style="justify-content: space-between; width: 100%;">
+        <div class="flex items-center gap-2">
+            <span class="spinner"></span>
+            <div>
+                <strong>{{ 'Dry Run' if status.dry_run else 'Operation' }} in progress...</strong>
+                {% if status.started_at %}
+                <div class="text-muted" style="font-size: 0.85rem;">Started at {{ status.started_at }}</div>
+                {% endif %}
+            </div>
         </div>
+        <button type="button" class="btn btn-sm btn-danger"
+                hx-post="/operations/stop"
+                hx-target="#operation-status"
+                hx-swap="innerHTML"
+                title="Stop operation after current file completes">
+            <i data-lucide="square" style="width: 14px; height: 14px;"></i>
+            Stop
+        </button>
     </div>
 </div>
+<script>lucide.createIcons();</script>
 {% elif status.state == 'completed' %}
 <div class="alert alert-success auto-dismiss" id="operation-alert">
     <i data-lucide="check-circle"></i>

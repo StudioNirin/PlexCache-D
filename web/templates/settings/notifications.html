@@ -46,10 +46,26 @@
 
             <div class="form-group">
                 <label for="webhook_url">Webhook URL</label>
-                <input type="url" id="webhook_url" name="webhook_url"
-                       value="{{ settings.webhook_url | default('') }}"
-                       placeholder="https://discord.com/api/webhooks/...">
+                <div style="display: flex; gap: 0.5rem;">
+                    <input type="url" id="webhook_url" name="webhook_url"
+                           value="{{ settings.webhook_url | default('') }}"
+                           placeholder="https://discord.com/api/webhooks/..."
+                           style="flex: 1;">
+                    <button type="button" class="btn btn-secondary" id="test-webhook-btn"
+                            hx-post="/settings/notifications/test"
+                            hx-include="#webhook_url"
+                            hx-target="#webhook-test-result"
+                            hx-swap="innerHTML"
+                            hx-indicator="#test-webhook-spinner">
+                        <span id="test-webhook-spinner" class="htmx-indicator">
+                            <div class="spinner" style="width: 16px; height: 16px;"></div>
+                        </span>
+                        <i data-lucide="send" class="htmx-hide-on-request" style="width: 16px; height: 16px;"></i>
+                        <span class="htmx-hide-on-request">Test</span>
+                    </button>
+                </div>
                 <div class="form-hint">Discord or Slack webhook URL</div>
+                <div id="webhook-test-result" style="margin-top: 0.5rem;"></div>
             </div>
 
             <div class="form-group">

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from dataclasses import dataclass
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR
 
 
 @dataclass
@@ -49,7 +49,7 @@ class WebCacheService:
         self._refresh_thread: Optional[threading.Thread] = None
         self._stop_refresh = threading.Event()
         self._refresh_callbacks: Dict[str, Callable] = {}
-        self._disk_cache_file = PROJECT_ROOT / "data" / "web_ui_cache.json"
+        self._disk_cache_file = DATA_DIR / "web_ui_cache.json"
 
         # Load from disk on init
         self._load_from_disk()

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
 
 
 @dataclass
@@ -31,11 +31,12 @@ class CacheService:
     """Service for reading cache data and calculating priorities"""
 
     def __init__(self):
-        self.exclude_file = PROJECT_ROOT / "plexcache_mover_files_to_exclude.txt"
-        self.timestamps_file = PROJECT_ROOT / "data" / "timestamps.json"
-        self.ondeck_file = PROJECT_ROOT / "data" / "ondeck_tracker.json"
-        self.watchlist_file = PROJECT_ROOT / "data" / "watchlist_tracker.json"
-        self.settings_file = PROJECT_ROOT / "plexcache_settings.json"
+        # Use CONFIG_DIR for Docker compatibility (/config in Docker, project root otherwise)
+        self.exclude_file = CONFIG_DIR / "plexcache_mover_files_to_exclude.txt"
+        self.timestamps_file = DATA_DIR / "timestamps.json"
+        self.ondeck_file = DATA_DIR / "ondeck_tracker.json"
+        self.watchlist_file = DATA_DIR / "watchlist_tracker.json"
+        self.settings_file = SETTINGS_FILE
 
     def _load_json_file(self, path: Path) -> Dict:
         """Load a JSON file, returning empty dict if not found"""
@@ -100,7 +101,13 @@ class CacheService:
         return 250 * 1024**3
 
     def get_cached_files_list(self) -> List[str]:
-        """Get list of cached file paths from exclude file"""
+        """Get list of cached file paths from timestamps.json (primary) or exclude file (fallback)"""
+        # Primary: Use timestamps.json as the source of truth for cached files
+        timestamps = self.get_timestamps()
+        if timestamps:
+            return list(timestamps.keys())
+
+        # Fallback: Use exclude file for backwards compatibility
         if not self.exclude_file.exists():
             return []
 

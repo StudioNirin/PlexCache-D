@@ -12,12 +12,12 @@ from pathlib import Path
 from typing import Optional, List, Dict, Callable
 from dataclasses import dataclass, field
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR, SETTINGS_FILE as CONFIG_SETTINGS_FILE
 
-# Activity persistence settings
-ACTIVITY_FILE = PROJECT_ROOT / "data" / "recent_activity.json"
-LAST_RUN_FILE = PROJECT_ROOT / "data" / "last_run.txt"
-SETTINGS_FILE = PROJECT_ROOT / "plexcache_settings.json"
+# Activity persistence settings - use DATA_DIR for Docker compatibility
+ACTIVITY_FILE = DATA_DIR / "recent_activity.json"
+LAST_RUN_FILE = DATA_DIR / "last_run.txt"
+SETTINGS_FILE = CONFIG_SETTINGS_FILE
 DEFAULT_ACTIVITY_RETENTION_HOURS = 24
 
 
@@ -129,6 +129,8 @@ class OperationRunner:
         self._subscribers: List[asyncio.Queue] = []
         self._recent_activity: List[FileActivity] = []
         self._max_recent_activity = 100  # Stacks across runs, keeps last 100 entries
+        self._stop_requested = False  # Flag to signal operation should stop
+        self._app_instance: Optional["PlexCacheApp"] = None  # Reference to running app
         # Track current operation type based on headers
         self._current_operation: Optional[str] = None
         # Patterns to match file operation headers and content
@@ -147,8 +149,8 @@ class OperationRunner:
 
     def _load_trackers(self) -> None:
         """Load OnDeck and Watchlist trackers for user lookups"""
-        ondeck_file = PROJECT_ROOT / "data" / "ondeck_tracker.json"
-        watchlist_file = PROJECT_ROOT / "data" / "watchlist_tracker.json"
+        ondeck_file = DATA_DIR / "ondeck_tracker.json"
+        watchlist_file = DATA_DIR / "watchlist_tracker.json"
 
         try:
             if ondeck_file.exists():
@@ -180,8 +182,8 @@ class OperationRunner:
         users = set()
 
         # Load fresh tracker data (PlexCacheApp updates these during the run)
-        ondeck_file = PROJECT_ROOT / "data" / "ondeck_tracker.json"
-        watchlist_file = PROJECT_ROOT / "data" / "watchlist_tracker.json"
+        ondeck_file = DATA_DIR / "ondeck_tracker.json"
+        watchlist_file = DATA_DIR / "watchlist_tracker.json"
 
         ondeck_data = {}
         watchlist_data = {}
@@ -283,6 +285,12 @@ class OperationRunner:
     def is_running(self) -> bool:
         """Check if an operation is currently running"""
         return self.state == OperationState.RUNNING
+
+    @property
+    def stop_requested(self) -> bool:
+        """Check if a stop has been requested"""
+        with self._lock:
+            return self._stop_requested
 
     @property
     def current_result(self) -> Optional[OperationResult]:
@@ -428,6 +436,8 @@ class OperationRunner:
 
             self._state = OperationState.RUNNING
             self._log_messages = []
+            self._stop_requested = False  # Reset stop flag for new operation
+            self._app_instance = None  # Clear previous app reference
             # Activity stacks across runs (not cleared) - capped at _max_recent_activity
             self._current_operation = None
             self._current_result = OperationResult(
@@ -443,6 +453,26 @@ class OperationRunner:
             daemon=True
         )
         self._thread.start()
+
+        return True
+
+    def stop_operation(self) -> bool:
+        """
+        Request the current operation to stop.
+
+        Returns:
+            True if stop was requested, False if no operation running
+        """
+        with self._lock:
+            if self._state != OperationState.RUNNING:
+                return False
+
+            self._stop_requested = True
+            self._add_log_message("Stop requested - stopping after current file...")
+
+            # Signal the PlexCacheApp to stop if we have a reference
+            if self._app_instance and hasattr(self._app_instance, 'request_stop'):
+                self._app_instance.request_stop()
 
         return True
 
@@ -475,7 +505,7 @@ class OperationRunner:
             # Import PlexCacheApp here to avoid circular imports
             from core.app import PlexCacheApp
 
-            config_file = str(PROJECT_ROOT / "plexcache_settings.json")
+            config_file = str(SETTINGS_FILE)
 
             # Create and run the app
             app = PlexCacheApp(
@@ -484,6 +514,10 @@ class OperationRunner:
                 quiet=False,
                 verbose=verbose
             )
+
+            # Store reference so stop_operation can signal it
+            with self._lock:
+                self._app_instance = app
 
             app.run()
 
@@ -494,7 +528,11 @@ class OperationRunner:
                 self._current_result.bytes_cached = app.cached_bytes if hasattr(app, 'cached_bytes') else 0
                 self._current_result.bytes_restored = app.restored_bytes + app.moved_to_array_bytes if hasattr(app, 'restored_bytes') else 0
 
-            self._add_log_message("Operation completed successfully")
+            # Check if we were stopped early
+            if self._stop_requested:
+                self._add_log_message("Operation stopped by user")
+            else:
+                self._add_log_message("Operation completed successfully")
 
         except Exception as e:
             error_message = str(e)
@@ -502,6 +540,10 @@ class OperationRunner:
             logging.exception("Operation failed")
 
         finally:
+            # Clear app reference
+            with self._lock:
+                self._app_instance = None
+
             # Release the instance lock to allow future operations
             if app and hasattr(app, 'instance_lock') and app.instance_lock:
                 try:

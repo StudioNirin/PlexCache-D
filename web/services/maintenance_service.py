@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Any
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
 
 
 @dataclass
@@ -115,9 +115,10 @@ class MaintenanceService:
     SUBTITLE_EXTENSIONS = ('.srt', '.sub', '.idx', '.ass', '.ssa', '.vtt', '.smi')
 
     def __init__(self):
-        self.settings_file = PROJECT_ROOT / "plexcache_settings.json"
-        self.exclude_file = PROJECT_ROOT / "plexcache_mover_files_to_exclude.txt"
-        self.timestamps_file = PROJECT_ROOT / "data" / "timestamps.json"
+        # Use CONFIG_DIR and DATA_DIR for Docker compatibility
+        self.settings_file = SETTINGS_FILE
+        self.exclude_file = CONFIG_DIR / "plexcache_mover_files_to_exclude.txt"
+        self.timestamps_file = DATA_DIR / "timestamps.json"
         self._cache_dirs: List[str] = []
         self._array_dirs: List[str] = []
         self._settings: Dict = {}

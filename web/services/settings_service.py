@@ -9,12 +9,12 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field, asdict
 
-from web.config import PROJECT_ROOT
+from web.config import PROJECT_ROOT, DATA_DIR, SETTINGS_FILE
 
 logger = logging.getLogger(__name__)
 
-# File cache for Plex data (web UI)
-WEB_PLEX_CACHE_FILE = PROJECT_ROOT / "data" / "web_plex_cache.json"
+# File cache for Plex data (web UI) - use DATA_DIR for Docker compatibility
+WEB_PLEX_CACHE_FILE = DATA_DIR / "web_plex_cache.json"
 
 
 @dataclass
@@ -67,7 +67,7 @@ class SettingsService:
     """Service for loading and saving PlexCache settings"""
 
     def __init__(self):
-        self.settings_file = PROJECT_ROOT / "plexcache_settings.json"
+        self.settings_file = SETTINGS_FILE
         self._cached_settings: Optional[Dict] = None
         self._last_loaded: Optional[datetime] = None
         # Cache for Plex data (libraries, users) - expires after 1 hour
@@ -76,6 +76,7 @@ class SettingsService:
         self._plex_cache_time: Optional[datetime] = None
         self._plex_cache_ttl = 3600  # 1 hour
         self._cache_lock = threading.Lock()
+        self._last_plex_error: Optional[str] = None  # Last Plex connection error
         # Load from file cache on startup
         self._load_plex_cache_from_file()
 
@@ -154,8 +155,15 @@ class SettingsService:
     def save_plex_settings(self, settings: Dict[str, Any]) -> bool:
         """Save Plex settings"""
         raw = self._load_raw()
-        raw["PLEX_URL"] = settings.get("plex_url", raw.get("PLEX_URL", ""))
-        raw["PLEX_TOKEN"] = settings.get("plex_token", raw.get("PLEX_TOKEN", ""))
+
+        # Check if URL or token changed - if so, invalidate cache
+        old_url = raw.get("PLEX_URL", "")
+        old_token = raw.get("PLEX_TOKEN", "")
+        new_url = settings.get("plex_url", old_url)
+        new_token = settings.get("plex_token", old_token)
+
+        raw["PLEX_URL"] = new_url
+        raw["PLEX_TOKEN"] = new_token
         if "valid_sections" in settings:
             raw["valid_sections"] = settings["valid_sections"]
         if "days_to_monitor" in settings:
@@ -168,7 +176,14 @@ class SettingsService:
             raw["skip_ondeck"] = settings["skip_ondeck"]
         if "skip_watchlist" in settings:
             raw["skip_watchlist"] = settings["skip_watchlist"]
-        return self._save_raw(raw)
+
+        result = self._save_raw(raw)
+
+        # Invalidate cache if credentials changed to force fresh fetch
+        if result and (old_url != new_url or old_token != new_token):
+            self.invalidate_plex_cache()
+
+        return result
 
     def get_path_mappings(self) -> List[Dict[str, Any]]:
         """Get path mappings"""
@@ -419,9 +434,9 @@ class SettingsService:
             return users
 
         with self._cache_lock:
-            # Return cached data if valid (only when using saved credentials)
+            # Return cached data if valid AND not empty (only when using saved credentials)
             if plex_url is None and plex_token is None:
-                if self._is_plex_cache_valid() and self._plex_users_cache is not None:
+                if self._is_plex_cache_valid() and self._plex_users_cache:
                     return self._plex_users_cache
 
         # Use provided credentials or fall back to saved settings
@@ -431,13 +446,17 @@ class SettingsService:
             plex_token = plex_token or settings.get("plex_token", "")
 
         if not plex_url or not plex_token:
+            self._last_plex_error = "Missing Plex URL or token"
             return []
 
         try:
+            import logging
             from plexapi.server import PlexServer
             plex = PlexServer(plex_url, plex_token, timeout=10)
 
             users = []
+            account_error = None
+            shared_users_error = None
 
             # Add main account first
             try:
@@ -448,12 +467,15 @@ class SettingsService:
                     "is_admin": True,
                     "is_home": True
                 })
-            except Exception:
-                pass
+                logging.info(f"Fetched main account: {account.username}")
+            except Exception as e:
+                account_error = str(e)
+                logging.warning(f"Could not get main account: {e}")
 
             # Add shared users
             try:
                 account = plex.myPlexAccount()
+                shared_count = 0
                 for user in account.users():
                     # Check if user has access to this server
                     try:
@@ -470,20 +492,54 @@ class SettingsService:
                         "is_admin": False,
                         "is_home": bool(is_home)
                     })
-            except Exception:
-                pass
+                    shared_count += 1
+                logging.info(f"Fetched {shared_count} shared users")
+            except Exception as e:
+                shared_users_error = str(e)
+                logging.warning(f"Could not get shared users: {e}")
+
+            # Set error if we got no users
+            if not users:
+                if account_error:
+                    self._last_plex_error = f"Could not get account info: {account_error[:100]}"
+                elif shared_users_error:
+                    self._last_plex_error = f"Could not get shared users: {shared_users_error[:100]}"
+                else:
+                    self._last_plex_error = "No users found (connection OK but no account data returned)"
+            else:
+                self._last_plex_error = None  # Clear error on success
 
             with self._cache_lock:
                 self._plex_users_cache = users
                 self._plex_cache_time = datetime.now()
                 self._save_plex_cache_to_file()
             return self._plex_users_cache
-        except Exception:
+        except Exception as e:
+            import logging
+            error_msg = str(e)
+            # Provide more helpful error messages
+            if "Connection refused" in error_msg or "Errno 111" in error_msg:
+                self._last_plex_error = f"Cannot connect to Plex server. Is it running and accessible from Docker?"
+            elif "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+                self._last_plex_error = f"Connection timed out. Try using the local IP (e.g., http://192.168.x.x:32400) instead of .plex.direct URL"
+            elif "Name or service not known" in error_msg or "getaddrinfo failed" in error_msg:
+                self._last_plex_error = f"Cannot resolve hostname. Try using http://YOUR_LOCAL_IP:32400"
+            elif "401" in error_msg or "Unauthorized" in error_msg:
+                self._last_plex_error = "Invalid Plex token. Try re-authenticating."
+            else:
+                self._last_plex_error = f"Plex connection error: {error_msg[:100]}"
+
+            logging.warning(f"Failed to fetch Plex users: {e}")
+
             # Return file cache if available
             with self._cache_lock:
                 if self._plex_users_cache:
                     return self._plex_users_cache
             return []
+
+    def get_last_plex_error(self) -> Optional[str]:
+        """Get the last Plex connection error message"""
+        return getattr(self, '_last_plex_error', None)
 
     def get_last_run_time(self) -> Optional[str]:
         """Get the last time PlexCache ran.
@@ -494,7 +550,7 @@ class SettingsService:
         last_run_dt = None
 
         # Primary: Check last_run.txt (written by operation_runner on completion)
-        last_run_file = PROJECT_ROOT / "data" / "last_run.txt"
+        last_run_file = DATA_DIR / "last_run.txt"
         if last_run_file.exists():
             try:
                 with open(last_run_file, 'r') as f:
@@ -506,7 +562,7 @@ class SettingsService:
 
         # Fallback: Check recent_activity.json for older installs
         if last_run_dt is None:
-            activity_file = PROJECT_ROOT / "data" / "recent_activity.json"
+            activity_file = DATA_DIR / "recent_activity.json"
             if activity_file.exists():
                 try:
                     with open(activity_file, 'r', encoding='utf-8') as f:
