@@ -965,22 +965,24 @@ class PlexCacheApp:
         if cache_limit_bytes == 0:
             return media_files
 
-        # Get current PlexCache tracked size
-        plexcache_tracked, _ = self._get_plexcache_tracked_size()
-
         # Get total cache drive usage
         try:
             disk_usage = shutil.disk_usage(cache_dir)
-            drive_usage_gb = disk_usage.used / (1024**3)
-        except Exception:
-            drive_usage_gb = 0
+            drive_usage_bytes = disk_usage.used
+            drive_usage_gb = drive_usage_bytes / (1024**3)
+        except Exception as e:
+            logging.warning(f"Could not determine cache drive usage: {e}, skipping limit check")
+            return media_files
 
-        plexcache_tracked_gb = plexcache_tracked / (1024**3)
         logging.info(f"Cache limit: {limit_readable}")
-        logging.info(f"Cache drive usage: {drive_usage_gb:.2f}GB, PlexCache tracked: {plexcache_tracked_gb:.2f}GB")
+        logging.info(f"Cache drive usage: {drive_usage_gb:.2f}GB")
 
-        # Filter files that fit within limit
-        available_space = cache_limit_bytes - plexcache_tracked
+        # Calculate available space from actual drive usage
+        available_space = cache_limit_bytes - drive_usage_bytes
+
+        if available_space <= 0:
+            logging.warning(f"Cache drive already at or over limit ({drive_usage_gb:.2f}GB used, limit is {limit_readable})")
+            return []
         files_to_cache = []
         skipped_count = 0
         skipped_size = 0
