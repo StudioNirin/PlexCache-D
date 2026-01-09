@@ -132,6 +132,12 @@ class CacheConfig:
     # Only evict items with priority score below this threshold (0-100)
     eviction_min_priority: int = 60
 
+    # .plexcached backup files: when moving files to cache, rename array file to .plexcached
+    # This provides a backup on the array in case the cache drive fails.
+    # Disable this if you have hard-linked files (seeding/jdupes) or use Mover Tuning with cache:prefer
+    # WARNING: If disabled, cached files CANNOT be recovered if the cache drive fails
+    create_plexcached_backups: bool = True
+
 
 
 @dataclass
@@ -321,6 +327,9 @@ class ConfigManager:
         if not 0 <= self.cache.eviction_min_priority <= 100:
             logging.warning(f"Invalid eviction_min_priority '{self.cache.eviction_min_priority}', using 60")
             self.cache.eviction_min_priority = 60
+
+        # Load .plexcached backup setting (default True for safety)
+        self.cache.create_plexcached_backups = self.settings_data.get('create_plexcached_backups', True)
 
     def _load_path_config(self) -> None:
         """Load path-related configuration."""
