@@ -75,9 +75,11 @@ def _get_cached_audit_results(force_refresh: bool = False):
         _audit_results_cache["results"] = results
         _audit_results_cache["updated_at"] = now
 
-        # Also update the health summary in web cache
+        # Update the health summary in web cache and invalidate dashboard stats
+        # so Dashboard will show fresh health data on next load
         web_cache = get_web_cache_service()
         web_cache.set(CACHE_KEY_MAINTENANCE_HEALTH, service.get_health_summary())
+        web_cache.invalidate(CACHE_KEY_DASHBOARD_STATS)
 
         return results, now
 

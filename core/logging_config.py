@@ -493,10 +493,13 @@ class LoggingManager:
         self._clean_old_log_files()
         # Add filter to downgrade verbose library messages to DEBUG
         self.logger.addFilter(VerboseMessageFilter())
-        # Suppress noisy HTTP request logs from urllib3/requests
+        # Suppress noisy third-party library debug logs
         logging.getLogger("urllib3").setLevel(logging.WARNING)
         logging.getLogger("requests").setLevel(logging.WARNING)
         logging.getLogger("urllib3.connectionpool").setLevel(logging.WARNING)
+        # Suppress python-multipart form parser debug spam (various logger names)
+        logging.getLogger("multipart").setLevel(logging.WARNING)
+        logging.getLogger("multipart.multipart").setLevel(logging.WARNING)
 
     def _clear_existing_handlers(self) -> None:
         """Remove existing handlers from the root logger to prevent duplicates."""

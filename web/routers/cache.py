@@ -74,10 +74,17 @@ async def cache_list(
 
 
 @router.get("/drive", response_class=HTMLResponse)
-async def cache_drive(request: Request):
-    """Cache drive details page"""
+async def cache_drive(request: Request, expiring_within: int = 7):
+    """Cache drive details page
+
+    Args:
+        expiring_within: Show files expiring within N days (3, 7, 14, 30)
+    """
+    # Validate expiring_within to allowed values
+    if expiring_within not in [3, 7, 14, 30]:
+        expiring_within = 7
     cache_service = get_cache_service()
-    drive_details = cache_service.get_drive_details()
+    drive_details = cache_service.get_drive_details(expiring_within_days=expiring_within)
 
     return templates.TemplateResponse(
         "cache/drive.html",

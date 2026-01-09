@@ -41,11 +41,10 @@
     color: #e74c3c;
 }
 
-/* Log viewer */
+/* Log viewer - single scroll context for both axes */
 .log-viewer {
-    max-height: 500px;
-    overflow-y: auto;
-    overflow-x: hidden;
+    height: 500px;
+    overflow: auto;
     background-color: var(--pico-code-background-color);
     padding: 1rem;
     font-family: var(--pico-font-family-monospace);
@@ -53,9 +52,13 @@
     line-height: 1.4;
 }
 
-.log-viewer code {
+.log-viewer code,
+.log-viewer pre {
     background: none;
     padding: 0;
+    white-space: pre;
+    width: max-content;
+    min-width: 100%;
 }
 
 /* Log level highlighting */

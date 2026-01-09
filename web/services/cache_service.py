@@ -436,8 +436,12 @@ class CacheService:
             "watchlist_count": watchlist_count
         }
 
-    def get_drive_details(self) -> Dict[str, Any]:
-        """Get comprehensive cache drive details for the drive info page"""
+    def get_drive_details(self, expiring_within_days: int = 3) -> Dict[str, Any]:
+        """Get comprehensive cache drive details for the drive info page
+
+        Args:
+            expiring_within_days: Show files expiring within this many days (default 3)
+        """
         import shutil
 
         cached_paths = self.get_cached_files_list()
@@ -487,6 +491,7 @@ class CacheService:
         oldest_files = sorted(all_files, key=lambda f: f.cached_at)[:10]
 
         # Files nearing watchlist expiration
+        # Show files within N days of expiring OR already expired (still on cache)
         watchlist_retention_days = settings.get("watchlist_retention_days", 14)
         expiring_soon = []
         for f in all_files:
@@ -497,15 +502,19 @@ class CacheService:
                         if "watchlisted_at" in info:
                             try:
                                 watchlisted_at = datetime.fromisoformat(info["watchlisted_at"])
-                                days_remaining = watchlist_retention_days - (now - watchlisted_at).days
-                                if days_remaining <= 3 and days_remaining > 0:
+                                days_on_watchlist = (now - watchlisted_at).days
+                                days_remaining = watchlist_retention_days - days_on_watchlist
+                                # Show if within expiring_within_days OR already expired
+                                if days_remaining <= expiring_within_days:
                                     expiring_soon.append({
                                         "file": f,
-                                        "days_remaining": days_remaining
+                                        "days_remaining": days_remaining,
+                                        "days_on_watchlist": days_on_watchlist
                                     })
                             except (ValueError, TypeError):
                                 pass
                         break
+        # Sort by days remaining (most urgent first, expired items at top)
         expiring_soon.sort(key=lambda x: x["days_remaining"])
 
         # Recent activity (last 24h and 7d counts)
@@ -515,6 +524,49 @@ class CacheService:
         # Recently cached files (last 24h)
         recently_cached = [f for f in all_files if f.cache_age_hours <= 24]
         recently_cached.sort(key=lambda f: f.cached_at, reverse=True)
+
+        # Calculate cache limit info
+        cache_limit_setting = settings.get("cache_limit", "")
+        cache_limit_bytes = 0
+        cache_limit_display = None
+        cache_limit_percent = None
+
+        if cache_limit_setting and cache_limit_setting not in ["", "N/A", "none", "None", "0"]:
+            try:
+                limit_str = str(cache_limit_setting).strip()
+                if limit_str.endswith("%"):
+                    # Percentage-based limit
+                    percent_val = int(limit_str.rstrip("%"))
+                    cache_limit_bytes = int(disk_total * percent_val / 100)
+                    cache_limit_display = f"{percent_val}% = {self._format_size(cache_limit_bytes)}"
+                    cache_limit_percent = percent_val
+                else:
+                    # Absolute value - parse size string (e.g., "1000GB", "500G", "1TB")
+                    import re
+                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", limit_str, re.IGNORECASE)
+                    if match:
+                        value = float(match.group(1))
+                        unit = (match.group(2) or "GB").upper()
+                        if unit in ("T", "TB"):
+                            cache_limit_bytes = int(value * 1024**4)
+                        elif unit in ("G", "GB"):
+                            cache_limit_bytes = int(value * 1024**3)
+                        elif unit in ("M", "MB"):
+                            cache_limit_bytes = int(value * 1024**2)
+                        cache_limit_display = self._format_size(cache_limit_bytes)
+                        if disk_total > 0:
+                            cache_limit_percent = round(cache_limit_bytes / disk_total * 100, 1)
+            except (ValueError, TypeError):
+                pass
+
+        # Calculate usage against limit
+        cache_limit_used_percent = 0
+        cache_limit_available = 0
+        if cache_limit_bytes > 0:
+            # Use actual drive usage (not just tracked) to calculate available
+            effective_usage = max(disk_used, total_cached_size)
+            cache_limit_used_percent = round(effective_usage / cache_limit_bytes * 100, 1)
+            cache_limit_available = max(0, cache_limit_bytes - effective_usage)
 
         # Configuration
         config = {
@@ -538,7 +590,14 @@ class CacheService:
                 "cached_size": total_cached_size,
                 "cached_size_display": self._format_size(total_cached_size),
                 "cached_percent": calc_percent(total_cached_size, disk_total),
-                "file_count": len(all_files)
+                "file_count": len(all_files),
+                # Cache limit info
+                "cache_limit_bytes": cache_limit_bytes,
+                "cache_limit_display": cache_limit_display,
+                "cache_limit_percent": cache_limit_percent,
+                "cache_limit_used_percent": cache_limit_used_percent,
+                "cache_limit_available": cache_limit_available,
+                "cache_limit_available_display": self._format_size(cache_limit_available) if cache_limit_bytes > 0 else None
             },
             # Breakdown by source
             "breakdown": {
@@ -561,15 +620,16 @@ class CacheService:
                     "percent": calc_percent(other_size, total_cached_size) if total_cached_size > 0 else 0
                 }
             },
-            # File analysis
-            "largest_files": largest_files[:10],
-            "oldest_files": oldest_files[:10],
-            "expiring_soon": expiring_soon[:5],
+            # File analysis (scrollable panels can show more data)
+            "largest_files": largest_files[:50],
+            "oldest_files": oldest_files[:50],
+            "expiring_soon": expiring_soon[:50],
+            "expiring_within_days": expiring_within_days,
             # Activity
             "activity": {
                 "files_last_24h": files_last_24h,
                 "files_last_7d": files_last_7d,
-                "recently_cached": recently_cached[:5]
+                "recently_cached": recently_cached[:50]
             },
             # Configuration
             "config": config

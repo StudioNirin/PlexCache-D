@@ -39,6 +39,49 @@
     </div>
 </div>
 
+<!-- Cache Limit Status -->
+{% if data.storage.cache_limit_bytes > 0 %}
+<div class="card mb-2">
+    <div class="card-header">
+        <i data-lucide="gauge"></i>
+        <h2>Cache Limit</h2>
+    </div>
+    <div class="card-body">
+        <div class="cache-limit-info">
+            <div class="cache-limit-stats">
+                <div class="cache-limit-stat">
+                    <span class="cache-limit-label">Configured Limit:</span>
+                    <span class="cache-limit-value">{{ data.storage.cache_limit_display }}</span>
+                </div>
+                <div class="cache-limit-stat">
+                    <span class="cache-limit-label">PlexCache Files:</span>
+                    <span class="cache-limit-value">{{ data.storage.cached_size_display }}</span>
+                </div>
+                <div class="cache-limit-stat">
+                    <span class="cache-limit-label">Available for Caching:</span>
+                    <span class="cache-limit-value {% if data.storage.cache_limit_available <= 0 %}text-error{% elif data.storage.cache_limit_used_percent >= 90 %}text-warning{% else %}text-success{% endif %}">
+                        {{ data.storage.cache_limit_available_display }}
+                    </span>
+                </div>
+            </div>
+            <div class="cache-limit-bar-container">
+                <div class="cache-limit-bar">
+                    <div class="cache-limit-fill {% if data.storage.cache_limit_used_percent >= 100 %}progress-danger{% elif data.storage.cache_limit_used_percent >= 90 %}progress-warning{% endif %}"
+                         style="width: {{ [data.storage.cache_limit_used_percent, 100]|min }}%">
+                    </div>
+                </div>
+                <div class="cache-limit-labels">
+                    <span>{{ data.storage.cache_limit_used_percent }}% of limit used</span>
+                    {% if data.storage.cache_limit_used_percent >= 100 %}
+                    <span class="text-error">Over Limit!</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
 <!-- Breakdown by Source -->
 <div class="card mb-2">
     <div class="card-header">
@@ -106,12 +149,13 @@
             <i data-lucide="arrow-up-wide-narrow"></i>
             <h2>Largest Files</h2>
         </div>
-        <div class="card-body" style="padding: 0;">
+        <div class="card-body card-body-scrollable" style="padding: 0;">
             <table class="compact-table">
                 <thead>
                     <tr>
                         <th>File</th>
                         <th>Size</th>
+                        <th>Priority</th>
                         <th>Source</th>
                         <th>Users</th>
                     </tr>
@@ -120,8 +164,13 @@
                     {% if data.largest_files %}
                         {% for file in data.largest_files %}
                         <tr>
-                            <td title="{{ file.path }}">{{ file.filename|truncate(40) }}</td>
+                            <td title="{{ file.path }}">{{ file.filename|truncate(35) }}</td>
                             <td class="text-muted">{{ file.size_display }}</td>
+                            <td>
+                                <span class="priority-badge {{ 'high' if file.priority_score >= 70 else 'medium' if file.priority_score >= 40 else 'low' }}">
+                                    {{ file.priority_score }}
+                                </span>
+                            </td>
                             <td class="source-badges">
                                 {% if file.is_ondeck %}
                                 <span class="badge badge-info badge-sm">OnDeck</span>
@@ -146,7 +195,7 @@
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="4" class="text-muted text-center">No files in cache</td>
+                            <td colspan="5" class="text-muted text-center">No files in cache</td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -160,32 +209,39 @@
             <i data-lucide="clock"></i>
             <h2>Oldest Cached Files</h2>
         </div>
-        <div class="card-body" style="padding: 0;">
+        <div class="card-body card-body-scrollable" style="padding: 0;">
             <table class="compact-table">
                 <thead>
                     <tr>
                         <th>File</th>
-                        <th>Age</th>
+                        <th>Size</th>
                         <th>Priority</th>
+                        <th>Source</th>
                         <th>Users</th>
+                        <th>Age</th>
                     </tr>
                 </thead>
                 <tbody>
                     {% if data.oldest_files %}
                         {% for file in data.oldest_files %}
                         <tr>
-                            <td title="{{ file.path }}">{{ file.filename|truncate(40) }}</td>
-                            <td class="text-muted">
-                                {% if file.cache_age_hours < 24 %}
-                                    {{ file.cache_age_hours|round(1) }}h
-                                {% else %}
-                                    {{ (file.cache_age_hours / 24)|round(1) }}d
-                                {% endif %}
-                            </td>
+                            <td title="{{ file.path }}">{{ file.filename|truncate(30) }}</td>
+                            <td class="text-muted">{{ file.size_display }}</td>
                             <td>
                                 <span class="priority-badge {{ 'high' if file.priority_score >= 70 else 'medium' if file.priority_score >= 40 else 'low' }}">
                                     {{ file.priority_score }}
                                 </span>
+                            </td>
+                            <td class="source-badges">
+                                {% if file.is_ondeck %}
+                                <span class="badge badge-info badge-sm">OnDeck</span>
+                                {% endif %}
+                                {% if file.is_watchlist %}
+                                <span class="badge badge-muted badge-sm">Watchlist</span>
+                                {% endif %}
+                                {% if not file.is_ondeck and not file.is_watchlist %}
+                                <span class="badge badge-warning badge-sm">Other</span>
+                                {% endif %}
                             </td>
                             <td class="user-badges">
                                 {% if file.users %}
@@ -196,11 +252,18 @@
                                 <span class="text-muted">-</span>
                                 {% endif %}
                             </td>
+                            <td class="text-muted">
+                                {% if file.cache_age_hours < 24 %}
+                                    {{ file.cache_age_hours|round(1) }}h
+                                {% else %}
+                                    {{ (file.cache_age_hours / 24)|round(1) }}d
+                                {% endif %}
+                            </td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="4" class="text-muted text-center">No files in cache</td>
+                            <td colspan="6" class="text-muted text-center">No files in cache</td>
                         </tr>
                     {% endif %}
                 </tbody>
@@ -211,85 +274,142 @@
 
 <!-- Activity and Expiring Section -->
 <div class="grid grid-2 mb-2">
-    <!-- Recent Activity -->
+    <!-- Recently Cached -->
     <div class="card">
         <div class="card-header">
             <i data-lucide="activity"></i>
-            <h2>Cache Activity</h2>
+            <h2>Recently Cached</h2>
         </div>
-        <div class="card-body">
-            <div class="activity-stats">
-                <div class="activity-stat">
-                    <div class="activity-value">{{ data.activity.files_last_24h }}</div>
-                    <div class="activity-label">files cached in last 24h</div>
-                </div>
-                <div class="activity-stat">
-                    <div class="activity-value">{{ data.activity.files_last_7d }}</div>
-                    <div class="activity-label">files cached in last 7 days</div>
-                </div>
-            </div>
-            {% if data.activity.recently_cached %}
-            <div class="recent-files-list">
-                <div class="recent-files-header">Recently Cached</div>
-                {% for file in data.activity.recently_cached %}
-                <div class="recent-file-item">
-                    <i data-lucide="file-video"></i>
-                    <span class="recent-file-name" title="{{ file.path }}">{{ file.filename|truncate(30) }}</span>
-                    <span class="recent-file-users">
-                        {% if file.users %}
-                            {% for user in file.users[:2] %}
-                            <span class="badge badge-success badge-sm">{{ user }}</span>
-                            {% endfor %}
-                            {% if file.users|length > 2 %}
-                            <span class="badge badge-muted badge-sm">+{{ file.users|length - 2 }}</span>
-                            {% endif %}
-                        {% endif %}
-                    </span>
-                    <span class="recent-file-time">{{ file.cache_age_hours|round(1) }}h ago</span>
-                </div>
-                {% endfor %}
-            </div>
-            {% endif %}
+        <div class="card-body card-body-scrollable" style="padding: 0;">
+            <table class="compact-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Size</th>
+                        <th>Priority</th>
+                        <th>Source</th>
+                        <th>Users</th>
+                        <th>Age</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if data.activity.recently_cached %}
+                        {% for file in data.activity.recently_cached %}
+                        <tr>
+                            <td title="{{ file.path }}">{{ file.filename|truncate(30) }}</td>
+                            <td class="text-muted">{{ file.size_display }}</td>
+                            <td>
+                                <span class="priority-badge {{ 'high' if file.priority_score >= 70 else 'medium' if file.priority_score >= 40 else 'low' }}">
+                                    {{ file.priority_score }}
+                                </span>
+                            </td>
+                            <td class="source-badges">
+                                {% if file.is_ondeck %}
+                                <span class="badge badge-info badge-sm">OnDeck</span>
+                                {% endif %}
+                                {% if file.is_watchlist %}
+                                <span class="badge badge-muted badge-sm">Watchlist</span>
+                                {% endif %}
+                                {% if not file.is_ondeck and not file.is_watchlist %}
+                                <span class="badge badge-warning badge-sm">Other</span>
+                                {% endif %}
+                            </td>
+                            <td class="user-badges">
+                                {% if file.users %}
+                                    {% for user in file.users %}
+                                    <span class="badge badge-success badge-sm">{{ user }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-muted">{{ file.cache_age_hours|round(1) }}h</td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-muted text-center">No recently cached files</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
         </div>
     </div>
 
     <!-- Expiring Soon -->
     <div class="card">
-        <div class="card-header">
-            <i data-lucide="timer"></i>
-            <h2>Expiring Soon</h2>
+        <div class="card-header" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <i data-lucide="timer"></i>
+                <h2>Expiring Soon</h2>
+            </div>
+            <select class="form-select" style="width: auto; padding: 0.25rem 0.5rem; font-size: 0.85rem;"
+                    onchange="window.location.href='/cache/drive?expiring_within=' + this.value">
+                <option value="3" {% if data.expiring_within_days == 3 %}selected{% endif %}>3 days</option>
+                <option value="7" {% if data.expiring_within_days == 7 %}selected{% endif %}>7 days</option>
+                <option value="14" {% if data.expiring_within_days == 14 %}selected{% endif %}>14 days</option>
+                <option value="30" {% if data.expiring_within_days == 30 %}selected{% endif %}>30 days</option>
+            </select>
         </div>
-        <div class="card-body">
-            {% if data.expiring_soon %}
-            <div class="expiring-list">
-                {% for item in data.expiring_soon %}
-                <div class="expiring-item">
-                    <div class="expiring-file">
-                        <i data-lucide="file-video"></i>
-                        <span title="{{ item.file.path }}">{{ item.file.filename|truncate(30) }}</span>
-                    </div>
-                    <div class="expiring-users">
-                        {% if item.file.users %}
-                            {% for user in item.file.users[:2] %}
-                            <span class="badge badge-success badge-sm">{{ user }}</span>
-                            {% endfor %}
-                            {% if item.file.users|length > 2 %}
-                            <span class="badge badge-muted badge-sm">+{{ item.file.users|length - 2 }}</span>
-                            {% endif %}
-                        {% endif %}
-                    </div>
-                    <div class="expiring-time {% if item.days_remaining <= 1 %}text-error{% else %}text-warning{% endif %}">
-                        {{ item.days_remaining }}d
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-            {% else %}
-            <div class="empty-state">
-                <i data-lucide="check-circle"></i>
-                <p>No files expiring within 3 days</p>
-            </div>
-            {% endif %}
+        <div class="card-body card-body-scrollable" style="padding: 0;">
+            <table class="compact-table">
+                <thead>
+                    <tr>
+                        <th>File</th>
+                        <th>Size</th>
+                        <th>Priority</th>
+                        <th>Source</th>
+                        <th>Users</th>
+                        <th>Expires</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% if data.expiring_soon %}
+                        {% for item in data.expiring_soon %}
+                        <tr>
+                            <td title="{{ item.file.path }}">{{ item.file.filename|truncate(30) }}</td>
+                            <td class="text-muted">{{ item.file.size_display }}</td>
+                            <td>
+                                <span class="priority-badge {{ 'high' if item.file.priority_score >= 70 else 'medium' if item.file.priority_score >= 40 else 'low' }}">
+                                    {{ item.file.priority_score }}
+                                </span>
+                            </td>
+                            <td class="source-badges">
+                                {% if item.file.is_ondeck %}
+                                <span class="badge badge-info badge-sm">OnDeck</span>
+                                {% endif %}
+                                {% if item.file.is_watchlist %}
+                                <span class="badge badge-muted badge-sm">Watchlist</span>
+                                {% endif %}
+                                {% if not item.file.is_ondeck and not item.file.is_watchlist %}
+                                <span class="badge badge-warning badge-sm">Other</span>
+                                {% endif %}
+                            </td>
+                            <td class="user-badges">
+                                {% if item.file.users %}
+                                    {% for user in item.file.users %}
+                                    <span class="badge badge-success badge-sm">{{ user }}</span>
+                                    {% endfor %}
+                                {% else %}
+                                <span class="text-muted">-</span>
+                                {% endif %}
+                            </td>
+                            <td class="{% if item.days_remaining <= 0 %}text-error{% elif item.days_remaining <= 1 %}text-error{% else %}text-warning{% endif %}">
+                                {% if item.days_remaining <= 0 %}
+                                Expired
+                                {% else %}
+                                {{ item.days_remaining }}d
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="6" class="text-muted text-center">No files expiring within {{ data.expiring_within_days }} days</td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
         </div>
     </div>
 </div>
