@@ -120,6 +120,10 @@ class PlexCacheApp:
             logging.debug("Initializing components...")
             self._initialize_components()
 
+            # Warn if .plexcached backups are disabled
+            if not self.config_manager.cache.create_plexcached_backups:
+                logging.warning("BACKUPS DISABLED - No .plexcached files will be created. Cached files cannot be recovered if cache drive fails.")
+
             # Clean up stale exclude list entries (self-healing)
             # Skip in dry-run mode to avoid modifying tracking files
             if not self.dry_run:
@@ -421,7 +425,8 @@ class PlexCacheApp:
             mover_cache_exclude_file=str(mover_exclude),
             timestamp_tracker=self.timestamp_tracker,
             path_modifier=self.file_path_modifier,
-            stop_check=lambda: self.should_stop  # Allow FileMover to check for stop requests
+            stop_check=lambda: self.should_stop,  # Allow FileMover to check for stop requests
+            create_plexcached_backups=self.config_manager.cache.create_plexcached_backups
         )
 
     def _init_cache_management(self) -> None:

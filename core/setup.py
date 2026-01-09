@@ -931,6 +931,52 @@ def _setup_advanced_settings():
         cache_limit = input('Cache size limit [no limit]: ').strip()
         settings_data['cache_limit'] = cache_limit
 
+    # .plexcached Backup Files
+    if 'create_plexcached_backups' not in settings_data:
+        print('\n--- Backup Settings ---')
+        print('When caching files, PlexCache can create .plexcached backups on the array.')
+        print('')
+        print('=== How Caching Works ===')
+        print('')
+        print('With backups ENABLED (default, recommended):')
+        print('  1. File is copied from array to cache drive')
+        print('  2. Array file is renamed to .plexcached (preserves backup on array)')
+        print('  3. File path is added to exclude list (prevents Unraid mover conflicts)')
+        print('  4. Files are removed from cache when:')
+        print('     - "Move watched files" is enabled AND content is watched, OR')
+        print('     - "Cache eviction" is enabled AND cache is full')
+        print('  5. On removal: .plexcached is renamed back to original (fast, no copy)')
+        print('  6. If cache drive fails: run --restore-plexcached to recover all files')
+        print('')
+        print('With backups DISABLED:')
+        print('  1. File is copied from array to cache drive')
+        print('  2. Array file is DELETED (no backup exists)')
+        print('  3. File path is added to exclude list')
+        print('  4. Files are removed from cache when:')
+        print('     - "Move watched files" is enabled AND content is watched, OR')
+        print('     - "Cache eviction" is enabled AND cache is full')
+        print('  5. On removal: file must be copied back to array (slower)')
+        print('  6. If cache drive fails: FILES ARE PERMANENTLY LOST')
+        print('')
+        print('=== Important Notes ===')
+        print('')
+        print('- The exclude list is managed automatically by PlexCache')
+        print('- You should enable "Move watched files" OR "Cache eviction" (or both)')
+        print('  to prevent cache from filling up indefinitely')
+        print('')
+        print('=== When to Disable Backups ===')
+        print('')
+        print('Only disable if you have:')
+        print('  - Hard-linked files (from seeding/torrents or jdupes)')
+        print('    (FUSE cannot rename hard-linked files properly)')
+        print('  - Mover Tuning with cache:prefer shares')
+        print('    (.plexcached files could be moved back to cache)')
+        print('')
+        print('  Yes - Create .plexcached backups (safer, recommended)')
+        print('  No  - Delete array files after caching (required for hard links)')
+        backup_choice = input('Create .plexcached backups? [Y/n] ') or 'yes'
+        settings_data['create_plexcached_backups'] = backup_choice.lower() in ['y', 'yes']
+
     # Smart Cache Eviction
     if 'cache_eviction_mode' not in settings_data:
         _configure_eviction_settings()
@@ -1388,6 +1434,7 @@ def check_for_missing_settings(settings: dict) -> list:
         'notification_type',
         'webhook_url',
         'webhook_level',
+        'create_plexcached_backups',
     ]
     missing = [s for s in optional_new_settings if s not in settings]
     return missing
