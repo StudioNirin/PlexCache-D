@@ -121,7 +121,7 @@
                 <div class="breakdown-percent">{{ data.breakdown.watchlist.percent }}% of cache</div>
             </a>
             {% if data.breakdown.other.count > 0 %}
-            <div class="breakdown-card breakdown-other">
+            <a href="/cache?source=other" class="breakdown-card breakdown-other">
                 <div class="breakdown-header">
                     <i data-lucide="help-circle"></i>
                     <span>Other</span>
@@ -135,7 +135,7 @@
                     <div class="breakdown-fill other" style="width: {{ data.breakdown.other.percent }}%"></div>
                 </div>
                 <div class="breakdown-percent">{{ data.breakdown.other.percent }}% of cache</div>
-            </div>
+            </a>
             {% endif %}
         </div>
     </div>

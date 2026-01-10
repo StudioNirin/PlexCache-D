@@ -271,7 +271,7 @@ class CacheService:
         Get all cached files with their metadata and priority scores.
 
         Args:
-            source_filter: "all", "ondeck", or "watchlist"
+            source_filter: "all", "ondeck", "watchlist", or "other"
             search: Search string to filter filenames
             sort_by: Column to sort by ("filename", "size", "priority", "age", "users")
             sort_dir: Sort direction ("asc" or "desc")
@@ -347,6 +347,8 @@ class CacheService:
             if source_filter == "ondeck" and not is_ondeck:
                 continue
             if source_filter == "watchlist" and not is_watchlist:
+                continue
+            if source_filter == "other" and (is_ondeck or is_watchlist):
                 continue
 
             # Calculate priority
