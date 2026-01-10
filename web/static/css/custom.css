@@ -208,6 +208,36 @@ footer {
     opacity: 0.7;
 }
 
+/* Recent Activity scrollable container - hidden scrollbar */
+.recent-activity-scroll {
+    max-height: 400px;
+    overflow-y: auto;
+    /* Hide scrollbar for Chrome, Safari, Opera */
+    -webkit-overflow-scrolling: touch;
+}
+
+.recent-activity-scroll::-webkit-scrollbar {
+    display: none;
+}
+
+/* Hide scrollbar for Firefox */
+.recent-activity-scroll {
+    scrollbar-width: none;
+}
+
+/* Hide scrollbar for IE and Edge */
+.recent-activity-scroll {
+    -ms-overflow-style: none;
+}
+
+/* Keep table header sticky while scrolling */
+.recent-activity-scroll table thead {
+    position: sticky;
+    top: 0;
+    background: var(--plex-card-bg, #1f2326);
+    z-index: 1;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .grid {

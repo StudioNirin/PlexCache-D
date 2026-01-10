@@ -1,6 +1,6 @@
-<!-- Recent Activity component - HTMX partial -->
+<!-- Recent Activity component - HTMX partial (last 24 hours) -->
 {% if activity %}
-{% for item in activity[:10] %}
+{% for item in activity %}
 <tr>
     <td>{{ item.time_display }}</td>
     <td>

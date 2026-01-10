@@ -49,32 +49,35 @@
     {% include "partials/dashboard_skeleton.html" %}
 </div>
 
-<!-- Recent Activity -->
+<!-- Recent Activity (Last 24 Hours) -->
 <div class="card">
     <div class="card-header">
         <i data-lucide="activity"></i>
         <h2>Recent Activity</h2>
+        <span class="text-muted" style="font-size: 0.75rem; margin-left: auto;">Last 24 hours</span>
     </div>
     <div class="card-body" style="padding: 0;">
-        <table>
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Action</th>
-                    <th>File</th>
-                    <th>Users</th>
-                    <th>Size</th>
-                </tr>
-            </thead>
-            <tbody id="recent-activity" hx-get="/operations/activity" hx-trigger="load">
-                <tr>
-                    <td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">
-                        <i data-lucide="inbox" style="width: 32px; height: 32px; margin-bottom: 0.5rem; display: block; margin: 0 auto 0.5rem;"></i>
-                        No recent activity
-                    </td>
-                </tr>
-            </tbody>
-        </table>
+        <div class="recent-activity-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Action</th>
+                        <th>File</th>
+                        <th>Users</th>
+                        <th>Size</th>
+                    </tr>
+                </thead>
+                <tbody id="recent-activity" hx-get="/operations/activity" hx-trigger="load">
+                    <tr>
+                        <td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">
+                            <i data-lucide="inbox" style="width: 32px; height: 32px; margin-bottom: 0.5rem; display: block; margin: 0 auto 0.5rem;"></i>
+                            No recent activity
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </div>
 </div>
 {% endblock %}
