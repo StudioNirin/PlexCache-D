@@ -1220,7 +1220,17 @@ class PlexCacheApp:
 
                 # Delete cache copy
                 if os.path.exists(cache_path):
+                    # Check for hardlinks before deleting
+                    try:
+                        stat_info = os.stat(cache_path)
+                        if stat_info.st_nlink > 1:
+                            logging.debug(f"File has {stat_info.st_nlink} hardlinks, deleting won't free space: {os.path.basename(cache_path)}")
+                    except OSError:
+                        pass
                     os.remove(cache_path)
+                    logging.debug(f"Deleted cache file: {os.path.basename(cache_path)}")
+                else:
+                    logging.debug(f"Cache file already gone: {os.path.basename(cache_path)}")
 
                 # Clean up tracking
                 self.file_filter.remove_files_from_exclude_list([cache_path])
