@@ -1165,7 +1165,10 @@ class PlexCacheApp:
         if space_to_free <= 0:
             return (0, 0)
 
-        logging.info(f"Smart eviction: need to free {space_to_free/1e9:.2f}GB")
+        if needed_space_bytes > 0:
+            logging.info(f"Smart eviction: drive over limit, need to free {space_to_free/1e9:.2f}GB")
+        else:
+            logging.info(f"Smart eviction: tracked files over threshold, need to free {space_to_free/1e9:.2f}GB")
 
         # Get eviction candidates based on mode
         if eviction_mode == "smart":
@@ -1284,7 +1287,18 @@ class PlexCacheApp:
 
         # Run smart eviction before applying cache limit (if enabled)
         if destination == 'cache':
-            self._run_smart_eviction()
+            # Calculate if drive is over limit - if so, evict to make room
+            needed_space = 0
+            cache_limit_bytes, _ = self._get_effective_cache_limit(cache_dir)
+            if cache_limit_bytes > 0:
+                try:
+                    disk_usage = shutil.disk_usage(cache_dir)
+                    if disk_usage.used > cache_limit_bytes:
+                        needed_space = int(disk_usage.used - cache_limit_bytes)
+                        logging.debug(f"Drive over limit by {needed_space/1e9:.2f}GB, will try to evict")
+                except Exception:
+                    pass
+            self._run_smart_eviction(needed_space)
 
         # Apply cache size limit when moving to cache
         if destination == 'cache':
