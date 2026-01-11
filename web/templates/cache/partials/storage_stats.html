@@ -48,15 +48,22 @@
     </div>
     <div class="card-body">
         <div class="cache-limit-info">
-            <div class="cache-limit-stats">
+            <!-- Stats Grid -->
+            <div class="cache-limit-stats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; margin-bottom: 1rem;">
                 <div class="cache-limit-stat">
-                    <span class="cache-limit-label">Configured Limit:</span>
+                    <span class="cache-limit-label">Total Drive Usage:</span>
+                    <span class="cache-limit-value">{{ data.storage.used_display }}</span>
+                </div>
+                <div class="cache-limit-stat">
+                    <span class="cache-limit-label">Cache Limit:</span>
                     <span class="cache-limit-value">{{ data.storage.cache_limit_display }}</span>
                 </div>
+                {% if data.config.eviction_enabled %}
                 <div class="cache-limit-stat">
-                    <span class="cache-limit-label">PlexCache Files:</span>
-                    <span class="cache-limit-value">{{ data.storage.cached_size_display }}</span>
+                    <span class="cache-limit-label">Eviction Threshold:</span>
+                    <span class="cache-limit-value">{{ data.storage.eviction_threshold_setting }}% = {{ data.storage.eviction_threshold_display }}</span>
                 </div>
+                {% endif %}
                 <div class="cache-limit-stat">
                     <span class="cache-limit-label">Available for Caching:</span>
                     <span class="cache-limit-value {% if data.storage.cache_limit_available <= 0 %}text-error{% elif data.storage.cache_limit_used_percent >= 90 %}text-warning{% else %}text-success{% endif %}">
@@ -64,18 +71,50 @@
                     </span>
                 </div>
             </div>
-            <div class="cache-limit-bar-container">
-                <div class="cache-limit-bar">
-                    <div class="cache-limit-fill {% if data.storage.cache_limit_used_percent >= 100 %}progress-danger{% elif data.storage.cache_limit_used_percent >= 90 %}progress-warning{% endif %}"
-                         style="width: {{ [data.storage.cache_limit_used_percent, 100]|min }}%">
+
+            <!-- Visual Bar with Markers -->
+            <div class="drive-usage-bar-container" style="position: relative; margin-bottom: 0.5rem;">
+                <!-- The bar background represents total drive capacity -->
+                <div class="drive-usage-bar" style="height: 24px; background: var(--plex-card-bg); border-radius: 4px; position: relative; overflow: visible; border: 1px solid var(--plex-border);">
+                    <!-- Drive usage fill -->
+                    <div class="drive-usage-fill" style="height: 100%; border-radius: 3px; transition: width 0.3s ease;
+                        {% if data.storage.eviction_over_threshold %}
+                        background: linear-gradient(90deg, var(--plex-orange) 0%, #e74c3c 100%);
+                        {% elif data.storage.usage_percent >= 90 %}
+                        background: var(--plex-orange);
+                        {% else %}
+                        background: linear-gradient(90deg, #27ae60 0%, var(--plex-orange) 100%);
+                        {% endif %}
+                        width: {{ [data.storage.usage_percent, 100]|min }}%;">
                     </div>
-                </div>
-                <div class="cache-limit-labels">
-                    <span>{{ data.storage.cache_limit_used_percent }}% of limit used</span>
-                    {% if data.storage.cache_limit_used_percent >= 100 %}
-                    <span class="text-error">Over Limit!</span>
+
+                    {% if data.config.eviction_enabled and data.storage.eviction_threshold_percent_of_drive > 0 %}
+                    <!-- Eviction threshold marker -->
+                    <div class="threshold-marker" style="position: absolute; top: -4px; bottom: -4px; width: 3px; background: #e67e22; left: {{ data.storage.eviction_threshold_percent_of_drive }}%; z-index: 2;" title="Eviction starts at {{ data.storage.eviction_threshold_display }}">
+                        <div style="position: absolute; top: -18px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: #e67e22; white-space: nowrap;">Evict</div>
+                    </div>
+                    {% endif %}
+
+                    {% if data.storage.cache_limit_percent %}
+                    <!-- Cache limit marker -->
+                    <div class="limit-marker" style="position: absolute; top: -4px; bottom: -4px; width: 3px; background: #e74c3c; left: {{ data.storage.cache_limit_percent }}%; z-index: 2;" title="Cache limit: {{ data.storage.cache_limit_display }}">
+                        <div style="position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 0.7rem; color: #e74c3c; white-space: nowrap;">Limit</div>
+                    </div>
                     {% endif %}
                 </div>
+            </div>
+
+            <!-- Status Labels -->
+            <div class="cache-limit-labels" style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; font-size: 0.85rem;">
+                <span>Drive: {{ data.storage.usage_percent }}% used ({{ data.storage.used_display }} / {{ data.storage.total_display }})</span>
+                {% if data.storage.eviction_over_threshold %}
+                <span class="text-warning" style="font-weight: 500;">
+                    <i data-lucide="alert-triangle" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+                    Over eviction threshold by {{ data.storage.eviction_over_by_display }}
+                </span>
+                {% elif data.storage.cache_limit_used_percent >= 100 %}
+                <span class="text-error" style="font-weight: 500;">Over cache limit!</span>
+                {% endif %}
             </div>
         </div>
     </div>

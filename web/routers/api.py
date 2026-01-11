@@ -59,6 +59,8 @@ def _get_dashboard_stats_data(use_cache: bool = True) -> tuple[dict, str | None]
         "cached_files_size": cache_stats.get("cached_files_size"),
         "ondeck_count": cache_stats["ondeck_count"],
         "watchlist_count": cache_stats["watchlist_count"],
+        "eviction_over_threshold": cache_stats.get("eviction_over_threshold", False),
+        "eviction_over_by_display": cache_stats.get("eviction_over_by_display"),
         "last_run": last_run,
         "is_running": operation_runner.is_running,
         "plex_connected": plex_connected,

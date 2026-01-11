@@ -79,8 +79,10 @@
                     <label for="cache_limit">Cache Limit</label>
                     <input type="text" id="cache_limit" name="cache_limit"
                            value="{{ settings.cache_limit | default('250GB') }}"
-                           placeholder="250GB or 50%">
-                    <div class="form-hint">Max cache size (e.g., 250GB, 50%)</div>
+                           placeholder="500GB or 75%"
+                           oninput="updateCacheCalculations()">
+                    <div class="form-hint">Stop caching new files when drive usage exceeds this (e.g., 500GB or 75%)</div>
+                    <div id="cache_limit_calculated" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;"></div>
                 </div>
             </div>
 
@@ -104,15 +106,17 @@
                 <div class="form-group">
                     <label for="cache_eviction_threshold_percent">Eviction Threshold (%)</label>
                     <input type="number" id="cache_eviction_threshold_percent" name="cache_eviction_threshold_percent"
-                           value="{{ settings.cache_eviction_threshold_percent | default(90) }}" min="50" max="99">
-                    <div class="form-hint">Start eviction when cache usage exceeds this</div>
+                           value="{{ settings.cache_eviction_threshold_percent | default(95) }}" min="50" max="100"
+                           oninput="updateCacheCalculations()">
+                    <div class="form-hint">Start evicting when drive usage exceeds this % of Cache Limit</div>
+                    <div id="eviction_threshold_calculated" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;"></div>
                 </div>
 
                 <div class="form-group">
                     <label for="eviction_min_priority">Minimum Priority to Keep</label>
                     <input type="number" id="eviction_min_priority" name="eviction_min_priority"
                            value="{{ settings.eviction_min_priority | default(60) }}" min="0" max="100">
-                    <div class="form-hint">Only evict files with priority below this</div>
+                    <div class="form-hint">Only evict files below this priority (OnDeck ~90, Watchlist ~70)</div>
                 </div>
             </div>
 
@@ -144,4 +148,79 @@
         </form>
     </div>
 </div>
+
+<script>
+// Drive info from server
+const driveTotalBytes = {{ drive_info.total_bytes | default(0) }};
+const driveTotalDisplay = "{{ drive_info.total_display | default('Unknown') }}";
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const gb = bytes / (1024 * 1024 * 1024);
+    if (gb >= 1024) {
+        return (gb / 1024).toFixed(2) + ' TB';
+    }
+    return gb.toFixed(1) + ' GB';
+}
+
+function parseCacheLimit(value) {
+    if (!value) return 0;
+    value = value.toString().trim();
+
+    // Check if percentage
+    if (value.endsWith('%')) {
+        const percent = parseFloat(value);
+        if (!isNaN(percent) && driveTotalBytes > 0) {
+            return Math.round(driveTotalBytes * percent / 100);
+        }
+        return 0;
+    }
+
+    // Parse absolute size (e.g., "500GB", "1TB", "1.5T")
+    const match = value.match(/^([\d.]+)\s*(TB?|GB?|MB?)?$/i);
+    if (match) {
+        const num = parseFloat(match[1]);
+        const unit = (match[2] || 'GB').toUpperCase();
+        if (unit.startsWith('T')) return Math.round(num * 1024 * 1024 * 1024 * 1024);
+        if (unit.startsWith('G')) return Math.round(num * 1024 * 1024 * 1024);
+        if (unit.startsWith('M')) return Math.round(num * 1024 * 1024);
+    }
+    return 0;
+}
+
+function updateCacheCalculations() {
+    const cacheLimitInput = document.getElementById('cache_limit');
+    const evictionThresholdInput = document.getElementById('cache_eviction_threshold_percent');
+    const cacheLimitCalc = document.getElementById('cache_limit_calculated');
+    const evictionThresholdCalc = document.getElementById('eviction_threshold_calculated');
+
+    const cacheLimitValue = cacheLimitInput.value;
+    const evictionPercent = parseInt(evictionThresholdInput.value) || 95;
+
+    // Calculate cache limit bytes
+    const cacheLimitBytes = parseCacheLimit(cacheLimitValue);
+
+    // Update cache limit display
+    if (cacheLimitBytes > 0) {
+        if (cacheLimitValue.includes('%') && driveTotalBytes > 0) {
+            cacheLimitCalc.textContent = `= ${formatBytes(cacheLimitBytes)} of ${driveTotalDisplay} drive`;
+        } else if (driveTotalBytes > 0) {
+            const percent = (cacheLimitBytes / driveTotalBytes * 100).toFixed(1);
+            cacheLimitCalc.textContent = `= ${percent}% of ${driveTotalDisplay} drive`;
+        } else {
+            cacheLimitCalc.textContent = `= ${formatBytes(cacheLimitBytes)}`;
+        }
+
+        // Calculate and show eviction threshold
+        const evictionBytes = Math.round(cacheLimitBytes * evictionPercent / 100);
+        evictionThresholdCalc.textContent = `= ${formatBytes(evictionBytes)} (${evictionPercent}% of ${formatBytes(cacheLimitBytes)})`;
+    } else {
+        cacheLimitCalc.textContent = '';
+        evictionThresholdCalc.textContent = '';
+    }
+}
+
+// Run on page load
+document.addEventListener('DOMContentLoaded', updateCacheCalculations);
+</script>
 {% endblock %}

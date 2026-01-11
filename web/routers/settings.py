@@ -353,8 +353,36 @@ async def delete_path_mapping(request: Request, index: int):
 @router.get("/cache", response_class=HTMLResponse)
 async def settings_cache(request: Request):
     """Cache settings tab"""
+    import shutil
     settings_service = get_settings_service()
     settings = settings_service.get_cache_settings()
+
+    # Get cache drive info for real-time calculations
+    drive_info = {"total_bytes": 0, "total_display": "Unknown"}
+    all_settings = settings_service.get_all()
+
+    # Try to get cache_dir from path_mappings first, then fall back to cache_dir setting
+    cache_dir = None
+    path_mappings = all_settings.get("path_mappings", [])
+    for mapping in path_mappings:
+        if mapping.get("enabled") and mapping.get("cacheable") and mapping.get("cache_path"):
+            cache_dir = mapping.get("cache_path")
+            break
+    if not cache_dir:
+        cache_dir = all_settings.get("cache_dir", "")
+
+    if cache_dir:
+        try:
+            disk_usage = shutil.disk_usage(cache_dir)
+            drive_info["total_bytes"] = disk_usage.total
+            # Format size
+            total_gb = disk_usage.total / (1024**3)
+            if total_gb >= 1024:
+                drive_info["total_display"] = f"{total_gb/1024:.2f} TB"
+            else:
+                drive_info["total_display"] = f"{total_gb:.1f} GB"
+        except Exception:
+            pass
 
     return templates.TemplateResponse(
         "settings/cache.html",
@@ -362,7 +390,8 @@ async def settings_cache(request: Request):
             "request": request,
             "page_title": "Cache Settings",
             "active_tab": "cache",
-            "settings": settings
+            "settings": settings,
+            "drive_info": drive_info
         }
     )
 

@@ -425,6 +425,47 @@ class CacheService:
         ondeck_count = len(ondeck)
         watchlist_count = len(watchlist)
 
+        # Calculate eviction threshold status
+        eviction_over_threshold = False
+        eviction_over_by = 0
+        eviction_over_by_display = None
+        eviction_mode = settings.get("cache_eviction_mode", "none")
+
+        if eviction_mode != "none" and disk_total > 0:
+            # Get the configured cache limit (not disk total)
+            cache_limit_setting = settings.get("cache_limit", "")
+            cache_limit_bytes = 0
+
+            if cache_limit_setting and cache_limit_setting not in ["", "N/A", "none", "None", "0"]:
+                try:
+                    limit_str = str(cache_limit_setting).strip()
+                    if limit_str.endswith("%"):
+                        percent_val = int(limit_str.rstrip("%"))
+                        cache_limit_bytes = int(disk_total * percent_val / 100)
+                    else:
+                        import re
+                        match = re.match(r'^([\d.]+)\s*(T|TB|G|GB|M|MB)?$', limit_str, re.IGNORECASE)
+                        if match:
+                            value = float(match.group(1))
+                            unit = (match.group(2) or "GB").upper()
+                            if unit in ("T", "TB"):
+                                cache_limit_bytes = int(value * 1024**4)
+                            elif unit in ("G", "GB"):
+                                cache_limit_bytes = int(value * 1024**3)
+                            elif unit in ("M", "MB"):
+                                cache_limit_bytes = int(value * 1024**2)
+                except (ValueError, TypeError):
+                    pass
+
+            if cache_limit_bytes > 0:
+                eviction_threshold_percent = settings.get("cache_eviction_threshold_percent", 95)
+                eviction_threshold_bytes = int(cache_limit_bytes * eviction_threshold_percent / 100)
+
+                if disk_used > eviction_threshold_bytes:
+                    eviction_over_threshold = True
+                    eviction_over_by = disk_used - eviction_threshold_bytes
+                    eviction_over_by_display = self._format_size(eviction_over_by)
+
         return {
             "cache_files": len(cached_paths),
             "cache_size": self._format_size(disk_used),  # Actual disk used
@@ -435,7 +476,9 @@ class CacheService:
             "cached_files_size": self._format_size(cached_files_size),  # PlexCache files only
             "cached_files_size_bytes": cached_files_size,
             "ondeck_count": ondeck_count,
-            "watchlist_count": watchlist_count
+            "watchlist_count": watchlist_count,
+            "eviction_over_threshold": eviction_over_threshold,
+            "eviction_over_by_display": eviction_over_by_display
         }
 
     def get_drive_details(self, expiring_within_days: int = 3) -> Dict[str, Any]:
@@ -570,6 +613,24 @@ class CacheService:
             cache_limit_used_percent = round(effective_usage / cache_limit_bytes * 100, 1)
             cache_limit_available = max(0, cache_limit_bytes - effective_usage)
 
+        # Calculate eviction threshold (for visual display)
+        eviction_threshold_setting = settings.get("cache_eviction_threshold_percent", 95)
+        eviction_threshold_bytes = 0
+        eviction_threshold_display = None
+        eviction_threshold_percent_of_drive = 0
+        eviction_over_threshold = False
+        eviction_over_by = 0
+
+        if cache_limit_bytes > 0:
+            eviction_threshold_bytes = int(cache_limit_bytes * eviction_threshold_setting / 100)
+            eviction_threshold_display = self._format_size(eviction_threshold_bytes)
+            if disk_total > 0:
+                eviction_threshold_percent_of_drive = round(eviction_threshold_bytes / disk_total * 100, 1)
+            # Check if drive usage is over threshold
+            if disk_used > eviction_threshold_bytes:
+                eviction_over_threshold = True
+                eviction_over_by = disk_used - eviction_threshold_bytes
+
         # Configuration
         eviction_mode = settings.get("cache_eviction_mode", "none")
         config = {
@@ -580,7 +641,7 @@ class CacheService:
             "number_episodes": settings.get("number_episodes", 5),
             "eviction_mode": eviction_mode,
             "eviction_enabled": eviction_mode != "none",
-            "eviction_threshold_percent": settings.get("cache_eviction_threshold_percent", 90),
+            "eviction_threshold_percent": settings.get("cache_eviction_threshold_percent", 95),
             "eviction_min_priority": settings.get("eviction_min_priority", 60)
         }
 
@@ -604,7 +665,15 @@ class CacheService:
                 "cache_limit_percent": cache_limit_percent,
                 "cache_limit_used_percent": cache_limit_used_percent,
                 "cache_limit_available": cache_limit_available,
-                "cache_limit_available_display": self._format_size(cache_limit_available) if cache_limit_bytes > 0 else None
+                "cache_limit_available_display": self._format_size(cache_limit_available) if cache_limit_bytes > 0 else None,
+                # Eviction threshold info
+                "eviction_threshold_bytes": eviction_threshold_bytes,
+                "eviction_threshold_display": eviction_threshold_display,
+                "eviction_threshold_setting": eviction_threshold_setting,
+                "eviction_threshold_percent_of_drive": eviction_threshold_percent_of_drive,
+                "eviction_over_threshold": eviction_over_threshold,
+                "eviction_over_by": eviction_over_by,
+                "eviction_over_by_display": self._format_size(eviction_over_by) if eviction_over_by > 0 else None
             },
             # Breakdown by source
             "breakdown": {

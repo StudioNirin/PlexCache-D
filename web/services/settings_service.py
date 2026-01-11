@@ -48,7 +48,7 @@ class CacheSettings:
     cache_retention_hours: int = 12
     cache_limit: str = "250GB"
     cache_eviction_mode: str = "none"
-    cache_eviction_threshold_percent: int = 90
+    cache_eviction_threshold_percent: int = 95
     eviction_min_priority: int = 60
     remote_watchlist_toggle: bool = False
     remote_watchlist_rss_url: str = ""
@@ -235,7 +235,7 @@ class SettingsService:
             "cache_retention_hours": raw.get("cache_retention_hours", 12),
             "cache_limit": raw.get("cache_limit", "250GB"),
             "cache_eviction_mode": raw.get("cache_eviction_mode", "none"),
-            "cache_eviction_threshold_percent": raw.get("cache_eviction_threshold_percent", 90),
+            "cache_eviction_threshold_percent": raw.get("cache_eviction_threshold_percent", 95),
             "eviction_min_priority": raw.get("eviction_min_priority", 60),
             "remote_watchlist_toggle": raw.get("remote_watchlist_toggle", False),
             "remote_watchlist_rss_url": raw.get("remote_watchlist_rss_url", ""),

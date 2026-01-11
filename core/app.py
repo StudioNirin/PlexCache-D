@@ -966,6 +966,11 @@ class PlexCacheApp:
 
         # Move files to cache
         logging.debug(f"Files being passed to cache move: {self.media_to_cache}")
+
+        # Filter out files that would be immediately evicted (prevents cache/evict loop)
+        if self.media_to_cache:
+            self.media_to_cache = self._filter_low_priority_files(self.media_to_cache, self.source_map)
+
         # Log preview of files to be cached (similar to array move preview)
         if self.media_to_cache:
             # Filter to only files that actually need moving (not already on cache)
@@ -1125,6 +1130,99 @@ class PlexCacheApp:
             logging.warning(f"Cache limit reached: skipped {skipped_count} files ({skipped_gb:.2f}GB) that would exceed the {limit_readable} limit")
 
         return files_to_cache
+
+    def _filter_low_priority_files(self, media_files: List[str], source_map: dict) -> List[str]:
+        """Filter out files that would be immediately evicted after caching.
+
+        Prevents the cache/evict loop where low-priority files (e.g., watchlist items)
+        are cached only to be evicted on the same run because the drive is over threshold.
+
+        Args:
+            media_files: List of file paths to potentially cache.
+            source_map: Dict mapping file paths to source ('ondeck' or 'watchlist').
+
+        Returns:
+            Filtered list of files that won't be immediately evicted.
+        """
+        eviction_mode = self.config_manager.cache.cache_eviction_mode
+        if eviction_mode == "none":
+            return media_files  # No eviction, no filtering needed
+
+        cache_dir = self.config_manager.paths.cache_dir
+        if not cache_dir:
+            # Try to get from path mappings
+            for mapping in self.config_manager.paths.path_mappings:
+                if mapping.enabled and mapping.cacheable and mapping.cache_path:
+                    cache_dir = mapping.cache_path
+                    break
+
+        if not cache_dir:
+            return media_files
+
+        # Check if drive is over eviction threshold
+        cache_limit_bytes, _ = self._get_effective_cache_limit(cache_dir)
+        if cache_limit_bytes == 0:
+            return media_files
+
+        threshold_percent = self.config_manager.cache.cache_eviction_threshold_percent
+        threshold_bytes = cache_limit_bytes * threshold_percent / 100
+
+        try:
+            disk_usage = shutil.disk_usage(cache_dir)
+            total_drive_usage = disk_usage.used
+        except Exception:
+            return media_files  # Can't check, allow caching
+
+        # If drive is under threshold, no eviction would trigger
+        if total_drive_usage < threshold_bytes:
+            return media_files
+
+        # Drive is over threshold - filter out files that would be evicted
+        eviction_min_priority = self.config_manager.cache.eviction_min_priority
+        filtered_files = []
+        skipped_count = 0
+        skipped_by_source = {"ondeck": 0, "watchlist": 0, "unknown": 0}
+
+        for file_path in media_files:
+            # Estimate priority for this file based on source
+            # This is a simplified estimate before the file is actually tracked
+            source = source_map.get(file_path, "unknown")
+
+            # Base priority calculation (simplified from CachePriorityManager):
+            # - Base score: 50
+            # - OnDeck bonus: +20
+            # - Fresh cache bonus: +15 (will apply after caching)
+            # - Single user: +5
+            # = OnDeck: ~90, Watchlist: ~70
+            if source == "ondeck":
+                estimated_priority = 90  # OnDeck items are high priority
+            elif source == "watchlist":
+                estimated_priority = 70  # Watchlist items are lower priority
+            else:
+                estimated_priority = 65  # Unknown/other
+
+            if estimated_priority >= eviction_min_priority:
+                filtered_files.append(file_path)
+            else:
+                skipped_count += 1
+                skipped_by_source[source] = skipped_by_source.get(source, 0) + 1
+                logging.debug(f"Skipping cache (priority {estimated_priority} < {eviction_min_priority}): {os.path.basename(file_path)}")
+
+        if skipped_count > 0:
+            # Build a readable breakdown
+            breakdown_parts = []
+            for src, count in skipped_by_source.items():
+                if count > 0:
+                    breakdown_parts.append(f"{count} {src}")
+            breakdown = ", ".join(breakdown_parts)
+
+            logging.warning(
+                f"Cache over eviction threshold ({threshold_percent}%): skipped {skipped_count} files "
+                f"that would be immediately evicted ({breakdown}). "
+                f"Increase 'Eviction Threshold' or lower 'Minimum Priority to Keep' in Settings."
+            )
+
+        return filtered_files
 
     def _run_smart_eviction(self, needed_space_bytes: int = 0) -> tuple:
         """Run smart eviction to free cache space for higher-priority items.
