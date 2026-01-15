@@ -1,0 +1,70 @@
+<!-- Global Operation Banner - shown on all pages when operation is running -->
+{% if status.state == 'running' %}
+<div class="alert alert-info global-op-banner" hx-get="/api/operation-banner" hx-trigger="every 2s" hx-swap="innerHTML" hx-target="#global-operation-banner">
+    <div class="flex items-center gap-2" style="justify-content: space-between; width: 100%;">
+        <div class="flex items-center gap-2">
+            <span class="spinner"></span>
+            <div>
+                <strong>{{ 'Dry Run' if status.dry_run else 'Operation' }} in progress...</strong>
+                {% if status.started_at %}
+                <div class="text-muted" style="font-size: 0.85rem;">Started at {{ status.started_at }}</div>
+                {% endif %}
+            </div>
+        </div>
+        <div class="flex items-center gap-2">
+            <a href="/logs?live=true" class="btn btn-sm btn-secondary" title="View live logs">
+                <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                View Logs
+            </a>
+            <button type="button" class="btn btn-sm btn-danger"
+                    hx-post="/operations/stop"
+                    hx-target="#global-operation-banner"
+                    hx-swap="innerHTML"
+                    title="Stop operation after current file completes">
+                <i data-lucide="square" style="width: 14px; height: 14px;"></i>
+                Stop
+            </button>
+        </div>
+    </div>
+</div>
+<script>lucide.createIcons();</script>
+{% elif status.state == 'completed' %}
+<div class="alert alert-success auto-dismiss global-op-banner" id="global-operation-alert">
+    <i data-lucide="check-circle"></i>
+    <div>
+        <strong>{{ 'Dry Run' if status.dry_run else 'Operation' }} Completed</strong>
+        <div style="font-size: 0.85rem; margin-top: 0.25rem;">
+            {% if status.files_cached > 0 %}Cached: {{ status.files_cached }} files{% endif %}
+            {% if status.files_restored > 0 %}{% if status.files_cached > 0 %} | {% endif %}Restored: {{ status.files_restored }} files{% endif %}
+            {% if status.files_cached == 0 and status.files_restored == 0 %}No files needed processing{% endif %}
+            <br>Duration: {{ status.duration_seconds }}s
+        </div>
+    </div>
+</div>
+<script>
+    lucide.createIcons();
+    // Auto-dismiss after 10 seconds
+    setTimeout(function() {
+        var alert = document.getElementById('global-operation-alert');
+        if (alert) {
+            alert.style.transition = 'opacity 0.5s ease-out';
+            alert.style.opacity = '0';
+            setTimeout(function() { alert.remove(); }, 500);
+        }
+    }, 10000);
+</script>
+{% elif status.state == 'failed' %}
+<div class="alert alert-error global-op-banner">
+    <i data-lucide="alert-circle"></i>
+    <div>
+        <strong>Operation Failed</strong>
+        {% if status.error_message %}
+        <div style="font-size: 0.85rem; margin-top: 0.25rem;">{{ status.error_message }}</div>
+        {% endif %}
+    </div>
+</div>
+<script>lucide.createIcons();</script>
+{% else %}
+<!-- Not running - continue polling at slower rate -->
+<div hx-get="/api/operation-banner" hx-trigger="every 5s" hx-swap="innerHTML" hx-target="#global-operation-banner"></div>
+{% endif %}

@@ -13,7 +13,10 @@
         </div>
     </div>
     <div class="action-buttons">
-        <form id="run-form" style="display: inline-flex; align-items: center; gap: 0.75rem;" hx-post="/operations/run" hx-target="#operation-status">
+        <form id="run-form" style="display: inline-flex; align-items: center; gap: 0.75rem;"
+              hx-post="/operations/run"
+              hx-target="#global-operation-banner"
+              hx-swap="innerHTML">
             <label class="switch" style="margin: 0;">
                 <input type="checkbox" id="verbose-toggle" name="verbose" value="true">
                 <span style="font-size: 0.85rem;">Verbose</span>
@@ -35,11 +38,6 @@
         </form>
     </div>
 </header>
-
-<!-- Operation Status - polls for status on load if operation is running -->
-<div id="operation-status" class="mb-2"
-     {% if stats.is_running %}hx-get="/operations/status" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
-</div>
 
 <!-- Stats Row - lazy loaded -->
 <div id="stats-container"

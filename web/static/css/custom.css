@@ -311,3 +311,38 @@ footer {
 #global-op-check {
     display: none;
 }
+
+/* Global Operation Banner - shown at top of all pages during operation */
+#global-operation-banner {
+    position: fixed;
+    top: 0;
+    left: var(--sidebar-width, 240px);
+    right: 0;
+    z-index: 1000;
+    padding: 0 1rem;
+    pointer-events: none;
+}
+
+#global-operation-banner > * {
+    pointer-events: auto;
+}
+
+#global-operation-banner .alert {
+    margin: 0.5rem 0 0 0;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+/* Adjust for collapsed sidebar - banner is outside app-container, so check body class */
+body.sidebar-collapsed #global-operation-banner,
+.sidebar-collapsed-init #global-operation-banner {
+    left: var(--sidebar-collapsed, 60px);
+}
+
+/* Mobile: full width */
+@media (max-width: 768px) {
+    #global-operation-banner {
+        left: 0;
+        top: 60px; /* Below mobile header */
+        padding: 0 0.5rem;
+    }
+}

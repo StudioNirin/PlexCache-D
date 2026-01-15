@@ -55,15 +55,16 @@
     <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" onclick="closeSidebar()"></div>
 
+    <!-- Global Operation Status Banner - visible on all pages (outside app-container for fixed positioning) -->
+    <div id="global-operation-banner"
+         hx-get="/api/operation-banner"
+         hx-trigger="load, every 3s"
+         hx-swap="innerHTML">
+    </div>
+
     <div class="app-container">
-        <!-- Top right controls (operation indicator + theme toggle) - fixed position -->
+        <!-- Top right controls (theme toggle) - fixed position -->
         <div class="top-controls">
-            <!-- Global operation indicator - polls for status -->
-            <div id="global-op-container"
-                 hx-get="/api/operation-indicator"
-                 hx-trigger="load, every 5s"
-                 hx-swap="innerHTML">
-            </div>
             <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
                 <i data-lucide="sun" class="icon-sun"></i>
                 <i data-lucide="moon" class="icon-moon"></i>
@@ -198,6 +199,7 @@
             const appContainer = document.querySelector('.app-container');
             const isCollapsed = sidebar.classList.toggle('collapsed');
             appContainer.classList.toggle('sidebar-collapsed', isCollapsed);
+            document.body.classList.toggle('sidebar-collapsed', isCollapsed);
 
             // Persist state
             localStorage.setItem('sidebarCollapsed', isCollapsed);
@@ -218,6 +220,7 @@
                 if (sidebar && appContainer) {
                     sidebar.classList.add('collapsed');
                     appContainer.classList.add('sidebar-collapsed');
+                    document.body.classList.add('sidebar-collapsed');
                 }
                 // Remove the init class since we've applied the proper classes
                 document.documentElement.classList.remove('sidebar-collapsed-init');

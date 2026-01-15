@@ -539,3 +539,15 @@ async def get_operation_indicator(request: Request):
             "components/global_operation_indicator.html",
             {"request": request, "is_running": False}
         )
+
+
+@router.get("/operation-banner", response_class=HTMLResponse)
+async def get_operation_banner(request: Request):
+    """Return global operation status banner HTML - shown on all pages when operation is running"""
+    operation_runner = get_operation_runner()
+    status = operation_runner.get_status_dict()
+
+    return templates.TemplateResponse(
+        "components/global_operation_banner.html",
+        {"request": request, "status": status}
+    )
