@@ -97,7 +97,7 @@ async def maintenance_page(request: Request):
 
 
 @router.get("/audit", response_class=HTMLResponse)
-async def run_audit(request: Request, refresh: bool = False):
+async def run_audit(request: Request, refresh: bool = Query(default=False, description="Force refresh")):
     """Run audit and return HTMX partial with results"""
     results, updated_at = _get_cached_audit_results(force_refresh=refresh)
 
@@ -112,7 +112,7 @@ async def run_audit(request: Request, refresh: bool = False):
         else:
             cache_age = f"{int(age_seconds / 3600)} hr ago"
 
-    return templates.TemplateResponse(
+    response = templates.TemplateResponse(
         "maintenance/partials/audit_results.html",
         {
             "request": request,
@@ -120,6 +120,9 @@ async def run_audit(request: Request, refresh: bool = False):
             "cache_age": cache_age or "just now"
         }
     )
+    # Prevent browser caching so refresh button always fetches fresh data
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
 
 
 @router.get("/health", response_class=HTMLResponse)
