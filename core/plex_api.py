@@ -976,7 +976,7 @@ class PlexManager:
 
         # --- RSS feed processing ---
         if rss_url:
-            yield from self._process_rss_watchlist(rss_url, current_username, filtered_sections, watchlist_episodes)
+            yield from self._process_rss_watchlist(rss_url, current_username, filtered_sections, watchlist_episodes, skip_watchlist)
             return
 
         # --- Local Plex watchlist processing ---
@@ -1009,12 +1009,20 @@ class PlexManager:
             self.mark_watchlist_incomplete()
 
     def _process_rss_watchlist(self, rss_url: str, current_username: str,
-                                filtered_sections: List[int], watchlist_episodes: int) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
-        """Process RSS feed items and yield matching media files."""
+                                filtered_sections: List[int], watchlist_episodes: int,
+                                skip_watchlist: List[str] = None) -> Generator[Tuple[str, str, Optional[datetime]], None, None]:
+        """Process RSS feed items and yield matching media files.
+
+        Args:
+            skip_watchlist: List of usernames to skip (filters RSS items by who added them)
+        """
+        if skip_watchlist is None:
+            skip_watchlist = []
         rss_items = self._fetch_rss_titles(rss_url)
         logging.debug(f"RSS feed contains {len(rss_items)} items")
         unknown_user_ids = set()
         rss_not_found = []
+        rss_skipped_users = {}  # username -> count of skipped items
 
         for title, category, pub_date, author_id, guid in rss_items:
             # Look up username from author ID
@@ -1029,6 +1037,12 @@ class PlexManager:
                     unknown_user_ids.add(author_id)
             else:
                 rss_username = "Friends (RSS)"
+
+            # Skip items from users in the skip list
+            if skip_watchlist and rss_username in skip_watchlist:
+                logging.debug(f"RSS: Skipping '{title}' — added by {rss_username} (in skip list)")
+                rss_skipped_users[rss_username] = rss_skipped_users.get(rss_username, 0) + 1
+                continue
 
             cleaned_title = self.clean_rss_title(title)
             file = self.search_plex(cleaned_title, guid=guid, expected_type=category,
@@ -1054,6 +1068,12 @@ class PlexManager:
                 logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library")
             else:
                 logging.info(f"RSS: Skipped {len(rss_not_found)} items not in library (use --verbose for details)")
+
+        # Log summary of skipped users
+        if rss_skipped_users:
+            total_skipped = sum(rss_skipped_users.values())
+            user_summary = ", ".join(f"{user}: {count}" for user, count in sorted(rss_skipped_users.items()))
+            logging.info(f"RSS: Skipped {total_skipped} items from disabled users ({user_summary})")
 
         if unknown_user_ids:
             logging.debug(f"[PLEX API] {len(unknown_user_ids)} unknown user ID(s) in RSS feed: {', '.join(sorted(unknown_user_ids))}. Run 'python3 plexcache_setup.py' and refresh users to resolve.")
