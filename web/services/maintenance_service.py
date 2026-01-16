@@ -814,58 +814,80 @@ class MaintenanceService:
 
     def protect_with_backup(self, paths: List[str], dry_run: bool = True) -> ActionResult:
         """Protect cache files by creating .plexcached backup on array and adding to exclude list"""
+        logging.info(f"protect_with_backup called with {len(paths)} paths, dry_run={dry_run}")
+
         if not paths:
+            logging.warning("protect_with_backup: No paths provided")
             return ActionResult(success=False, message="No paths provided")
 
         affected = 0
         errors = []
 
-        for cache_path in paths:
+        for i, cache_path in enumerate(paths):
+            logging.debug(f"Processing path {i+1}/{len(paths)}: {cache_path}")
+
             # Get the array path equivalent
             array_path = self._cache_to_array_path(cache_path)
             if not array_path:
+                logging.warning(f"Could not convert cache path to array path: {cache_path}")
                 errors.append(f"{os.path.basename(cache_path)}: Unknown path mapping")
                 continue
 
             plexcached_path = array_path + ".plexcached"
+            logging.debug(f"Array path: {array_path}, plexcached_path: {plexcached_path}")
 
             if dry_run:
                 affected += 1
             else:
                 try:
-                    # Create destination directory if needed
-                    array_dir = os.path.dirname(array_path)
-                    os.makedirs(array_dir, exist_ok=True)
+                    # Check if backup already exists
+                    backup_exists = os.path.exists(plexcached_path)
 
-                    # Copy file to array as .plexcached backup
-                    shutil.copy2(cache_path, plexcached_path)
-
-                    # Verify copy
-                    if os.path.exists(plexcached_path):
-                        cache_size = os.path.getsize(cache_path)
-                        backup_size = os.path.getsize(plexcached_path)
-
-                        if cache_size == backup_size:
-                            # Add to exclude list (translate to host path for Unraid mover)
-                            host_path = self._translate_container_to_host_path(cache_path)
-                            with open(self.exclude_file, 'a', encoding='utf-8') as f:
-                                f.write(host_path + '\n')
-
-                            # Add to timestamps.json
-                            self._add_to_timestamps(cache_path)
-
-                            affected += 1
-                        else:
-                            # Size mismatch - remove failed backup
-                            os.remove(plexcached_path)
-                            errors.append(f"{os.path.basename(cache_path)}: Copy verification failed")
+                    if backup_exists:
+                        # Backup already exists - just add to exclude list and timestamps
+                        logging.info(f"Backup already exists for {os.path.basename(cache_path)}, adding to exclude list")
                     else:
-                        errors.append(f"{os.path.basename(cache_path)}: Backup not created")
+                        # Need to create backup - copy file to array
+                        array_dir = os.path.dirname(array_path)
+                        os.makedirs(array_dir, exist_ok=True)
+
+                        cache_size = os.path.getsize(cache_path) if os.path.exists(cache_path) else 0
+                        logging.info(f"Copying {os.path.basename(cache_path)} ({cache_size / (1024**3):.2f} GB) to array...")
+
+                        shutil.copy2(cache_path, plexcached_path)
+
+                        # Verify copy
+                        if os.path.exists(plexcached_path):
+                            backup_size = os.path.getsize(plexcached_path)
+                            if cache_size != backup_size:
+                                os.remove(plexcached_path)
+                                logging.error(f"Copy verification failed for {os.path.basename(cache_path)}: {cache_size} != {backup_size}")
+                                errors.append(f"{os.path.basename(cache_path)}: Copy verification failed")
+                                continue
+                        else:
+                            logging.error(f"Backup not created for {os.path.basename(cache_path)}")
+                            errors.append(f"{os.path.basename(cache_path)}: Backup not created")
+                            continue
+
+                    # Add to exclude list (translate to host path for Unraid mover)
+                    host_path = self._translate_container_to_host_path(cache_path)
+                    with open(self.exclude_file, 'a', encoding='utf-8') as f:
+                        f.write(host_path + '\n')
+
+                    # Add to timestamps.json
+                    self._add_to_timestamps(cache_path)
+
+                    logging.info(f"Protected: {os.path.basename(cache_path)}")
+                    affected += 1
 
                 except (IOError, OSError) as e:
+                    logging.exception(f"Error protecting {os.path.basename(cache_path)}: {e}")
                     errors.append(f"{os.path.basename(cache_path)}: {str(e)}")
 
         action = "Would protect" if dry_run else "Protected"
+        logging.info(f"protect_with_backup complete: {action} {affected} file(s), {len(errors)} errors")
+        if errors:
+            logging.warning(f"protect_with_backup errors: {errors}")
         return ActionResult(
             success=affected > 0 or (dry_run and not errors),
             message=f"{action} {affected} file(s) with array backup",
