@@ -100,6 +100,13 @@
                            placeholder="Auto-detect"
                            oninput="updateCacheCalculations()">
                     <div class="form-hint">Override auto-detected size (e.g., 3.7TB). For ZFS pools where dataset size differs from pool size.</div>
+                    <div id="drive_size_display" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;">
+                        {% if drive_info.is_manual_override %}
+                        Using manual size: {{ drive_info.total_display }}
+                        {% else %}
+                        Auto-detected: {{ drive_info.total_display | default('Unknown') }}
+                        {% endif %}
+                    </div>
                 </div>
             </div>
 
@@ -115,14 +122,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label>&nbsp;</label>
-                    <div id="drive_size_display" class="form-hint" style="padding-top: 0.5rem;">
-                        {% if drive_info.is_manual_override %}
-                        <span style="color: var(--plex-orange);">Using manual size: {{ drive_info.total_display }}</span>
-                        {% else %}
-                        <span class="text-muted">Auto-detected: {{ drive_info.total_display | default('Unknown') }}</span>
-                        {% endif %}
-                    </div>
+                    <!-- Empty column for grid alignment -->
                 </div>
             </div>
 
@@ -296,9 +296,9 @@ function updateCacheCalculations() {
     // Update drive size display
     if (driveSizeDisplay) {
         if (isManual) {
-            driveSizeDisplay.innerHTML = `<span style="color: var(--plex-orange);">Using manual size: ${effectiveDisplay}</span>`;
+            driveSizeDisplay.textContent = `Using manual size: ${effectiveDisplay}`;
         } else {
-            driveSizeDisplay.innerHTML = `<span class="text-muted">Auto-detected: ${autoDetectedDisplay}</span>`;
+            driveSizeDisplay.textContent = `Auto-detected: ${autoDetectedDisplay}`;
         }
     }
 

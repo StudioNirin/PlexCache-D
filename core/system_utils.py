@@ -118,14 +118,12 @@ def _get_zfs_pool_stats(path: str) -> Optional[DiskUsage]:
     Returns:
         DiskUsage with pool-level stats, or None if not ZFS or detection fails.
     """
-    logger = logging.getLogger(__name__)
     try:
         # Detect filesystem type using df -T
         result = subprocess.run(
             ['df', '-T', path],
             capture_output=True, text=True, timeout=5
         )
-        logger.debug(f"ZFS detection df -T output: rc={result.returncode}, stdout={result.stdout.strip()}, stderr={result.stderr.strip()}")
         if result.returncode != 0 or 'zfs' not in result.stdout.lower():
             return None
 
@@ -146,7 +144,6 @@ def _get_zfs_pool_stats(path: str) -> Optional[DiskUsage]:
             ['zpool', 'list', '-Hp', pool_name],
             capture_output=True, text=True, timeout=5
         )
-        logger.debug(f"ZFS zpool list output: rc={result.returncode}, stdout={result.stdout.strip()}, stderr={result.stderr.strip()}")
         if result.returncode != 0:
             return None
 
@@ -160,16 +157,13 @@ def _get_zfs_pool_stats(path: str) -> Optional[DiskUsage]:
         used = int(parts[2])
         free = int(parts[3])
 
-        logging.debug(f"ZFS pool '{pool_name}' detected: total={total/1e12:.2f}TB, used={used/1e12:.2f}TB, free={free/1e12:.2f}TB")
-
         return DiskUsage(total, used, free)
 
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError) as e:
-        # zpool command not available, timeout, or parse error
-        logger.debug(f"ZFS detection failed for {path}: {type(e).__name__}: {e}")
+    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError):
+        # zpool command not available, timeout, or parse error - silent fallback
         return None
-    except Exception as e:
-        logger.debug(f"Unexpected error in ZFS detection for {path}: {type(e).__name__}: {e}")
+    except Exception:
+        # Unexpected error - silent fallback to standard disk usage
         return None
 
 
