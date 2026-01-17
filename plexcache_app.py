@@ -162,7 +162,7 @@ class PlexCacheApp:
 
         # Get paths from config
         exclusion_path = self.config_manager.get_unraid_mover_exclusions_file()
-        plexcache_path = self.config_manager.get_mover_exclude_file()
+        plexcache_path = self.config_manager.get_cached_files_file()
 
         # Ensure the main file exists
         if not exclusion_path.exists():
@@ -421,7 +421,7 @@ class PlexCacheApp:
         self._init_path_modifier()
 
         # Get file paths for trackers
-        mover_exclude = self.config_manager.get_mover_exclude_file()
+        mover_exclude = self.config_manager.get_cached_files_file()
         timestamp_file = self.config_manager.get_timestamp_file()
         logging.debug(f"Mover exclude file: {mover_exclude}")
         logging.debug(f"Timestamp file: {timestamp_file}")
@@ -946,7 +946,7 @@ class PlexCacheApp:
         Returns:
             Tuple of (total_bytes, cached_files_list). Returns (0, []) on error.
         """
-        exclude_file = self.config_manager.get_mover_exclude_file()
+        exclude_file = self.config_manager.get_cached_files_file()
         if not exclude_file.exists():
             return (0, [])
 
@@ -1426,7 +1426,7 @@ def _run_show_priorities(config_file: str, verbose: bool = False) -> None:
     config_manager.load_config()
 
     # Get the mover exclude file to find cached files
-    mover_exclude = config_manager.get_mover_exclude_file()
+    mover_exclude = config_manager.get_cached_files_file()
     if not mover_exclude.exists():
         print("No exclude file found. No files are currently cached.")
         return
