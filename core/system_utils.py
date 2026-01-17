@@ -82,10 +82,14 @@ def get_disk_usage(path: str, total_override_bytes: int = 0) -> DiskUsage:
     misleading (e.g., showing 1.7TB total when the pool is 3.7TB). Use the
     manual override (cache_drive_size setting) to specify correct pool capacity.
 
+    When manual override is set, we keep the actual free space (which IS accurate
+    on ZFS - it reflects pool free space) and calculate used from total - free.
+    This gives correct results when mixing pool-level total with dataset stats.
+
     Args:
         path: Any path on the filesystem to check.
         total_override_bytes: Manual override for total capacity in bytes.
-            If > 0, uses this value for total and recalculates free space.
+            If > 0, uses this value for total and calculates used from free.
             If 0, uses statvfs (may be inaccurate on ZFS).
 
     Returns:
@@ -96,9 +100,10 @@ def get_disk_usage(path: str, total_override_bytes: int = 0) -> DiskUsage:
 
     # Apply manual override if provided
     if total_override_bytes > 0:
-        # Use manual total, keep actual used, recalculate free
-        manual_free = max(0, total_override_bytes - actual_used)
-        return DiskUsage(total_override_bytes, actual_used, manual_free)
+        # Keep actual_free (accurate on ZFS - reflects pool free space)
+        # Calculate used as: manual_total - actual_free
+        calculated_used = max(0, total_override_bytes - actual_free)
+        return DiskUsage(total_override_bytes, calculated_used, actual_free)
 
     return DiskUsage(actual_total, actual_used, actual_free)
 
