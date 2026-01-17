@@ -1037,7 +1037,7 @@ class PlexCacheApp:
         logging.info("")
         logging.info("--- Moving Files ---")
 
-        # Move watched files to array
+        # Step 1: Move watched files to array (frees space naturally)
         if self.config_manager.cache.watched_move and self.media_to_array:
             # Log restore vs move summary before processing
             files_to_restore, files_to_move = self._separate_restore_and_move(self.media_to_array)
@@ -1045,10 +1045,16 @@ class PlexCacheApp:
                 self._log_restore_and_move_summary(files_to_restore, files_to_move)
             self._safe_move_files(self.media_to_array, 'array')
 
-        # Move files to cache
+        # Step 2: Run smart eviction BEFORE filtering/caching (frees more space if needed)
+        # This runs after array moves so we have accurate space calculations
+        if self.media_to_cache:
+            self._run_smart_eviction()
+
+        # Step 3: Move files to cache
         logging.debug(f"Files being passed to cache move: {self.media_to_cache}")
 
         # Filter out files that would be immediately evicted (prevents cache/evict loop)
+        # Now runs AFTER eviction, so threshold check is accurate
         if self.media_to_cache:
             self.media_to_cache = self._filter_low_priority_files(self.media_to_cache, self.source_map)
 
@@ -1137,6 +1143,7 @@ class PlexCacheApp:
 
         Returns:
             Tuple of (total_bytes, cached_files_list). Returns (0, []) on error.
+            In Docker, paths are translated from host to container paths.
         """
         exclude_file = self.config_manager.get_mover_exclude_file()
         if not exclude_file.exists():
@@ -1146,11 +1153,20 @@ class PlexCacheApp:
         cached_files = []
         try:
             with open(exclude_file, 'r') as f:
-                cached_files = [line.strip() for line in f if line.strip()]
-            for cached_file in cached_files:
+                host_paths = [line.strip() for line in f if line.strip()]
+
+            for host_path in host_paths:
+                # In Docker, exclude file has host paths but we need container paths
+                # to check existence and calculate size
+                if self.file_filter:
+                    container_path = self.file_filter._translate_from_host_path(host_path)
+                else:
+                    container_path = host_path
+
                 try:
-                    if os.path.exists(cached_file):
-                        plexcache_tracked += os.path.getsize(cached_file)
+                    if os.path.exists(container_path):
+                        plexcache_tracked += os.path.getsize(container_path)
+                        cached_files.append(container_path)  # Return container paths for eviction
                 except (OSError, FileNotFoundError):
                     pass
         except Exception as e:
@@ -1503,20 +1519,8 @@ class PlexCacheApp:
             media_files, destination, self.media_to_cache, set(self.files_to_skip)
         )
 
-        # Run smart eviction before applying cache limit (if enabled)
-        if destination == 'cache':
-            # Calculate if drive is over limit - if so, evict to make room
-            needed_space = 0
-            cache_limit_bytes, _ = self._get_effective_cache_limit(cache_dir)
-            if cache_limit_bytes > 0:
-                try:
-                    disk_usage = get_disk_usage(cache_dir)
-                    if disk_usage.used > cache_limit_bytes:
-                        needed_space = int(disk_usage.used - cache_limit_bytes)
-                        logging.debug(f"Drive over limit by {needed_space/1e9:.2f}GB, will try to evict")
-                except Exception:
-                    pass
-            self._run_smart_eviction(needed_space)
+        # Note: Smart eviction now runs earlier in _move_files() before filtering
+        # This ensures eviction happens after array moves but before low-priority filtering
 
         # Apply cache size limit when moving to cache
         if destination == 'cache':

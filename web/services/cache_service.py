@@ -911,14 +911,14 @@ class CacheService:
         lines.append("")
 
         # Summary by priority tier
-        high = [f for f in files if f.priority_score >= 70]
-        medium = [f for f in files if 40 <= f.priority_score < 70]
-        low = [f for f in files if f.priority_score < 40]
+        high = [f for f in files if f.priority_score >= 90]
+        medium = [f for f in files if 70 <= f.priority_score < 90]
+        low = [f for f in files if f.priority_score < 70]
 
         lines.append("SUMMARY BY TIER:")
-        lines.append(f"  High priority (70-100):   {len(high)} files")
-        lines.append(f"  Medium priority (40-69):  {len(medium)} files")
-        lines.append(f"  Low priority (0-39):      {len(low)} files (eviction candidates)")
+        lines.append(f"  High priority (90-100):   {len(high)} files")
+        lines.append(f"  Medium priority (70-89):  {len(medium)} files")
+        lines.append(f"  Low priority (0-69):      {len(low)} files (eviction candidates)")
         lines.append("")
 
         # Summary by source
@@ -938,7 +938,7 @@ class CacheService:
         lines.append("")
 
         for f in files:
-            priority_tier = "HIGH" if f.priority_score >= 70 else "MED" if f.priority_score >= 40 else "LOW"
+            priority_tier = "HIGH" if f.priority_score >= 90 else "MED" if f.priority_score >= 70 else "LOW"
             user_str = f", users: {', '.join(f.users)}" if f.users else ""
 
             lines.append(f"[{priority_tier}] Score: {f.priority_score}")
@@ -990,9 +990,9 @@ class CacheService:
             })
 
         # Calculate tier distribution
-        high_files = [f for f in files_with_breakdown if f["priority_score"] >= 70]
-        medium_files = [f for f in files_with_breakdown if 40 <= f["priority_score"] < 70]
-        low_files = [f for f in files_with_breakdown if f["priority_score"] < 40]
+        high_files = [f for f in files_with_breakdown if f["priority_score"] >= 90]
+        medium_files = [f for f in files_with_breakdown if 70 <= f["priority_score"] < 90]
+        low_files = [f for f in files_with_breakdown if f["priority_score"] < 70]
 
         total_count = len(files_with_breakdown)
         total_size = sum(f["size"] for f in files_with_breakdown)

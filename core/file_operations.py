@@ -654,6 +654,7 @@ class OnDeckTracker(JSONTracker):
     {
         "/path/to/file.mkv": {
             "users": ["Brandon", "Home"],
+            "first_seen": "2025-12-01T10:00:00.000000",
             "last_seen": "2025-12-03T10:00:00.000000",
             "episode_info": {
                 "show": "Foundation",
@@ -667,6 +668,8 @@ class OnDeckTracker(JSONTracker):
 
     Fields:
     - users: All users who have this file in their OnDeck queue (current or prefetched)
+    - first_seen: When item was first added to OnDeck (for staleness calculation)
+    - last_seen: When item was last seen during a scan
     - episode_info: For TV episodes, contains show/season/episode and whether this is
                    the actual OnDeck episode vs a prefetched next episode
     - ondeck_users: Users for whom this is the CURRENT OnDeck episode (not prefetched)
@@ -701,6 +704,9 @@ class OnDeckTracker(JSONTracker):
                     entry.setdefault('users', []).append(username)
                 # Always update last_seen
                 entry['last_seen'] = now_iso
+                # Backfill first_seen for existing entries (migration)
+                if 'first_seen' not in entry:
+                    entry['first_seen'] = now_iso
 
                 # Track ondeck_users separately (users for whom this is current ondeck)
                 if is_current_ondeck:
@@ -723,6 +729,7 @@ class OnDeckTracker(JSONTracker):
                 # New entry
                 new_entry = {
                     'users': [username],
+                    'first_seen': now_iso,
                     'last_seen': now_iso
                 }
                 if is_current_ondeck:
@@ -871,17 +878,17 @@ class CachePriorityManager:
 
     Priority Score (0-100):
     - Base score: 50
-    - Source type: +20 for ondeck, +0 for watchlist (OnDeck = actively watching)
+    - Source type: +15 for ondeck, +0 for watchlist (OnDeck = actively watching)
     - User count: +5 per user (max +15) - multiple users = popular
-    - Cache recency: +5 to +15 based on hours cached (avoid churn)
-    - Watchlist age: +10 if fresh, 0 if >30 days, -10 if >60 days
-    - OnDeck age: +10 if recently watched, 0 if >30 days, -10 if >60 days
+    - Cache recency: +5 (<24h), +3 (<72h), +0 otherwise
+    - Watchlist age: +10 if fresh (<7d), 0 if 7-60d, -10 if >60d
+    - OnDeck staleness: +5 if fresh (<7d), 0 if 7-14d, -5 if 14-30d, -10 if >30d
     - Episode position: +15 for current OnDeck, +10 for next X episodes, 0 otherwise
 
     Eviction Philosophy:
     - Watchlist items are evicted first (lower base priority)
-    - Only when watchlist is exhausted should OnDeck items be considered
-    - Recently added items (watchlist or ondeck) get priority boost
+    - OnDeck items that sit too long without being watched decay in priority
+    - Fresh items (recently added) get slight priority boost
     - Current/next episodes in a series get higher priority
     """
 
@@ -921,12 +928,12 @@ class CachePriorityManager:
         """
         score = 50  # Base score
 
-        # Factor 1: Source Type (+20 for ondeck, +0 for watchlist)
+        # Factor 1: Source Type (+15 for ondeck, +0 for watchlist)
         # OnDeck means user is actively watching this content - protect it
         source = self.timestamp_tracker.get_source(cache_path)
         is_ondeck = source == "ondeck"
         if is_ondeck:
-            score += 20
+            score += 15
 
         # Factor 2: User Count (+5 per user, max +15)
         # Items on multiple users' OnDeck/watchlists are more popular
@@ -945,16 +952,15 @@ class CachePriorityManager:
 
         score += min(user_count * 5, 15)
 
-        # Factor 3: Cache Recency (+15 if cached in last 24h, scaled down)
-        # Recently cached = recent interest, avoid churn from moving back and forth
+        # Factor 3: Cache Recency (+5 if cached in last 24h, +3 if <72h)
+        # Small bonus for recently cached to avoid immediate churn
         hours_cached = self._get_hours_since_cached(cache_path)
         if hours_cached >= 0:  # -1 means no timestamp
             if hours_cached < 24:
-                score += 15
-            elif hours_cached < 72:
-                score += 10
-            elif hours_cached < 168:  # 7 days
                 score += 5
+            elif hours_cached < 72:
+                score += 3
+            # >72h: no adjustment (0)
 
         # Factor 4: Watchlist Age (+10 fresh, 0 if >30 days, -10 if >60 days)
         # Recently added to watchlist = user intends to watch soon
@@ -968,19 +974,22 @@ class CachePriorityManager:
                     score -= 10  # Very old, likely forgotten
                 # 7-60 days: no adjustment (0)
 
-        # Factor 5: OnDeck Age (+10 if recently watched, 0 if >30 days, -10 if >60 days)
-        # Items that haven't been watched lately get lower priority
-        # But still protected vs watchlist due to +20 base for ondeck
+        # Factor 5: OnDeck Staleness (+5 if fresh, decay over time)
+        # Items sitting on OnDeck too long without progress should lose priority
+        # Uses first_seen (when added to OnDeck) not last_seen (updated every scan)
         if is_ondeck and ondeck_entry:
-            last_seen_str = ondeck_entry.get('last_seen')
-            if last_seen_str:
-                days_since_seen = self._get_days_since_last_seen(last_seen_str)
-                if days_since_seen >= 0:
-                    if days_since_seen < 7:
-                        score += 10  # Recently watched
-                    elif days_since_seen > 60:
-                        score -= 10  # Stale OnDeck item
-                    # 7-60 days: no adjustment (0)
+            first_seen_str = ondeck_entry.get('first_seen')
+            if first_seen_str:
+                days_on_ondeck = self._get_days_since_first_seen(first_seen_str)
+                if days_on_ondeck >= 0:
+                    if days_on_ondeck < 7:
+                        score += 5   # Fresh - just added to OnDeck
+                    elif days_on_ondeck < 14:
+                        pass         # Normal - no adjustment (0)
+                    elif days_on_ondeck < 30:
+                        score -= 5   # Getting stale
+                    else:
+                        score -= 10  # Stale - on OnDeck for 30+ days
 
         # Factor 6: Episode Position (+15 for current OnDeck, +10 for next X episodes, 0 otherwise)
         # Current/next episodes in a series get higher priority
@@ -1009,6 +1018,21 @@ class CachePriorityManager:
         try:
             last_seen = datetime.fromisoformat(last_seen_str)
             return (datetime.now() - last_seen).total_seconds() / 86400
+        except (ValueError, TypeError):
+            return -1
+
+    def _get_days_since_first_seen(self, first_seen_str: str) -> float:
+        """Get days since an item was first added to OnDeck.
+
+        Args:
+            first_seen_str: ISO format timestamp string.
+
+        Returns:
+            Days since first added to OnDeck, or -1 if invalid timestamp.
+        """
+        try:
+            first_seen = datetime.fromisoformat(first_seen_str)
+            return (datetime.now() - first_seen).total_seconds() / 86400
         except (ValueError, TypeError):
             return -1
 
