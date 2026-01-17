@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
-from core.system_utils import get_disk_usage
+from core.system_utils import get_disk_usage, detect_zfs
 
 
 def _parse_size_bytes(size_str: str) -> int:
@@ -714,14 +714,19 @@ class CacheService:
         disk_used = 0
         disk_total = 0
         disk_free = 0
+        is_zfs = False
+        has_manual_drive_size = False
 
         if cache_dir and os.path.exists(cache_dir):
             try:
                 drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                has_manual_drive_size = drive_size_override > 0
                 disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
                 disk_free = disk.free
+                # Detect ZFS filesystem (values may be inaccurate without manual override)
+                is_zfs = detect_zfs(cache_dir)
             except (OSError, AttributeError):
                 pass
 
@@ -869,6 +874,9 @@ class CacheService:
                 "cached_size_display": self._format_size(total_cached_size),
                 "cached_percent": calc_percent(total_cached_size, disk_total),
                 "file_count": len(all_files),
+                # ZFS detection (values may need manual override)
+                "is_zfs": is_zfs,
+                "has_manual_drive_size": has_manual_drive_size,
                 # Cache limit info
                 "cache_limit_bytes": cache_limit_bytes,
                 "cache_limit_display": cache_limit_display,

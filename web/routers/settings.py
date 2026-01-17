@@ -12,7 +12,7 @@ from fastapi.templating import Jinja2Templates
 
 from web.config import TEMPLATES_DIR, CONFIG_DIR
 from web.services import get_settings_service, get_scheduler_service
-from core.system_utils import get_disk_usage
+from core.system_utils import get_disk_usage, detect_zfs
 
 
 def _parse_size_bytes(size_str: str) -> int:
@@ -529,6 +529,8 @@ async def settings_cache(request: Request):
             # Add flag to indicate if using manual override
             if drive_size_override > 0:
                 drive_info["is_manual_override"] = True
+            # Detect ZFS (values may need manual override)
+            drive_info["is_zfs"] = detect_zfs(cache_dir)
         except Exception:
             pass
 

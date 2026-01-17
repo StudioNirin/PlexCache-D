@@ -79,26 +79,20 @@ def get_disk_usage(path: str, total_override_bytes: int = 0) -> DiskUsage:
     """Get disk usage with optional manual total size override.
 
     On ZFS filesystems, statvfs() reports dataset-level stats which can be
-    misleading (e.g., showing 1.7TB total when the pool is 3.7TB). This function
-    supports a manual override for the total size, and also attempts ZFS pool
-    detection as a fallback.
+    misleading (e.g., showing 1.7TB total when the pool is 3.7TB). Use the
+    manual override (cache_drive_size setting) to specify correct pool capacity.
 
     Args:
         path: Any path on the filesystem to check.
         total_override_bytes: Manual override for total capacity in bytes.
             If > 0, uses this value for total and recalculates free space.
-            If 0, uses auto-detection (ZFS pool or statvfs).
+            If 0, uses statvfs (may be inaccurate on ZFS).
 
     Returns:
         DiskUsage namedtuple with total, used, and free bytes.
     """
-    # Get actual usage stats first (we always need 'used')
-    zfs_stats = _get_zfs_pool_stats(path)
-    if zfs_stats:
-        actual_total, actual_used, actual_free = zfs_stats
-    else:
-        usage = shutil.disk_usage(path)
-        actual_total, actual_used, actual_free = usage.total, usage.used, usage.free
+    usage = shutil.disk_usage(path)
+    actual_total, actual_used, actual_free = usage.total, usage.used, usage.free
 
     # Apply manual override if provided
     if total_override_bytes > 0:
@@ -109,62 +103,28 @@ def get_disk_usage(path: str, total_override_bytes: int = 0) -> DiskUsage:
     return DiskUsage(actual_total, actual_used, actual_free)
 
 
-def _get_zfs_pool_stats(path: str) -> Optional[DiskUsage]:
-    """Get ZFS pool-level stats if path is on ZFS.
+def detect_zfs(path: str) -> bool:
+    """Detect if a path is on a ZFS filesystem.
 
     Args:
         path: Path to check.
 
     Returns:
-        DiskUsage with pool-level stats, or None if not ZFS or detection fails.
+        True if the path is on ZFS, False otherwise.
     """
     try:
-        # Detect filesystem type using df -T
         result = subprocess.run(
             ['df', '-T', path],
             capture_output=True, text=True, timeout=5
         )
-        if result.returncode != 0 or 'zfs' not in result.stdout.lower():
-            return None
-
-        # Extract dataset name (e.g., "hex-drive/media" or "hex-drive")
-        lines = result.stdout.strip().split('\n')
-        if len(lines) < 2:
-            return None
-
-        # First column is the filesystem/dataset name
-        dataset = lines[1].split()[0]
-
-        # Extract pool name (everything before first / or the whole thing)
-        pool_name = dataset.split('/')[0]
-
-        # Get pool stats using zpool list -Hp (parseable, no header)
-        # Output format: NAME SIZE ALLOC FREE CKPOINT EXPANDSZ FRAG CAP DEDUP HEALTH ALTROOT
-        result = subprocess.run(
-            ['zpool', 'list', '-Hp', pool_name],
-            capture_output=True, text=True, timeout=5
-        )
         if result.returncode != 0:
-            return None
+            return False
 
-        # Parse tab-separated output
-        parts = result.stdout.strip().split('\t')
-        if len(parts) < 4:
-            return None
+        # Check if 'zfs' appears in the filesystem type column
+        return 'zfs' in result.stdout.lower()
 
-        # SIZE, ALLOC, FREE are columns 1, 2, 3 (0-indexed: NAME=0, SIZE=1, ALLOC=2, FREE=3)
-        total = int(parts[1])
-        used = int(parts[2])
-        free = int(parts[3])
-
-        return DiskUsage(total, used, free)
-
-    except (subprocess.TimeoutExpired, FileNotFoundError, ValueError, IndexError):
-        # zpool command not available, timeout, or parse error - silent fallback
-        return None
-    except Exception:
-        # Unexpected error - silent fallback to standard disk usage
-        return None
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        return False
 
 
 def get_disk_number_from_path(disk_path: str) -> Optional[str]:

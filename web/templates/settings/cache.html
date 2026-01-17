@@ -94,12 +94,18 @@
                 </div>
 
                 <div class="form-group">
-                    <label for="cache_drive_size">Cache Drive Size (optional)</label>
+                    <label for="cache_drive_size">Cache Drive Size {% if drive_info.is_zfs and not drive_info.is_manual_override %}(recommended for ZFS){% else %}(optional){% endif %}</label>
                     <input type="text" id="cache_drive_size" name="cache_drive_size"
                            value="{{ settings.cache_drive_size | default('') }}"
                            placeholder="Auto-detect"
                            oninput="updateCacheCalculations()">
                     <div class="form-hint">Override auto-detected size (e.g., 3.7TB). For ZFS pools where dataset size differs from pool size.</div>
+                    {% if drive_info.is_zfs and not drive_info.is_manual_override %}
+                    <div class="form-hint" style="color: #e67e22; margin-top: 0.25rem;">
+                        <i data-lucide="alert-triangle" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+                        ZFS detected: Auto-detected value ({{ drive_info.total_display | default('Unknown') }}) may not reflect true pool capacity. Enter your pool size above.
+                    </div>
+                    {% else %}
                     <div id="drive_size_display" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;">
                         {% if drive_info.is_manual_override %}
                         Using manual size: {{ drive_info.total_display }}
@@ -107,6 +113,7 @@
                         Auto-detected: {{ drive_info.total_display | default('Unknown') }}
                         {% endif %}
                     </div>
+                    {% endif %}
                 </div>
             </div>
 

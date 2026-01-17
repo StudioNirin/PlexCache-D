@@ -1,3 +1,14 @@
+<!-- ZFS Warning (only shown when ZFS detected without manual override) -->
+{% if data.storage.is_zfs and not data.storage.has_manual_drive_size %}
+<div class="alert alert-warning mb-2" style="display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.75rem 1rem;">
+    <i data-lucide="alert-triangle" style="flex-shrink: 0; margin-top: 2px;"></i>
+    <div>
+        <strong>ZFS Detected:</strong> Displayed values are dataset-level stats and may not reflect true pool capacity.
+        <a href="/settings#cache" style="color: var(--plex-orange);">Set Cache Drive Size manually</a> for accurate reporting.
+    </div>
+</div>
+{% endif %}
+
 <!-- Storage Overview Stats -->
 <div class="stats-row">
     <div class="stat-card">
