@@ -75,28 +75,38 @@ def get_disk_free_space_bytes(path: str) -> int:
     return stat.f_bavail * stat.f_frsize
 
 
-def get_disk_usage(path: str) -> DiskUsage:
-    """Get disk usage with ZFS pool-aware reporting.
+def get_disk_usage(path: str, total_override_bytes: int = 0) -> DiskUsage:
+    """Get disk usage with optional manual total size override.
 
     On ZFS filesystems, statvfs() reports dataset-level stats which can be
     misleading (e.g., showing 1.7TB total when the pool is 3.7TB). This function
-    detects ZFS and queries pool-level stats instead.
+    supports a manual override for the total size, and also attempts ZFS pool
+    detection as a fallback.
 
     Args:
         path: Any path on the filesystem to check.
+        total_override_bytes: Manual override for total capacity in bytes.
+            If > 0, uses this value for total and recalculates free space.
+            If 0, uses auto-detection (ZFS pool or statvfs).
 
     Returns:
         DiskUsage namedtuple with total, used, and free bytes.
-        Falls back to shutil.disk_usage() if ZFS detection fails.
     """
-    # Try ZFS-aware detection first
+    # Get actual usage stats first (we always need 'used')
     zfs_stats = _get_zfs_pool_stats(path)
     if zfs_stats:
-        return zfs_stats
+        actual_total, actual_used, actual_free = zfs_stats
+    else:
+        usage = shutil.disk_usage(path)
+        actual_total, actual_used, actual_free = usage.total, usage.used, usage.free
 
-    # Fallback to standard statvfs
-    usage = shutil.disk_usage(path)
-    return DiskUsage(usage.total, usage.used, usage.free)
+    # Apply manual override if provided
+    if total_override_bytes > 0:
+        # Use manual total, keep actual used, recalculate free
+        manual_free = max(0, total_override_bytes - actual_used)
+        return DiskUsage(total_override_bytes, actual_used, manual_free)
+
+    return DiskUsage(actual_total, actual_used, actual_free)
 
 
 def _get_zfs_pool_stats(path: str) -> Optional[DiskUsage]:

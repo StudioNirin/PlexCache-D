@@ -1187,9 +1187,10 @@ class PlexCacheApp:
         if cache_limit_bytes == 0:
             return media_files
 
-        # Get total cache drive usage
+        # Get total cache drive usage (use manual override if configured)
         try:
-            disk_usage = get_disk_usage(cache_dir)
+            drive_size_override = self.config_manager.cache.cache_drive_size_bytes
+            disk_usage = get_disk_usage(cache_dir, drive_size_override)
             drive_usage_bytes = disk_usage.used
             drive_usage_gb = drive_usage_bytes / (1024**3)
         except Exception as e:
@@ -1265,7 +1266,8 @@ class PlexCacheApp:
         threshold_bytes = cache_limit_bytes * threshold_percent / 100
 
         try:
-            disk_usage = get_disk_usage(cache_dir)
+            drive_size_override = self.config_manager.cache.cache_drive_size_bytes
+            disk_usage = get_disk_usage(cache_dir, drive_size_override)
             total_drive_usage = disk_usage.used
         except Exception:
             return media_files  # Can't check, allow caching
@@ -1352,9 +1354,10 @@ class PlexCacheApp:
         threshold_percent = self.config_manager.cache.cache_eviction_threshold_percent
         threshold_bytes = cache_limit_bytes * threshold_percent / 100
 
-        # Get actual total drive usage
+        # Get actual total drive usage (use manual override if configured)
         try:
-            disk_usage = get_disk_usage(cache_dir)
+            drive_size_override = self.config_manager.cache.cache_drive_size_bytes
+            disk_usage = get_disk_usage(cache_dir, drive_size_override)
             total_drive_usage = disk_usage.used
         except Exception:
             total_drive_usage = plexcache_tracked  # Fallback if can't get disk usage

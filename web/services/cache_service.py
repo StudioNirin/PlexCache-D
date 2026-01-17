@@ -11,6 +11,30 @@ from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
 from core.system_utils import get_disk_usage
 
 
+def _parse_size_bytes(size_str: str) -> int:
+    """Parse size string and return bytes. Returns 0 for auto-detect."""
+    if not size_str or size_str.strip() == "0":
+        return 0
+    size_str = size_str.strip().upper()
+    try:
+        if size_str.endswith('TB'):
+            return int(float(size_str[:-2]) * 1024**4)
+        elif size_str.endswith('GB'):
+            return int(float(size_str[:-2]) * 1024**3)
+        elif size_str.endswith('MB'):
+            return int(float(size_str[:-2]) * 1024**2)
+        elif size_str.endswith('T'):
+            return int(float(size_str[:-1]) * 1024**4)
+        elif size_str.endswith('G'):
+            return int(float(size_str[:-1]) * 1024**3)
+        elif size_str.endswith('M'):
+            return int(float(size_str[:-1]) * 1024**2)
+        else:
+            return int(float(size_str) * 1024**3)  # Default to GB
+    except ValueError:
+        return 0
+
+
 @dataclass
 class CachedFile:
     """Represents a cached file with all its metadata"""
@@ -598,10 +622,11 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                disk = get_disk_usage(cache_dir)
+                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
-                usage_percent = int((disk.used / disk.total) * 100)
+                usage_percent = int((disk.used / disk.total) * 100) if disk_total > 0 else 0
             except (OSError, AttributeError):
                 pass
 
@@ -692,7 +717,8 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                disk = get_disk_usage(cache_dir)
+                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
                 disk_free = disk.free
@@ -1048,10 +1074,11 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                disk = get_disk_usage(cache_dir)
+                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
-                current_usage_percent = round((disk.used / disk.total) * 100, 1)
+                current_usage_percent = round((disk.used / disk.total) * 100, 1) if disk_total > 0 else 0
             except (OSError, AttributeError):
                 pass
 
@@ -1096,12 +1123,13 @@ class CacheService:
         settings = self._load_settings()
         cache_dir = self._get_cache_dir(settings)
 
-        # Get current drive usage
+        # Get current drive usage (use manual override if configured)
         disk_used = 0
         disk_total = 0
         if cache_dir and os.path.exists(cache_dir):
             try:
-                disk = get_disk_usage(cache_dir)
+                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
             except (OSError, AttributeError):

@@ -46,6 +46,7 @@ class CacheSettings:
     watchlist_retention_days: int = 0
     watched_move: bool = True
     cache_retention_hours: int = 12
+    cache_drive_size: str = ""  # Manual override for drive size (for ZFS)
     cache_limit: str = "250GB"
     cache_eviction_mode: str = "none"
     cache_eviction_threshold_percent: int = 95
@@ -250,6 +251,7 @@ class SettingsService:
             "create_plexcached_backups": raw.get("create_plexcached_backups", True),
             "hardlinked_files": raw.get("hardlinked_files", "skip"),
             "cache_retention_hours": raw.get("cache_retention_hours", 12),
+            "cache_drive_size": raw.get("cache_drive_size", ""),
             "cache_limit": raw.get("cache_limit", "250GB"),
             "cache_eviction_mode": raw.get("cache_eviction_mode", "none"),
             "cache_eviction_threshold_percent": raw.get("cache_eviction_threshold_percent", 95),
@@ -279,6 +281,7 @@ class SettingsService:
             "create_plexcached_backups": ("create_plexcached_backups", lambda x: x == "on" or x is True),
             "hardlinked_files": ("hardlinked_files", str),
             "cache_retention_hours": ("cache_retention_hours", safe_int),
+            "cache_drive_size": ("cache_drive_size", str),
             "cache_limit": ("cache_limit", str),
             "cache_eviction_mode": ("cache_eviction_mode", str),
             "cache_eviction_threshold_percent": ("cache_eviction_threshold_percent", safe_int),

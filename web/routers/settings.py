@@ -14,6 +14,31 @@ from web.config import TEMPLATES_DIR, CONFIG_DIR
 from web.services import get_settings_service, get_scheduler_service
 from core.system_utils import get_disk_usage
 
+
+def _parse_size_bytes(size_str: str) -> int:
+    """Parse size string and return bytes. Returns 0 for auto-detect."""
+    if not size_str or size_str.strip() == "0":
+        return 0
+    size_str = size_str.strip().upper()
+    try:
+        if size_str.endswith('TB'):
+            return int(float(size_str[:-2]) * 1024**4)
+        elif size_str.endswith('GB'):
+            return int(float(size_str[:-2]) * 1024**3)
+        elif size_str.endswith('MB'):
+            return int(float(size_str[:-2]) * 1024**2)
+        elif size_str.endswith('T'):
+            return int(float(size_str[:-1]) * 1024**4)
+        elif size_str.endswith('G'):
+            return int(float(size_str[:-1]) * 1024**3)
+        elif size_str.endswith('M'):
+            return int(float(size_str[:-1]) * 1024**2)
+        else:
+            return int(float(size_str) * 1024**3)  # Default to GB
+    except ValueError:
+        return 0
+
+
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
@@ -492,7 +517,8 @@ async def settings_cache(request: Request):
 
     if cache_dir:
         try:
-            disk_usage = get_disk_usage(cache_dir)
+            drive_size_override = _parse_size_bytes(all_settings.get("cache_drive_size", ""))
+            disk_usage = get_disk_usage(cache_dir, drive_size_override)
             drive_info["total_bytes"] = disk_usage.total
             # Format size
             total_gb = disk_usage.total / (1024**3)
@@ -500,6 +526,9 @@ async def settings_cache(request: Request):
                 drive_info["total_display"] = f"{total_gb/1024:.2f} TB"
             else:
                 drive_info["total_display"] = f"{total_gb:.1f} GB"
+            # Add flag to indicate if using manual override
+            if drive_size_override > 0:
+                drive_info["is_manual_override"] = True
         except Exception:
             pass
 

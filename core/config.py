@@ -141,6 +141,13 @@ class CacheConfig:
     # Supports fractional days (e.g., 0.5 = 12 hours) for testing
     watchlist_retention_days: float = 0
 
+    # Cache drive size: manual override for total cache drive capacity
+    # Useful for ZFS pools where auto-detection shows dataset size instead of pool size
+    # Supports formats: "3.7TB", "500GB", "250" (defaults to GB)
+    # Empty string means auto-detect (use statvfs/shutil.disk_usage)
+    cache_drive_size: str = ""
+    cache_drive_size_bytes: int = 0  # Parsed value in bytes (0 = auto-detect)
+
     # Cache size limit: maximum space PlexCache can use on the cache drive
     # Supports formats: "250GB", "500MB", "50%", or just "250" (defaults to GB)
     # Empty string or "0" means no limit
@@ -350,6 +357,10 @@ class ConfigManager:
 
         # Load watchlist retention setting (default 0 = disabled)
         self.cache.watchlist_retention_days = self.settings_data.get('watchlist_retention_days', 0)
+
+        # Load and parse cache drive size override (for ZFS/etc)
+        self.cache.cache_drive_size = self.settings_data.get('cache_drive_size', "")
+        self.cache.cache_drive_size_bytes = self._parse_size_bytes(self.cache.cache_drive_size)
 
         # Load and parse cache limit setting
         self.cache.cache_limit = self.settings_data.get('cache_limit', "")
@@ -665,6 +676,53 @@ class ConfigManager:
 
         except ValueError:
             logging.warning(f"Invalid cache_limit value '{limit_str}'. Using no limit.")
+            return 0
+
+    def _parse_size_bytes(self, size_str: str) -> int:
+        """Parse size string and return bytes.
+
+        Supports formats:
+        - "3.7TB" or "3.7tb" -> 3.7 * 1024^4 bytes
+        - "250GB" or "250gb" -> 250 * 1024^3 bytes
+        - "500MB" or "500mb" -> 500 * 1024^2 bytes
+        - "250" -> defaults to GB (250 * 1024^3 bytes)
+        - "" -> 0 (auto-detect)
+
+        Returns:
+            Bytes as int, or 0 for auto-detect
+        """
+        if not size_str or size_str.strip() == "0":
+            return 0
+
+        size_str = size_str.strip().upper()
+
+        try:
+            # Check for size units
+            if size_str.endswith('TB'):
+                size = float(size_str[:-2])
+                return int(size * 1024 * 1024 * 1024 * 1024)
+            elif size_str.endswith('GB'):
+                size = float(size_str[:-2])
+                return int(size * 1024 * 1024 * 1024)
+            elif size_str.endswith('MB'):
+                size = float(size_str[:-2])
+                return int(size * 1024 * 1024)
+            elif size_str.endswith('T'):
+                size = float(size_str[:-1])
+                return int(size * 1024 * 1024 * 1024 * 1024)
+            elif size_str.endswith('G'):
+                size = float(size_str[:-1])
+                return int(size * 1024 * 1024 * 1024)
+            elif size_str.endswith('M'):
+                size = float(size_str[:-1])
+                return int(size * 1024 * 1024)
+            else:
+                # No unit specified, default to GB
+                size = float(size_str)
+                return int(size * 1024 * 1024 * 1024)
+
+        except ValueError:
+            logging.warning(f"Invalid size value '{size_str}'. Using auto-detect.")
             return 0
 
     @staticmethod
