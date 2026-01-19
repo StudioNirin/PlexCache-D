@@ -163,10 +163,34 @@ function loadPreferences() {
     }
 }
 
-// Log viewer enhancements
+// Log viewer enhancements - track scroll position for search preservation
+let savedScrollPosition = null;
+
+document.addEventListener('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target.id === 'log-content') {
+        const hasActiveSearch = searchState && searchState.query && searchState.query.length >= 2;
+        if (hasActiveSearch) {
+            // Save scroll position before content is replaced
+            savedScrollPosition = evt.detail.target.scrollTop;
+        } else {
+            savedScrollPosition = null;
+        }
+    }
+});
+
 document.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id === 'log-content' && document.getElementById('auto-scroll').checked) {
-        evt.detail.target.scrollTop = evt.detail.target.scrollHeight;
+    if (evt.detail.target.id === 'log-content') {
+        const hasActiveSearch = searchState && searchState.query && searchState.query.length >= 2;
+
+        if (hasActiveSearch && savedScrollPosition !== null) {
+            // Restore scroll position, then re-highlight matches (without scrolling)
+            evt.detail.target.scrollTop = savedScrollPosition;
+            reapplySearchHighlights();
+            savedScrollPosition = null;
+        } else if (document.getElementById('auto-scroll').checked) {
+            // No search active - auto-scroll to bottom
+            evt.detail.target.scrollTop = evt.detail.target.scrollHeight;
+        }
     }
     lucide.createIcons();
     // Reapply filter after content swap
@@ -232,6 +256,44 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Re-apply search highlights without changing scroll position or currentIndex
+function reapplySearchHighlights() {
+    const query = searchState.query;
+    if (!query || query.length < 2) return;
+
+    const container = logContent.querySelector('pre') || logContent.querySelector('code') || logContent;
+    const lines = container.querySelectorAll('span, div');
+    const regex = new RegExp(`(${escapeRegex(query)})`, 'gi');
+
+    // Reset matches array but preserve currentIndex if valid
+    const oldIndex = searchState.currentIndex;
+    searchState.matches = [];
+
+    lines.forEach((line, idx) => {
+        const text = line.textContent;
+        if (regex.test(text)) {
+            searchState.matches.push({ element: line, index: idx });
+            // Apply highlight
+            line.dataset.original = line.innerHTML;
+            line.innerHTML = line.innerHTML.replace(regex, '<span class="search-highlight">$1</span>');
+        }
+    });
+
+    // Restore currentIndex if still valid, otherwise reset to 0
+    if (oldIndex < searchState.matches.length) {
+        searchState.currentIndex = oldIndex;
+    } else {
+        searchState.currentIndex = Math.max(0, searchState.matches.length - 1);
+    }
+
+    // Mark current match (without scrolling)
+    if (searchState.matches.length > 0) {
+        searchState.matches[searchState.currentIndex].element.classList.add('current-match');
+    }
+
+    updateSearchResults();
 }
 
 function performSearch() {
@@ -379,13 +441,6 @@ document.addEventListener('keydown', (e) => {
         } else {
             navigateSearch('next');
         }
-    }
-});
-
-// Re-run search after HTMX content swap
-document.addEventListener('htmx:afterSwap', function(evt) {
-    if (evt.detail.target.id === 'log-content' && searchState.query.length >= 2) {
-        setTimeout(performSearch, 100);
     }
 });
 
