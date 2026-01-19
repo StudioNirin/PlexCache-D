@@ -98,6 +98,13 @@ class PlexCacheApp:
             if self.verbose:
                 self._log_startup_diagnostics()
 
+            try:
+                # Migrate old exclude file name before any initialization
+                self._migrate_exclude_file()
+                
+                logging.debug("Initializing components...")
+                self._initialize_components()
+            
             # Initialize components that depend on config
             logging.debug("Initializing components...")
             self._initialize_components()
@@ -152,6 +159,35 @@ class PlexCacheApp:
             else:
                 print(f"Application error: {type(e).__name__}: {e}")
             raise
+
+    def _migrate_exclude_file(self) -> None:
+        """One-time migration: rename old exclude file to new name."""
+        old_exclude_file = os.path.join(
+            self.config_manager.paths.script_folder,
+            "plexcache_mover_files_to_exclude.txt"
+        )
+        new_cached_file = os.path.join(
+            self.config_manager.paths.script_folder,
+            "plexcache_cached_files.txt"
+        )
+        
+        old_exists = os.path.exists(old_exclude_file)
+        new_exists = os.path.exists(new_cached_file)
+        
+        if old_exists and not new_exists:
+            try:
+                os.rename(old_exclude_file, new_cached_file)
+                logging.info(f"Migrated {old_exclude_file} -> {new_cached_file}")
+            except OSError as e:
+                logging.error(f"Failed to migrate exclude file: {e}")
+                logging.error(f"Please manually rename '{old_exclude_file}' to '{new_cached_file}'")
+                raise
+        elif old_exists and new_exists:
+            try:
+                os.remove(old_exclude_file)
+                logging.info(f"Removed legacy exclude file: {old_exclude_file}")
+            except OSError as e:
+                logging.warning(f"Could not remove legacy exclude file: {e}")
     
 
     def _update_unraid_mover_exclusions(self, tag_line: str = "### Plexcache exclusions below this line") -> None:
@@ -329,48 +365,7 @@ class PlexCacheApp:
 
     def _init_trackers(self, mover_exclude, timestamp_file) -> None:
         """Initialize timestamp, watchlist, and OnDeck trackers."""
-
-        # ---------------------------------------------------------------------
-        # One-time migration sanity check for renamed exclude file
-        # ---------------------------------------------------------------------
-        old_exclude_file = os.path.join(
-            self.config_manager.paths.script_folder,
-            "plexcache_mover_files_to_exclude.txt"
-        )
-        new_cached_file = os.path.join(
-            self.config_manager.paths.script_folder,
-            "plexcache_cached_files.txt"
-        )
-        
-        old_exists = os.path.exists(old_exclude_file)
-        new_exists = os.path.exists(new_cached_file)
-        
-        if old_exists and new_exists:
-            try:
-                os.remove(old_exclude_file)
-                logging.info(
-                    f"Legacy exclude file found alongside new file. "
-                    f"Removed old file: {old_exclude_file}"
-                )
-            except Exception as e:
-                logging.error(
-                    f"Failed to remove legacy exclude file '{old_exclude_file}': {e}"
-                )
-                raise
-        
-        elif old_exists and not new_exists:
-            logging.critical(
-                f"Outdated configuration detected: legacy exclude file "
-                f"'{old_exclude_file}' exists but new file '{new_cached_file}' does not.\n"
-                f"Please rename the file manually to continue."
-            )
-            raise RuntimeError(
-                "Legacy exclude file detected without corresponding new file. "
-                "Manual migration required."
-            )
-        
-        # If only new file exists or neither exist: no action needed
-        
+     
         # Run one-time migration to create .plexcached backups
         migration = PlexcachedMigration(
             exclude_file=str(mover_exclude),
