@@ -398,19 +398,18 @@ class FileUtils:
                 # Copy the file (preserves metadata like timestamps)
                 shutil.copy2(src, dest)
 
-                # Skip chown/chmod in Docker - container handles permissions via entrypoint
-                if not self.is_docker:
-                    original_umask = os.umask(0)
-                    try:
-                        os.chown(dest, src_uid, src_gid)
-                    except (PermissionError, OSError) as e:
-                        logging.debug(f"Could not set file ownership (filesystem may not support it): {e}")
+                # Restore original ownership (shutil.copy2 doesn't preserve uid/gid)
+                original_umask = os.umask(0)
+                try:
+                    os.chown(dest, src_uid, src_gid)
+                except (PermissionError, OSError) as e:
+                    logging.debug(f"Could not set file ownership (filesystem may not support it): {e}")
 
-                    try:
-                        os.chmod(dest, self.permissions)
-                    except (PermissionError, OSError) as e:
-                        logging.debug(f"Could not set file permissions (filesystem may not support it): {e}")
-                    os.umask(original_umask)
+                try:
+                    os.chmod(dest, self.permissions)
+                except (PermissionError, OSError) as e:
+                    logging.debug(f"Could not set file permissions (filesystem may not support it): {e}")
+                os.umask(original_umask)
 
                 if verbose:
                     # Log ownership details for debugging
@@ -442,17 +441,16 @@ class FileUtils:
                 original_umask = os.umask(0)
                 os.makedirs(path, exist_ok=True)
 
-                # Skip chown/chmod in Docker - container handles permissions via entrypoint
-                if not self.is_docker:
-                    try:
-                        os.chown(path, uid, gid)
-                    except (PermissionError, OSError) as e:
-                        logging.debug(f"Could not set directory ownership (filesystem may not support it): {e}")
+                # Restore original ownership (makedirs doesn't preserve uid/gid)
+                try:
+                    os.chown(path, uid, gid)
+                except (PermissionError, OSError) as e:
+                    logging.debug(f"Could not set directory ownership (filesystem may not support it): {e}")
 
-                    try:
-                        os.chmod(path, self.permissions)
-                    except (PermissionError, OSError) as e:
-                        logging.debug(f"Could not set directory permissions (filesystem may not support it): {e}")
+                try:
+                    os.chmod(path, self.permissions)
+                except (PermissionError, OSError) as e:
+                    logging.debug(f"Could not set directory permissions (filesystem may not support it): {e}")
 
                 os.umask(original_umask)
                 logging.debug(f"Directory created with permissions (Linux): {path}")
