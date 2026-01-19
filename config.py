@@ -619,7 +619,7 @@ class ConfigManager:
         return [value.strip('/\\') for value in value_list]
     
     def get_cached_files_file(self) -> Path:
-        """Get the path for the mover exclude file."""
+        """Get the path for the cached files log."""
         script_folder = Path(self.paths.script_folder)
         return script_folder / "plexcache_cached_files.txt"
     
