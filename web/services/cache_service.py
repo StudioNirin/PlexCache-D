@@ -1,6 +1,7 @@
 """Cache service - reads cached file data and calculates priorities"""
 
 import json
+import logging
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -121,6 +122,31 @@ class CacheService:
 
         return path
 
+    def _translate_host_to_container_path(self, path: str) -> str:
+        """Translate host cache path to container path.
+
+        When reading from the exclude file, paths are host paths but we need
+        container paths to check file existence inside Docker.
+        """
+        settings = self._load_settings()
+        path_mappings = settings.get('path_mappings', [])
+
+        for mapping in path_mappings:
+            host_cache_path = mapping.get('host_cache_path', '')
+            cache_path = mapping.get('cache_path', '')
+
+            if not host_cache_path or not cache_path:
+                continue
+            if host_cache_path == cache_path:
+                continue  # No translation needed
+
+            host_prefix = host_cache_path.rstrip('/')
+            if path.startswith(host_prefix):
+                container_prefix = cache_path.rstrip('/')
+                return path.replace(host_prefix, container_prefix, 1)
+
+        return path
+
     def _format_size(self, size_bytes: int) -> str:
         """Format bytes into human-readable string"""
         if size_bytes == 0:
@@ -177,13 +203,16 @@ class CacheService:
             return list(timestamps.keys())
 
         # Fallback: Use exclude file for backwards compatibility
+        # Note: Exclude file contains HOST paths (for Unraid mover), need to translate to container paths
         if not self.exclude_file.exists():
             return []
 
         try:
             with open(self.exclude_file, 'r', encoding='utf-8') as f:
                 lines = f.readlines()
-            return [line.strip() for line in lines if line.strip()]
+            # Translate host paths to container paths for file operations inside Docker
+            paths = [line.strip() for line in lines if line.strip()]
+            return [self._translate_host_to_container_path(p) for p in paths]
         except IOError:
             return []
 
@@ -260,11 +289,11 @@ class CacheService:
                     source = "watchlist"
                 break
 
-        # Factor 1: Source type
+        # Factor 1: Source type (+15 for ondeck, +0 for watchlist)
         if source == "ondeck":
-            score += 20
+            score += 15
 
-        # Factor 2: User count
+        # Factor 2: User count (+5 per user, max +15)
         users = set()
         if ondeck_info and "users" in ondeck_info:
             users.update(ondeck_info["users"])
@@ -274,22 +303,21 @@ class CacheService:
         user_bonus = min(len(users) * 5, 15)
         score += user_bonus
 
-        # Factor 3: Cache recency
+        # Factor 3: Cache recency (+5 if <24h, +3 if <72h, 0 otherwise)
         if cached_at_str:
             try:
                 cached_at = datetime.fromisoformat(cached_at_str)
                 hours_cached = (now - cached_at).total_seconds() / 3600
 
                 if hours_cached < 24:
-                    score += 15
-                elif hours_cached < 72:
-                    score += 10
-                elif hours_cached < 168:  # 7 days
                     score += 5
+                elif hours_cached < 72:
+                    score += 3
+                # >72h: no adjustment (0)
             except (ValueError, TypeError):
                 pass
 
-        # Factor 4: Watchlist/OnDeck age
+        # Factor 4: Watchlist age (+10 if <7 days, -10 if >60 days)
         if watchlist_info and "watchlisted_at" in watchlist_info:
             try:
                 watchlisted_at = datetime.fromisoformat(watchlist_info["watchlisted_at"])
@@ -302,14 +330,20 @@ class CacheService:
             except (ValueError, TypeError):
                 pass
 
-        if ondeck_info and "last_seen" in ondeck_info:
+        # Factor 5: OnDeck staleness (uses first_seen, not last_seen)
+        # +5 if <7 days, 0 if 7-14 days, -5 if 14-30 days, -10 if >30 days
+        if source == "ondeck" and ondeck_info and "first_seen" in ondeck_info:
             try:
-                last_seen = datetime.fromisoformat(ondeck_info["last_seen"])
-                days_since_seen = (now - last_seen).days
+                first_seen = datetime.fromisoformat(ondeck_info["first_seen"])
+                days_on_ondeck = (now - first_seen).days
 
-                if days_since_seen < 7:
-                    score += 10
-                elif days_since_seen > 60:
+                if days_on_ondeck < 7:
+                    score += 5
+                elif days_on_ondeck < 14:
+                    pass  # no adjustment
+                elif days_on_ondeck < 30:
+                    score -= 5
+                else:
                     score -= 10
             except (ValueError, TypeError):
                 pass
@@ -379,13 +413,13 @@ class CacheService:
                     source = "watchlist"
                 break
 
-        # Factor 1: Source type
+        # Factor 1: Source type (+15 for ondeck, +0 for watchlist)
         if source == "ondeck":
-            score += 20
-            breakdown["source_bonus"] = 20
-            breakdown["factors"].append({"label": "OnDeck source", "value": 20})
+            score += 15
+            breakdown["source_bonus"] = 15
+            breakdown["factors"].append({"label": "OnDeck source", "value": 15})
 
-        # Factor 2: User count
+        # Factor 2: User count (+5 per user, max +15)
         users = set()
         if ondeck_info and "users" in ondeck_info:
             users.update(ondeck_info["users"])
@@ -399,28 +433,25 @@ class CacheService:
             user_label = f"Multiple users ({len(users)})" if len(users) > 1 else "Single user"
             breakdown["factors"].append({"label": user_label, "value": user_bonus})
 
-        # Factor 3: Cache recency
+        # Factor 3: Cache recency (+5 if <24h, +3 if <72h, 0 otherwise)
         if cached_at_str:
             try:
                 cached_at = datetime.fromisoformat(cached_at_str)
                 hours_cached = (now - cached_at).total_seconds() / 3600
 
                 if hours_cached < 24:
-                    score += 15
-                    breakdown["recency_bonus"] = 15
-                    breakdown["factors"].append({"label": "Recently cached (<24h)", "value": 15})
-                elif hours_cached < 72:
-                    score += 10
-                    breakdown["recency_bonus"] = 10
-                    breakdown["factors"].append({"label": "Cached recently (<72h)", "value": 10})
-                elif hours_cached < 168:
                     score += 5
                     breakdown["recency_bonus"] = 5
-                    breakdown["factors"].append({"label": "Cached this week", "value": 5})
+                    breakdown["factors"].append({"label": "Recently cached (<24h)", "value": 5})
+                elif hours_cached < 72:
+                    score += 3
+                    breakdown["recency_bonus"] = 3
+                    breakdown["factors"].append({"label": "Cached recently (<72h)", "value": 3})
+                # >72h: no adjustment (0)
             except (ValueError, TypeError):
                 pass
 
-        # Factor 4: Watchlist/OnDeck age
+        # Factor 4: Watchlist age (+10 if <7 days, -10 if >60 days)
         if watchlist_info and "watchlisted_at" in watchlist_info:
             try:
                 watchlisted_at = datetime.fromisoformat(watchlist_info["watchlisted_at"])
@@ -437,19 +468,27 @@ class CacheService:
             except (ValueError, TypeError):
                 pass
 
-        if ondeck_info and "last_seen" in ondeck_info:
+        # Factor 5: OnDeck staleness (uses first_seen, not last_seen)
+        # +5 if <7 days, 0 if 7-14 days, -5 if 14-30 days, -10 if >30 days
+        if source == "ondeck" and ondeck_info and "first_seen" in ondeck_info:
             try:
-                last_seen = datetime.fromisoformat(ondeck_info["last_seen"])
-                days_since_seen = (now - last_seen).days
+                first_seen = datetime.fromisoformat(ondeck_info["first_seen"])
+                days_on_ondeck = (now - first_seen).days
 
-                if days_since_seen < 7:
-                    score += 10
-                    breakdown["age_bonus"] = 10
-                    breakdown["factors"].append({"label": "Recently on OnDeck (<7d)", "value": 10})
-                elif days_since_seen > 60:
+                if days_on_ondeck < 7:
+                    score += 5
+                    breakdown["staleness_bonus"] = 5
+                    breakdown["factors"].append({"label": "Fresh on OnDeck (<7d)", "value": 5})
+                elif days_on_ondeck < 14:
+                    pass  # no adjustment
+                elif days_on_ondeck < 30:
+                    score -= 5
+                    breakdown["staleness_bonus"] = -5
+                    breakdown["factors"].append({"label": "Getting stale (14-30d)", "value": -5})
+                else:
                     score -= 10
-                    breakdown["age_bonus"] = -10
-                    breakdown["factors"].append({"label": "Stale OnDeck (>60d)", "value": -10})
+                    breakdown["staleness_bonus"] = -10
+                    breakdown["factors"].append({"label": "Stale OnDeck (>30d)", "value": -10})
             except (ValueError, TypeError):
                 pass
 
@@ -627,8 +666,8 @@ class CacheService:
                 disk_used = disk.used
                 disk_total = disk.total
                 usage_percent = int((disk.used / disk.total) * 100) if disk_total > 0 else 0
-            except (OSError, AttributeError):
-                pass
+            except (OSError, AttributeError) as e:
+                logging.warning(f"Could not get disk usage for {cache_dir}: {e}")
 
         # Count ondeck and watchlist items
         ondeck_count = len(ondeck)
@@ -663,8 +702,8 @@ class CacheService:
                                 cache_limit_bytes = int(value * 1024**3)
                             elif unit in ("M", "MB"):
                                 cache_limit_bytes = int(value * 1024**2)
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as e:
+                    logging.warning(f"Could not parse cache_limit '{cache_limit_setting}': {e}")
 
             if cache_limit_bytes > 0:
                 eviction_threshold_percent = settings.get("cache_eviction_threshold_percent", 95)
