@@ -3,19 +3,20 @@
     <div class="simulation-summary">
         {% if result.bytes_to_free > 0 %}
         <p>
-            At <strong>{{ threshold }}%</strong> drive usage threshold:
+            At <strong>{{ threshold }}%</strong> of cache limit ({{ result.target_bytes_display }}):
             <strong class="text-warning">{{ result.would_evict|length }}</strong> file(s) would be evicted,
             freeing <strong>{{ result.total_freed_display }}</strong>
         </p>
         <p class="text-muted" style="font-size: 0.85rem;">
-            Current usage: {{ result.current_usage_percent }}% |
+            Cache limit: {{ result.cache_limit_display }} |
+            Current: {{ result.current_usage_percent }}% |
             Target: {{ result.target_usage_percent }}% |
             Need to free: {{ result.bytes_to_free_display }}
         </p>
         {% else %}
         <p class="text-success">
             <i data-lucide="check-circle" style="width: 16px; height: 16px; vertical-align: middle;"></i>
-            At <strong>{{ threshold }}%</strong> threshold: No eviction needed (current usage: {{ result.current_usage_percent }}%)
+            At <strong>{{ threshold }}%</strong> of cache limit: No eviction needed (current: {{ result.current_usage_percent }}% of {{ result.cache_limit_display }})
         </p>
         {% endif %}
     </div>

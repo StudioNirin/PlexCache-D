@@ -1135,6 +1135,7 @@ class CacheService:
         Returns dict with files that would be evicted and space freed.
         """
         import shutil
+        import re
 
         settings = self._load_settings()
         cache_dir = self._get_cache_dir(settings)
@@ -1151,8 +1152,38 @@ class CacheService:
             except (OSError, AttributeError):
                 pass
 
-        # Calculate target bytes at threshold
-        target_bytes = int(disk_total * threshold_percent / 100) if disk_total > 0 else 0
+        # Calculate cache_limit_bytes (must match core/app.py logic)
+        # Eviction threshold is a percentage of cache_limit, not total drive
+        cache_limit_bytes = 0
+        cache_limit_setting = settings.get("cache_limit", "")
+        if cache_limit_setting and cache_limit_setting not in ["", "N/A", "none", "None", "0"]:
+            try:
+                limit_str = str(cache_limit_setting).strip()
+                if limit_str.endswith("%"):
+                    # Percentage of drive size
+                    percent_val = int(limit_str.rstrip("%"))
+                    cache_limit_bytes = int(disk_total * percent_val / 100)
+                else:
+                    # Absolute value (e.g., "500GB", "1TB")
+                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", limit_str, re.IGNORECASE)
+                    if match:
+                        value = float(match.group(1))
+                        unit = (match.group(2) or "GB").upper()
+                        if unit in ("T", "TB"):
+                            cache_limit_bytes = int(value * 1024**4)
+                        elif unit in ("G", "GB"):
+                            cache_limit_bytes = int(value * 1024**3)
+                        elif unit in ("M", "MB"):
+                            cache_limit_bytes = int(value * 1024**2)
+            except (ValueError, TypeError):
+                pass
+
+        # Fall back to disk_total if no cache_limit set
+        if cache_limit_bytes == 0:
+            cache_limit_bytes = disk_total
+
+        # Calculate target bytes at threshold (percentage of cache_limit, not disk_total)
+        target_bytes = int(cache_limit_bytes * threshold_percent / 100) if cache_limit_bytes > 0 else 0
         bytes_to_free = max(0, disk_used - target_bytes)
 
         # Get all files sorted by priority (lowest first = evict first)
@@ -1179,8 +1210,12 @@ class CacheService:
 
         return {
             "threshold_percent": threshold_percent,
-            "current_usage_percent": round((disk_used / disk_total * 100), 1) if disk_total > 0 else 0,
+            "cache_limit_bytes": cache_limit_bytes,
+            "cache_limit_display": self._format_size(cache_limit_bytes),
+            "current_usage_percent": round((disk_used / cache_limit_bytes * 100), 1) if cache_limit_bytes > 0 else 0,
             "target_usage_percent": threshold_percent,
+            "target_bytes": target_bytes,
+            "target_bytes_display": self._format_size(target_bytes),
             "bytes_to_free": bytes_to_free,
             "bytes_to_free_display": self._format_size(bytes_to_free),
             "would_evict": would_evict,
