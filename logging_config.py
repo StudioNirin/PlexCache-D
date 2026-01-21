@@ -43,26 +43,64 @@ class ThreadSafeStreamHandler(logging.StreamHandler):
 SUMMARY = logging.WARNING + 1  # = 31
 logging.addLevelName(SUMMARY, 'SUMMARY')
 
-# Track whether warnings or errors occurred during this run
+# Track warnings and errors separately during this run
 # Used to conditionally show summary when notification level is "warning" or "error"
-_had_warnings_or_errors = False
+# - "warning" level: triggers summary on any warning OR error
+# - "error" level: triggers summary ONLY on actual errors (not just warnings)
+_had_warnings = False
+_had_errors = False
+_warning_messages = []
+_error_messages = []
 
 
 def reset_warning_error_flag():
-    """Reset the warning/error tracking flag. Call at start of each run."""
-    global _had_warnings_or_errors
-    _had_warnings_or_errors = False
+    """Reset the warning/error tracking flags. Call at start of each run."""
+    global _had_warnings, _had_errors, _warning_messages, _error_messages
+    _had_warnings = False
+    _had_errors = False
+    _warning_messages = []
+    _error_messages = []
 
 
-def mark_warning_or_error():
-    """Mark that a warning or error occurred during this run."""
-    global _had_warnings_or_errors
-    _had_warnings_or_errors = True
+def mark_warning(message: str = None):
+    """Mark that a warning occurred during this run."""
+    global _had_warnings, _warning_messages
+    _had_warnings = True
+    if message and message not in _warning_messages:
+        _warning_messages.append(message)
+
+
+def mark_error(message: str = None):
+    """Mark that an error occurred during this run."""
+    global _had_errors, _error_messages
+    _had_errors = True
+    if message and message not in _error_messages:
+        _error_messages.append(message)
 
 
 def had_warnings_or_errors():
     """Check if any warnings or errors occurred during this run."""
-    return _had_warnings_or_errors
+    return _had_warnings or _had_errors
+
+
+def had_warnings():
+    """Check if any warnings occurred during this run."""
+    return _had_warnings
+
+
+def had_errors():
+    """Check if any errors occurred during this run."""
+    return _had_errors
+
+
+def get_warning_messages():
+    """Get list of warning messages from this run."""
+    return _warning_messages.copy()
+
+
+def get_error_messages():
+    """Get list of error messages from this run."""
+    return _error_messages.copy()
 
 
 class VerboseMessageFilter(logging.Filter):
@@ -111,17 +149,30 @@ class UnraidHandler(logging.Handler):
 
     def emit(self, record):
         if self.notify_cmd_base:
-            # Track if warnings or errors occurred
-            if record.levelno >= logging.WARNING and record.levelno != SUMMARY:
-                mark_warning_or_error()
+            # Track warnings and errors separately
+            if record.levelno >= logging.ERROR and record.levelno != SUMMARY:
+                mark_error(record.getMessage())
+            elif record.levelno >= logging.WARNING and record.levelno != SUMMARY:
+                mark_warning(record.getMessage())
 
             if record.levelno == SUMMARY:
-                # Only show summary if:
-                # 1. Handler level is "summary" (SUMMARY level), OR
-                # 2. Handler level is "warning"/"error" AND warnings/errors occurred
-                if self.level <= SUMMARY or had_warnings_or_errors():
+                # Determine if summary should be sent based on handler level:
+                # - Level is SUMMARY (31): Always show summary
+                # - Level is WARNING (30): Show summary if warnings OR errors occurred
+                # - Level is ERROR (40): Show summary ONLY if errors occurred
+                should_send = False
+                if self.level <= SUMMARY:
+                    # Handler level is "summary" - always send
+                    should_send = True
+                elif self.level <= logging.WARNING:
+                    # Handler level is "warning" - send if any warnings or errors
+                    should_send = had_warnings_or_errors()
+                elif self.level <= logging.ERROR:
+                    # Handler level is "error" - only send if actual errors occurred
+                    should_send = had_errors()
+
+                if should_send:
                     self.send_summary_unraid_notification(record)
-                # else: skip summary notification (no warnings/errors to report)
             else:
                 self.send_unraid_notification(record)
 
@@ -159,22 +210,56 @@ class WebhookHandler(logging.Handler):
         self.webhook_url = webhook_url
 
     def emit(self, record):
-        # Track if warnings or errors occurred
-        if record.levelno >= logging.WARNING and record.levelno != SUMMARY:
-            mark_warning_or_error()
+        # Track warnings and errors separately
+        if record.levelno >= logging.ERROR and record.levelno != SUMMARY:
+            mark_error(record.getMessage())
+        elif record.levelno >= logging.WARNING and record.levelno != SUMMARY:
+            mark_warning(record.getMessage())
 
         if record.levelno == SUMMARY:
-            # Only show summary if:
-            # 1. Handler level is "summary" (SUMMARY level), OR
-            # 2. Handler level is "warning"/"error" AND warnings/errors occurred
-            if self.level <= SUMMARY or had_warnings_or_errors():
+            # Determine if summary should be sent based on handler level:
+            # - Level is SUMMARY (31): Always show summary
+            # - Level is WARNING (30): Show summary if warnings OR errors occurred
+            # - Level is ERROR (40): Show summary ONLY if errors occurred
+            should_send = False
+            if self.level <= SUMMARY:
+                # Handler level is "summary" - always send
+                should_send = True
+            elif self.level <= logging.WARNING:
+                # Handler level is "warning" - send if any warnings or errors
+                should_send = had_warnings_or_errors()
+            elif self.level <= logging.ERROR:
+                # Handler level is "error" - only send if actual errors occurred
+                should_send = had_errors()
+
+            if should_send:
                 self.send_summary_webhook_message(record)
-            # else: skip summary notification (no warnings/errors to report)
         else:
             self.send_webhook_message(record)
 
     def send_summary_webhook_message(self, record):
-        summary = "Plex Cache Summary:\n" + record.msg
+        summary = "**Plex Cache Summary**\n" + record.msg
+
+        # Include error/warning messages if any occurred
+        error_msgs = get_error_messages()
+        warning_msgs = get_warning_messages()
+
+        if error_msgs:
+            summary += "\n\n❌ **Errors:**"
+            for msg in error_msgs[:3]:  # Limit to 3 messages
+                truncated = msg[:100] + "..." if len(msg) > 100 else msg
+                summary += f"\n• {truncated}"
+            if len(error_msgs) > 3:
+                summary += f"\n... and {len(error_msgs) - 3} more"
+
+        if warning_msgs:
+            summary += "\n\n⚠️ **Warnings:**"
+            for msg in warning_msgs[:3]:  # Limit to 3 messages
+                truncated = msg[:100] + "..." if len(msg) > 100 else msg
+                summary += f"\n• {truncated}"
+            if len(warning_msgs) > 3:
+                summary += f"\n... and {len(warning_msgs) - 3} more"
+
         payload = {
             "content": summary
         }
