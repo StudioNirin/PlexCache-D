@@ -2645,8 +2645,11 @@ class FileFilter:
 
             original_count = len(current_files)
 
-            # Convert to set for O(1) lookup instead of O(n)
-            paths_to_remove_set = set(cache_paths_to_remove)
+            # Translate container paths to host paths (Docker path mapping)
+            # The exclude file contains host paths, but we receive container paths
+            paths_to_remove_set = set(
+                self._translate_to_host_path(p) for p in cache_paths_to_remove
+            )
 
             # Remove specified files
             updated_files = [f for f in current_files if f not in paths_to_remove_set]
