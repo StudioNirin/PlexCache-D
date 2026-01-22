@@ -26,6 +26,22 @@
                 Unraid Notifications
             </h3>
 
+            {% if is_docker and not unraid_notify_available %}
+            <div class="alert alert-info" style="margin-bottom: 1rem; padding: 0.75rem 1rem; background: rgba(52, 152, 219, 0.1); border: 1px solid rgba(52, 152, 219, 0.3); border-radius: 4px;">
+                <div style="display: flex; align-items: flex-start; gap: 0.5rem;">
+                    <i data-lucide="info" style="width: 18px; height: 18px; color: #3498db; flex-shrink: 0; margin-top: 2px;"></i>
+                    <div style="font-size: 0.9rem; color: #ccc;">
+                        <strong style="color: #3498db;">Unraid notifications require additional Docker mounts.</strong><br>
+                        Add these volume mappings to enable native Unraid notifications:<br>
+                        <code style="font-size: 0.85rem; color: #aaa;">/usr/local/emhttp</code> (read-only) and
+                        <code style="font-size: 0.85rem; color: #aaa;">/tmp/notifications</code> (read-write)<br>
+                        <a href="https://github.com/StudioNirin/PlexCache-R/blob/main/docker/UNRAID_SETUP.md#optional-volume-mappings-unraid-notifications"
+                           target="_blank" style="color: #3498db;">See documentation →</a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+
             <div class="form-group">
                 <label>Unraid Notification Levels</label>
                 <div class="checkbox-group">

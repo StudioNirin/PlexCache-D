@@ -580,8 +580,19 @@ async def save_cache_settings(request: Request):
 @router.get("/notifications", response_class=HTMLResponse)
 async def settings_notifications(request: Request):
     """Notification settings tab"""
+    import os
+    from core.system_utils import SystemDetector
+
     settings_service = get_settings_service()
     settings = settings_service.get_notification_settings()
+
+    # Check if Unraid notify script is available (for Docker info message)
+    detector = SystemDetector()
+    notify_paths = [
+        "/usr/local/emhttp/plugins/dynamix/scripts/notify",
+        "/usr/local/emhttp/webGui/scripts/notify",
+    ]
+    unraid_notify_available = any(os.path.isfile(p) for p in notify_paths)
 
     return templates.TemplateResponse(
         "settings/notifications.html",
@@ -589,7 +600,9 @@ async def settings_notifications(request: Request):
             "request": request,
             "page_title": "Notification Settings",
             "active_tab": "notifications",
-            "settings": settings
+            "settings": settings,
+            "is_docker": detector.is_docker,
+            "unraid_notify_available": unraid_notify_available
         }
     )
 
