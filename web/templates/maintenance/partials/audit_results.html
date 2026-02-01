@@ -114,6 +114,12 @@
     <div class="card-body" style="padding: 0.75rem;">
         <p class="text-muted" style="margin: 0 0 0.75rem 0;">
             These files were recently added to cache (likely by Radarr/Sonarr). Choose what to do with them:
+            {% if is_unraid %}
+            <span style="display: block; margin-top: 0.25rem; font-size: 0.85em; opacity: 0.8;">
+                <i data-lucide="info" style="width: 12px; height: 12px; vertical-align: middle;"></i>
+                Without action, the Unraid mover will eventually move these to the array.
+            </span>
+            {% endif %}
         </p>
         <!-- Bulk Actions -->
         <div id="downloads-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
@@ -423,7 +429,11 @@
                     </button>
                 </div>
                 <p class="text-muted" style="margin: 0.25rem 0 0 0;">
-                    Files listed in timestamps but no longer on cache
+                    Files listed in timestamps but no longer on cache.
+                    <span style="display: block; margin-top: 0.25rem; font-size: 0.85em; opacity: 0.8;">
+                        <i data-lucide="info" style="width: 12px; height: 12px; vertical-align: middle;"></i>
+                        Often caused by Sonarr/Radarr upgrading media to a better quality version.
+                    </span>
                 </p>
                 <!-- Expandable list -->
                 <div id="stale-timestamp-list" class="stale-entries-list" style="display: none;">

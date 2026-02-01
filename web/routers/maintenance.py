@@ -9,6 +9,10 @@ from fastapi.templating import Jinja2Templates
 from web.config import TEMPLATES_DIR
 from web.services.maintenance_service import get_maintenance_service
 from web.services.web_cache import get_web_cache_service, CACHE_KEY_MAINTENANCE_AUDIT, CACHE_KEY_MAINTENANCE_HEALTH, CACHE_KEY_DASHBOARD_STATS
+from core.system_utils import SystemDetector
+
+# Cache system detection (doesn't change during runtime)
+_system_detector = SystemDetector()
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
@@ -117,7 +121,8 @@ async def run_audit(request: Request, refresh: bool = Query(default=False, descr
         {
             "request": request,
             "results": results,
-            "cache_age": cache_age or "just now"
+            "cache_age": cache_age or "just now",
+            "is_unraid": _system_detector.is_unraid
         }
     )
     # Prevent browser caching so refresh button always fetches fresh data
