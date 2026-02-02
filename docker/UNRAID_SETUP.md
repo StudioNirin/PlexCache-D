@@ -2,6 +2,8 @@
 
 This guide covers installing and configuring PlexCache-R on Unraid.
 
+> **IMPORTANT:** If you're currently running the CLI version of PlexCache via User Scripts or cron, **disable those scheduled runs first** to avoid conflicts. Running both the Docker scheduler and CLI scripts simultaneously can cause race conditions and duplicate file operations.
+
 ## Overview
 
 PlexCache-R automatically caches your frequently-accessed Plex media (OnDeck and Watchlist items) to your cache drive. This reduces array spinups and improves playback performance by keeping actively-watched content on fast storage.
@@ -23,7 +25,14 @@ PlexCache-R automatically caches your frequently-accessed Plex media (OnDeck and
 4. Configure the paths (see below)
 5. Click **Apply**
 
-### Option 2: Manual Docker Installation
+### Option 2: Docker Template (Quick Install)
+
+1. Download [plexcache-r.xml](https://raw.githubusercontent.com/Brandon-Haney/PlexCache-R/v3.0/docker/plexcache-r.xml)
+2. Place it in `/boot/config/plugins/dockerMan/templates-user/` on your Unraid server
+3. Go to **Docker** → **Add Container** → Select "plexcache-r" from the template dropdown
+4. Adjust paths for your setup and click **Apply**
+
+### Option 3: Manual Docker Installation
 
 1. Go to **Docker** tab → **Add Container**
 2. Set the following:
@@ -48,6 +57,24 @@ PlexCache-R automatically caches your frequently-accessed Plex media (OnDeck and
 **Important**:
 - All media paths (`/mnt/cache`, `/mnt/user0`, `/mnt/user`) must be **read-write** for PlexCache-R to move files between cache and array
 - These paths **must match exactly** between container and host for Plex path resolution to work correctly
+
+### Docker Path Translation (Host Cache Path)
+
+> **If your cache mount differs between host and container** (e.g., host `/mnt/cache_downloads` → container `/mnt/cache`), you **must** configure **Host Cache Path** in **Settings → Paths** for each path mapping.
+>
+> This ensures the mover exclude file contains paths that the Unraid mover recognizes. Without this, the mover may incorrectly move your cached files back to the array.
+
+**Example Path Mapping:**
+
+| Plex Path | Cache Path | Array Path | Host Cache Path |
+|-----------|------------|------------|-----------------|
+| `/data/media/movies` | `/mnt/cache/media/movies` | `/mnt/user0/media/movies` | `/mnt/cache_downloads/media/movies` |
+| `/data/media/tv` | `/mnt/cache/media/tv` | `/mnt/user0/media/tv` | `/mnt/cache_downloads/media/tv` |
+
+- **Plex Path**: The path Plex reports for your media (check Plex library settings)
+- **Cache Path**: Where the file lives on your cache drive (inside the container)
+- **Array Path**: Where the `.plexcached` backup lives on the array (inside the container)
+- **Host Cache Path**: The actual host path for the mover exclude file (only needed if different from Cache Path)
 
 ### Optional Volume Mappings (Unraid Notifications)
 
@@ -147,6 +174,19 @@ PlexCache-R includes a built-in scheduler. Configure it via the Web UI:
 4. Recommended: Every 4 hours (`0 */4 * * *`)
 
 The scheduler runs automatically - no need for User Scripts or external cron jobs.
+
+## Cache Settings
+
+Configure cache behavior via **Settings** → **Cache**:
+
+| Setting | Description |
+|---------|-------------|
+| **Cache Limit** | Maximum drive usage for caching (e.g., `500GB` or `75%`) |
+| **Eviction Mode** | `Smart` (priority-based), `FIFO` (oldest first), or `None` (disabled) |
+| **Eviction Threshold** | When to start evicting (% of cache limit) |
+| **Minimum Priority** | Only evict files below this score (OnDeck ~90, Watchlist ~70) |
+| **Cache Retention** | Hours to keep files before considering for eviction |
+| **Watchlist Retention** | Days to keep watchlist items cached |
 
 ## Notifications
 
@@ -253,11 +293,35 @@ docker exec plexcache-r python3 plexcache.py --show-priorities
 If you see "Path /mnt/user/... is not writable", check your Docker container configuration:
 - `/mnt/user` must be mapped as read-write (not read-only)
 
-## Migrating from User Scripts
+### "File not found" Warnings
 
-If you were running PlexCache-R via User Scripts:
+- This usually means Plex has stale metadata for a renamed/upgraded file
+- Trigger a Plex library refresh/scan for the affected library
+- The warning is harmless - PlexCache skips files that don't exist
 
-1. **Backup existing config**:
+## Migrating from CLI/User Scripts
+
+If you were running PlexCache-R via User Scripts or the CLI version:
+
+### Option A: Import Folder (Recommended)
+
+1. Copy your CLI files to the import folder:
+   ```bash
+   mkdir -p /mnt/user/appdata/plexcache/import
+   cp /path/to/plexcache_settings.json /mnt/user/appdata/plexcache/import/
+   cp /path/to/plexcache_mover_files_to_exclude.txt /mnt/user/appdata/plexcache/import/
+   cp -r /path/to/data /mnt/user/appdata/plexcache/import/
+   ```
+
+2. Start the container and access the Web UI
+
+3. Go to **Settings** → **Import** - the wizard will detect your import files and offer to migrate them automatically
+
+4. Verify your Plex connection (URL may differ in Docker)
+
+### Option B: Direct Copy
+
+1. **Copy existing config directly**:
    ```bash
    mkdir -p /mnt/user/appdata/plexcache/data
    cp /path/to/plexcache_settings.json /mnt/user/appdata/plexcache/
@@ -283,8 +347,9 @@ After installation, your `/mnt/user/appdata/plexcache` folder will contain:
 │   ├── ondeck_tracker.json               # OnDeck tracking
 │   ├── watchlist_tracker.json            # Watchlist tracking
 │   └── user_tokens.json                  # User auth tokens
-└── logs/
-    └── plexcache.log                     # Application logs
+├── logs/
+│   └── plexcache.log                     # Application logs
+└── import/                               # Drop CLI files here for migration
 ```
 
 ## Support
