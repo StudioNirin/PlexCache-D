@@ -51,10 +51,8 @@
         <td class="text-muted">{{ file.cache_age_hours|round(1) }}h</td>
         <td>
             <button class="btn btn-sm btn-secondary"
-                    hx-post="/api/cache/evict/{{ file.path|urlencode }}"
-                    hx-target="#alert-container"
-                    hx-swap="innerHTML"
-                    hx-confirm="Evict this file from cache?">
+                    onclick="showEvictConfirm('{{ file.path|replace("'", "\\'") }}', '{{ file.filename|replace("'", "\\'") }}', '{{ file.size_display }}')"
+                    title="Evict from cache">
                 <i data-lucide="x"></i>
             </button>
         </td>

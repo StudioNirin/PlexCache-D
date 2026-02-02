@@ -186,10 +186,8 @@
                         <td class="text-muted">{{ file.cache_age_hours|round(1) }}h</td>
                         <td>
                             <button class="btn btn-sm btn-secondary"
-                                    hx-post="/api/cache/evict/{{ file.path|urlencode }}"
-                                    hx-target="#alert-container"
-                                    hx-swap="innerHTML"
-                                    hx-confirm="Evict this file from cache?">
+                                    onclick="showEvictConfirm('{{ file.path|replace("'", "\\'") }}', '{{ file.filename|replace("'", "\\'") }}', '{{ file.size_display }}')"
+                                    title="Evict from cache">
                                 <i data-lucide="x"></i>
                             </button>
                         </td>
@@ -241,6 +239,99 @@
         </table>
     </div>
 </div>
+
+<!-- Evict Confirmation Modal -->
+<div id="evict-modal" class="modal" style="display: none;">
+    <div class="modal-backdrop" onclick="closeEvictModal()"></div>
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3 id="evict-modal-title">Evict from Cache</h3>
+            <button class="modal-close" onclick="closeEvictModal()">
+                <i data-lucide="x"></i>
+            </button>
+        </div>
+        <div class="modal-body" id="evict-modal-body">
+            <!-- Content will be set by JavaScript -->
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeEvictModal()">Cancel</button>
+            <button id="evict-modal-action" class="btn btn-danger">Evict</button>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Evict modal styling */
+#evict-modal .modal-content {
+    background: var(--plex-bg-card);
+    border: 1px solid var(--plex-border);
+}
+
+#evict-modal .modal-body {
+    padding: 1.5rem;
+}
+
+#evict-modal .evict-file-info {
+    background: var(--plex-bg);
+    border-radius: 6px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+#evict-modal .evict-file-info .filename {
+    font-weight: 500;
+    word-break: break-word;
+    margin-bottom: 0.5rem;
+}
+
+#evict-modal .evict-file-info .file-meta {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+}
+
+#evict-modal .evict-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(var(--warning-rgb), 0.1);
+    border-radius: 6px;
+    font-size: 0.875rem;
+}
+
+#evict-modal .evict-warning i {
+    color: var(--warning);
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+#evict-modal .modal-footer {
+    border-top: 1px solid var(--plex-border);
+    padding: 1rem 1.5rem;
+    gap: 0.5rem;
+}
+
+#evict-modal .file-list {
+    max-height: 200px;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+}
+
+#evict-modal .file-list ul {
+    margin: 0;
+    padding-left: 1.25rem;
+}
+
+#evict-modal .file-list li {
+    padding: 0.25rem 0;
+    word-break: break-word;
+}
+
+#evict-modal .file-list .more-files {
+    color: var(--text-muted);
+    font-style: italic;
+}
+</style>
 {% endblock %}
 
 {% block scripts %}
@@ -312,41 +403,159 @@ function updateBulkActions() {
     }
 }
 
+// Evict modal state
+let pendingEvictPaths = [];
+
+function showEvictConfirm(path, filename, size) {
+    pendingEvictPaths = [path];
+
+    const modal = document.getElementById('evict-modal');
+    const modalTitle = document.getElementById('evict-modal-title');
+    const modalBody = document.getElementById('evict-modal-body');
+    const actionBtn = document.getElementById('evict-modal-action');
+
+    modalTitle.textContent = 'Evict from Cache';
+    modalBody.innerHTML = `
+        <div class="evict-file-info">
+            <div class="filename">${escapeHtml(filename)}</div>
+            <div class="file-meta">${size}</div>
+        </div>
+        <div class="evict-warning">
+            <i data-lucide="alert-triangle"></i>
+            <div>
+                This will move the file back to the array and remove it from cache tracking.
+                If a backup exists, it will be restored.
+            </div>
+        </div>
+    `;
+
+    actionBtn.textContent = 'Evict';
+    actionBtn.onclick = executeEvict;
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+}
+
 function bulkEvict() {
     const checked = document.querySelectorAll('.file-checkbox:checked');
     if (checked.length === 0) return;
 
-    const count = checked.length;
-    if (!confirm(`Evict ${count} file${count > 1 ? 's' : ''} from cache?`)) {
-        return;
+    pendingEvictPaths = Array.from(checked).map(cb => cb.value);
+    const count = pendingEvictPaths.length;
+
+    const modal = document.getElementById('evict-modal');
+    const modalTitle = document.getElementById('evict-modal-title');
+    const modalBody = document.getElementById('evict-modal-body');
+    const actionBtn = document.getElementById('evict-modal-action');
+
+    modalTitle.textContent = `Evict ${count} File${count > 1 ? 's' : ''}`;
+
+    // Build file list preview (show first 5)
+    const fileNames = pendingEvictPaths.map(path => path.split('/').pop());
+    const previewCount = Math.min(5, fileNames.length);
+    const fileListHtml = fileNames.slice(0, previewCount)
+        .map(name => `<li>${escapeHtml(name)}</li>`)
+        .join('');
+    const moreHtml = count > previewCount
+        ? `<li class="more-files">...and ${count - previewCount} more</li>`
+        : '';
+
+    modalBody.innerHTML = `
+        <p>You are about to evict <strong>${count}</strong> file${count > 1 ? 's' : ''} from the cache:</p>
+        <div class="file-list">
+            <ul>
+                ${fileListHtml}
+                ${moreHtml}
+            </ul>
+        </div>
+        <div class="evict-warning">
+            <i data-lucide="alert-triangle"></i>
+            <div>
+                These files will be moved back to the array and removed from cache tracking.
+                Any existing backups will be restored.
+            </div>
+        </div>
+    `;
+
+    actionBtn.textContent = `Evict ${count} File${count > 1 ? 's' : ''}`;
+    actionBtn.onclick = executeEvict;
+
+    modal.style.display = 'flex';
+    lucide.createIcons();
+}
+
+function executeEvict() {
+    const actionBtn = document.getElementById('evict-modal-action');
+    const cancelBtn = document.querySelector('#evict-modal .btn-secondary');
+    const originalBtnText = actionBtn.textContent;
+
+    // Show loading state
+    actionBtn.disabled = true;
+    actionBtn.innerHTML = '<span class="spinner" style="width: 16px; height: 16px; margin-right: 8px;"></span>Evicting...';
+    cancelBtn.disabled = true;
+
+    // Determine endpoint based on single vs bulk
+    const isBulk = pendingEvictPaths.length > 1;
+    let fetchPromise;
+
+    if (isBulk) {
+        const formData = new FormData();
+        pendingEvictPaths.forEach(path => formData.append('paths', path));
+        fetchPromise = fetch('/api/cache/evict-bulk', {
+            method: 'POST',
+            body: formData
+        });
+    } else {
+        fetchPromise = fetch(`/api/cache/evict/${encodeURIComponent(pendingEvictPaths[0])}`, {
+            method: 'POST'
+        });
     }
 
-    // Build form data
-    const formData = new FormData();
-    checked.forEach(cb => {
-        formData.append('paths', cb.value);
-    });
+    fetchPromise
+        .then(response => response.text())
+        .then(html => {
+            closeEvictModal();
+            document.getElementById('alert-container').innerHTML = html;
+            lucide.createIcons();
 
-    // Send bulk evict request
-    fetch('/api/cache/evict-bulk', {
-        method: 'POST',
-        body: formData
-    })
-    .then(response => response.text())
-    .then(html => {
-        document.getElementById('alert-container').innerHTML = html;
-        lucide.createIcons();
-    })
-    .catch(err => {
-        document.getElementById('alert-container').innerHTML = `
-            <div class="alert alert-error">
-                <i data-lucide="alert-circle"></i>
-                <span>Error: ${err.message}</span>
-            </div>
-        `;
-        lucide.createIcons();
-    });
+            // Refresh the table
+            htmx.trigger('#cache-table-body', 'refresh');
+        })
+        .catch(err => {
+            closeEvictModal();
+            document.getElementById('alert-container').innerHTML = `
+                <div class="alert alert-error">
+                    <i data-lucide="alert-circle"></i>
+                    <span>Error: ${err.message}</span>
+                </div>
+            `;
+            lucide.createIcons();
+        })
+        .finally(() => {
+            // Reset button state
+            actionBtn.disabled = false;
+            actionBtn.textContent = originalBtnText;
+            cancelBtn.disabled = false;
+            pendingEvictPaths = [];
+        });
 }
+
+function closeEvictModal() {
+    document.getElementById('evict-modal').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeEvictModal();
+    }
+});
 
 // Reset selection after HTMX swaps
 document.addEventListener('htmx:afterSwap', function(e) {

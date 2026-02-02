@@ -62,6 +62,9 @@ class PlexCacheApp:
         self.moved_to_array_count = 0
         self.moved_to_array_bytes = 0
         self.cached_bytes = 0
+        # Eviction tracking
+        self.evicted_count = 0
+        self.evicted_bytes = 0
 
         # Stop request flag (for web UI to abort operations)
         self._stop_requested = False
@@ -286,6 +289,8 @@ class PlexCacheApp:
         # Log version and build info for debugging
         build_commit = os.environ.get('GIT_COMMIT', 'dev')
         logging.info(f"=== PlexCache-R v{__version__} (build: {build_commit}) ===")
+        # Log file ownership configuration (PUID/PGID)
+        self.file_utils.log_ownership_config()
 
     def _setup_notification_handlers(self) -> None:
         """Set up notification handlers after config is loaded."""
@@ -349,6 +354,12 @@ class PlexCacheApp:
         move_verb = "Would move" if self.dry_run else "Moved"
         logging.info(f"{move_verb} to cache: {actually_moved} files")
         logging.info(f"{move_verb} to array: {moved_to_array} files")
+
+        # Show eviction stats if any files were evicted
+        if self.evicted_count > 0:
+            evict_verb = "Would evict" if self.dry_run else "Evicted"
+            evicted_size = self.evicted_bytes / (1024**3)  # Convert to GB
+            logging.info(f"{evict_verb}: {self.evicted_count} files ({evicted_size:.2f} GB freed)")
 
         # Additional detail at DEBUG level
         # Note: Empty folder cleanup now happens immediately during file operations
@@ -1131,7 +1142,9 @@ class PlexCacheApp:
         # Step 2: Run smart eviction BEFORE filtering/caching (frees more space if needed)
         # This runs after array moves so we have accurate space calculations
         if self.media_to_cache:
-            self._run_smart_eviction()
+            evicted_count, evicted_bytes = self._run_smart_eviction()
+            self.evicted_count += evicted_count
+            self.evicted_bytes += evicted_bytes
 
         # Step 3: Move files to cache
         logging.debug(f"Files being passed to cache move: {self.media_to_cache}")
@@ -1559,6 +1572,26 @@ class PlexCacheApp:
 
         if not candidates:
             logging.info("No low-priority items available for eviction")
+            return (0, 0)
+
+        # Filter out files that are about to be cached (prevents evict-then-recache loop)
+        # Convert media_to_cache paths to cache paths for comparison
+        files_to_cache_set = set()
+        for f in self.media_to_cache:
+            # media_to_cache contains array paths (/mnt/user/...), convert to cache paths
+            if self.file_path_modifier:
+                cache_path, _ = self.file_path_modifier.convert_real_to_cache(f)
+                if cache_path:
+                    files_to_cache_set.add(cache_path)
+
+        original_count = len(candidates)
+        candidates = [c for c in candidates if c not in files_to_cache_set]
+        if len(candidates) < original_count:
+            skipped = original_count - len(candidates)
+            logging.debug(f"Skipped {skipped} eviction candidate(s) that would be immediately re-cached")
+
+        if not candidates:
+            logging.info("No eviction candidates after filtering (all would be re-cached)")
             return (0, 0)
 
         # Check if candidates can free enough space

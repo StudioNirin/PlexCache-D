@@ -316,8 +316,41 @@ class FileUtils:
         self.is_linux = is_linux
         self.permissions = permissions
         self.is_docker = is_docker
-        if is_docker:
-            logging.info("Docker detected - skipping chown/chmod operations (permissions handled by container)")
+
+        # Check for PUID/PGID environment variables (Docker user/group override)
+        self.puid = None
+        self.pgid = None
+        puid_env = os.environ.get('PUID')
+        pgid_env = os.environ.get('PGID')
+
+        if puid_env is not None:
+            try:
+                self.puid = int(puid_env)
+            except ValueError:
+                pass  # Will log warning when log_ownership_config() is called
+
+        if pgid_env is not None:
+            try:
+                self.pgid = int(pgid_env)
+            except ValueError:
+                pass  # Will log warning when log_ownership_config() is called
+
+    def log_ownership_config(self) -> None:
+        """Log the file ownership configuration. Call after logging is set up."""
+        puid_env = os.environ.get('PUID')
+        pgid_env = os.environ.get('PGID')
+
+        # Log any parse errors
+        if puid_env is not None and self.puid is None:
+            logging.warning(f"Invalid PUID value: {puid_env}, ignoring")
+        if pgid_env is not None and self.pgid is None:
+            logging.warning(f"Invalid PGID value: {pgid_env}, ignoring")
+
+        # Log the ownership mode
+        if self.puid is not None or self.pgid is not None:
+            logging.info(f"File ownership: PUID={self.puid}, PGID={self.pgid}")
+        elif self.is_docker:
+            logging.info("File ownership: Using source file ownership (no PUID/PGID set)")
     
     def check_path_exists(self, path: str) -> None:
         """Check if path exists, is a directory, and is writable."""
@@ -405,6 +438,9 @@ class FileUtils:
             verbose: If True, log detailed ownership info
             display_src: Optional path to show in logs instead of src (for Docker host paths)
             display_dest: Optional path to show in logs instead of dest (for Docker host paths)
+
+        If PUID/PGID environment variables are set, those values are used for ownership.
+        Otherwise, the source file's ownership is preserved.
         """
         # Use display paths for logging if provided (Docker shows host paths)
         log_src = display_src or src
@@ -419,13 +455,17 @@ class FileUtils:
                 src_gid = stat_info.st_gid
                 src_mode = stat_info.st_mode
 
+                # Use PUID/PGID if set, otherwise use source ownership
+                target_uid = self.puid if self.puid is not None else src_uid
+                target_gid = self.pgid if self.pgid is not None else src_gid
+
                 # Copy the file (preserves metadata like timestamps)
                 shutil.copy2(src, dest)
 
-                # Restore original ownership and permissions (shutil.copy2 doesn't preserve uid/gid)
+                # Set ownership and permissions (shutil.copy2 doesn't preserve uid/gid)
                 original_umask = os.umask(0)
                 try:
-                    os.chown(dest, src_uid, src_gid)
+                    os.chown(dest, target_uid, target_gid)
                 except (PermissionError, OSError) as e:
                     logging.debug(f"Could not set file ownership (filesystem may not support it): {e}")
 
@@ -439,7 +479,7 @@ class FileUtils:
                     # Log ownership details for debugging
                     dest_stat = os.stat(dest)
                     logging.debug(f"File copied: {log_src} -> {log_dest}")
-                    logging.debug(f"  Preserved ownership: uid={dest_stat.st_uid}, gid={dest_stat.st_gid}")
+                    logging.debug(f"  Set ownership: uid={dest_stat.st_uid}, gid={dest_stat.st_gid}")
                     logging.debug(f"  Mode: {oct(dest_stat.st_mode)}")
                 else:
                     logging.debug(f"File copied with permissions preserved: {log_dest}")
@@ -453,31 +493,58 @@ class FileUtils:
             raise RuntimeError(f"Error copying file: {str(e)}")
 
     def create_directory_with_permissions(self, path: str, src_file_for_permissions: str) -> None:
-        """Create directory with proper permissions."""
+        """Create directory with proper permissions.
+
+        When creating multiple directory levels (e.g., Show/Season/), this ensures
+        ALL newly created directories get the correct ownership, not just the final one.
+
+        If PUID/PGID environment variables are set, those values are used for ownership.
+        Otherwise, the source file's ownership is used.
+        """
         logging.debug(f"Creating directory with permissions: {path}")
 
         if not os.path.exists(path):
             if self.is_linux:
                 # Get the permissions of the source file
                 stat_info = os.stat(src_file_for_permissions)
-                uid = stat_info.st_uid
-                gid = stat_info.st_gid
+                src_uid = stat_info.st_uid
+                src_gid = stat_info.st_gid
+
+                # Use PUID/PGID if set, otherwise use source ownership
+                target_uid = self.puid if self.puid is not None else src_uid
+                target_gid = self.pgid if self.pgid is not None else src_gid
+
+                # Find the first existing ancestor directory
+                # We need to track which directories we create so we can chown them all
+                dirs_to_create = []
+                current = path
+                while current and not os.path.exists(current):
+                    dirs_to_create.append(current)
+                    parent = os.path.dirname(current)
+                    if parent == current:  # Reached root
+                        break
+                    current = parent
+
+                # Reverse so we create from closest existing ancestor downward
+                dirs_to_create.reverse()
+
                 original_umask = os.umask(0)
                 os.makedirs(path, exist_ok=True)
 
-                # Restore original ownership (makedirs doesn't preserve uid/gid)
-                try:
-                    os.chown(path, uid, gid)
-                except (PermissionError, OSError) as e:
-                    logging.debug(f"Could not set directory ownership (filesystem may not support it): {e}")
+                # Set ownership and permissions on ALL newly created directories
+                for dir_path in dirs_to_create:
+                    try:
+                        os.chown(dir_path, target_uid, target_gid)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set directory ownership for {dir_path}: {e}")
 
-                try:
-                    os.chmod(path, self.permissions)
-                except (PermissionError, OSError) as e:
-                    logging.debug(f"Could not set directory permissions (filesystem may not support it): {e}")
+                    try:
+                        os.chmod(dir_path, self.permissions)
+                    except (PermissionError, OSError) as e:
+                        logging.debug(f"Could not set directory permissions for {dir_path}: {e}")
 
                 os.umask(original_umask)
-                logging.debug(f"Directory created with permissions (Linux): {path}")
+                logging.debug(f"Directory created with permissions (Linux): {path} ({len(dirs_to_create)} level(s), uid={target_uid}, gid={target_gid})")
             else:  # Windows platform
                 os.makedirs(path, exist_ok=True)
                 logging.debug(f"Directory created (Windows): {path}")

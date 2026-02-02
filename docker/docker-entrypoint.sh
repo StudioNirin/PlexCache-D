@@ -63,6 +63,10 @@ echo ""
 echo "Configuration:"
 echo "  Web Port: ${WEB_PORT:-5757}"
 echo "  Log Level: ${LOG_LEVEL:-INFO}"
+if [ -n "${PUID}" ] || [ -n "${PGID}" ]; then
+    echo "  PUID: ${PUID:-not set}"
+    echo "  PGID: ${PGID:-not set}"
+fi
 echo ""
 
 if [ -f "/config/plexcache_settings.json" ]; then
