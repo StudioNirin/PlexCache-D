@@ -2889,12 +2889,14 @@ class FileMover:
             if cache_file_name is None:
                 # This shouldn't happen - non-cacheable files should be filtered earlier
                 logging.warning(f"Non-cacheable file reached FileMover: {file_to_move}")
+                logging.debug(f"Path conversion failed - input: {file_to_move}")
                 # Fall back to legacy behavior
                 relative_path = os.path.relpath(user_path, self.real_source)
                 cache_path = os.path.join(self.cache_dir, relative_path)
                 cache_file_name = os.path.join(cache_path, os.path.basename(file_to_move))
             else:
                 cache_path = os.path.dirname(cache_file_name)
+                logging.debug(f"Path conversion: {file_to_move} -> {cache_file_name} (mapping: {mapping.name if mapping else 'None'})")
         else:
             # Legacy single-path mode
             relative_path = os.path.relpath(user_path, self.real_source)
@@ -2946,8 +2948,14 @@ class FileMover:
             else:
                 logging.warning(f"Cannot move to array - file not found on cache or as .plexcached: {cache_file_name}")
         elif destination == 'cache':
+            # Debug: Log the paths being checked for cache operations
+            cache_exists = os.path.isfile(cache_file_name)
+            array_exists = os.path.isfile(user_file_name)
+            logging.debug(f"Cache path check: {cache_file_name} exists={cache_exists}")
+            logging.debug(f"Array path check: {user_file_name} exists={array_exists}")
+
             # Check if file is already on cache
-            if os.path.isfile(cache_file_name):
+            if cache_exists:
                 # File already on cache - ensure it's in exclude file
                 self._add_to_exclude_file(cache_file_name)
 
@@ -2959,7 +2967,7 @@ class FileMover:
                 return None
 
             # Check if file exists on array to copy
-            if os.path.isfile(user_file_name):
+            if array_exists:
                 # Check for hard links - files with multiple hard links (e.g., from jdupes
                 # for seeding) require special handling:
                 # - FUSE has issues renaming hard-linked files to .plexcached
