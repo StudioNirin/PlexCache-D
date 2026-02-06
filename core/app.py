@@ -1667,15 +1667,21 @@ class PlexCacheApp:
                         logging.info(f"Eviction upgrade detected: {old_name} -> {new_name}")
 
                         # Copy the upgraded cache file to array BEFORE deleting old backup
+                        # CRITICAL: Copy to /mnt/user0/ (array direct), NOT /mnt/user/ (FUSE)
+                        # If we copy to /mnt/user/, Unraid's cache policy may put the file
+                        # back on cache (if shareUseCache=yes), causing data loss
+                        array_direct_path = get_array_direct_path(array_path)
                         if os.path.exists(cache_path):
                             import shutil
                             try:
-                                shutil.copy2(cache_path, array_path)
-                                logging.debug(f"Copied upgraded file to array: {array_path}")
-                                # Verify copy succeeded
-                                if os.path.exists(array_path):
+                                array_direct_dir = os.path.dirname(array_direct_path)
+                                os.makedirs(array_direct_dir, exist_ok=True)
+                                shutil.copy2(cache_path, array_direct_path)
+                                logging.debug(f"Copied upgraded file to array: {array_direct_path}")
+                                # Verify copy succeeded using array-direct path
+                                if os.path.exists(array_direct_path):
                                     cache_size = os.path.getsize(cache_path)
-                                    array_size = os.path.getsize(array_path)
+                                    array_size = os.path.getsize(array_direct_path)
                                     if cache_size == array_size:
                                         array_restored = True
                                         # NOW safe to delete old backup
@@ -1683,7 +1689,7 @@ class PlexCacheApp:
                                         logging.debug(f"Deleted old .plexcached: {old_plexcached}")
                                     else:
                                         logging.error(f"Size mismatch after copy! Cache: {cache_size}, Array: {array_size}. Skipping eviction.")
-                                        os.remove(array_path)  # Remove failed copy
+                                        os.remove(array_direct_path)  # Remove failed copy
                                         continue
                             except OSError as e:
                                 logging.error(f"Failed to copy to array during eviction: {e}. Skipping eviction.")
@@ -1743,8 +1749,9 @@ class PlexCacheApp:
                         stat_info = os.stat(cache_path)
                         if stat_info.st_nlink > 1:
                             logging.debug(f"File has {stat_info.st_nlink} hardlinks, deleting won't free space: {os.path.basename(cache_path)}")
-                    except OSError:
-                        pass
+                    except OSError as e:
+                        logging.warning(f"Cannot stat cache file, skipping eviction: {os.path.basename(cache_path)}: {e}")
+                        continue
                     os.remove(cache_path)
                     logging.debug(f"Deleted cache file: {os.path.basename(cache_path)}")
                 else:

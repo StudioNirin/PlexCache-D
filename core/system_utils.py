@@ -76,6 +76,40 @@ def get_array_direct_path(user_share_path: str) -> str:
     return user_share_path
 
 
+def parse_size_bytes(size_str: str) -> int:
+    """Parse a human-readable size string and return bytes.
+
+    Supports suffixes: TB/T, GB/G, MB/M. Bare numbers default to GB.
+    Returns 0 for empty, zero, or invalid input.
+
+    Args:
+        size_str: Size string like "500GB", "1.5T", "100MB", or "2" (= 2GB).
+
+    Returns:
+        Size in bytes, or 0 if input is empty/zero/invalid.
+    """
+    if not size_str or size_str.strip() == "0":
+        return 0
+    size_str = size_str.strip().upper()
+    try:
+        if size_str.endswith('TB'):
+            return int(float(size_str[:-2]) * 1024**4)
+        elif size_str.endswith('GB'):
+            return int(float(size_str[:-2]) * 1024**3)
+        elif size_str.endswith('MB'):
+            return int(float(size_str[:-2]) * 1024**2)
+        elif size_str.endswith('T'):
+            return int(float(size_str[:-1]) * 1024**4)
+        elif size_str.endswith('G'):
+            return int(float(size_str[:-1]) * 1024**3)
+        elif size_str.endswith('M'):
+            return int(float(size_str[:-1]) * 1024**2)
+        else:
+            return int(float(size_str) * 1024**3)  # Default to GB
+    except ValueError:
+        return 0
+
+
 def get_disk_free_space_bytes(path: str) -> int:
     """Get free space in bytes for the filesystem containing the given path.
 

@@ -10,31 +10,10 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
-from core.system_utils import get_disk_usage, detect_zfs, get_array_direct_path
+from core.system_utils import get_disk_usage, detect_zfs, get_array_direct_path, parse_size_bytes
 
-
-def _parse_size_bytes(size_str: str) -> int:
-    """Parse size string and return bytes. Returns 0 for auto-detect."""
-    if not size_str or size_str.strip() == "0":
-        return 0
-    size_str = size_str.strip().upper()
-    try:
-        if size_str.endswith('TB'):
-            return int(float(size_str[:-2]) * 1024**4)
-        elif size_str.endswith('GB'):
-            return int(float(size_str[:-2]) * 1024**3)
-        elif size_str.endswith('MB'):
-            return int(float(size_str[:-2]) * 1024**2)
-        elif size_str.endswith('T'):
-            return int(float(size_str[:-1]) * 1024**4)
-        elif size_str.endswith('G'):
-            return int(float(size_str[:-1]) * 1024**3)
-        elif size_str.endswith('M'):
-            return int(float(size_str[:-1]) * 1024**2)
-        else:
-            return int(float(size_str) * 1024**3)  # Default to GB
-    except ValueError:
-        return 0
+# Backward-compatible alias
+_parse_size_bytes = parse_size_bytes
 
 
 # Subtitle file extensions (case-insensitive)

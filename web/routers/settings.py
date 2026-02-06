@@ -2,6 +2,7 @@
 
 import time
 import uuid
+import threading
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -12,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 
 from web.config import TEMPLATES_DIR, CONFIG_DIR
 from web.services import get_settings_service, get_scheduler_service
-from core.system_utils import get_disk_usage, detect_zfs
+from core.system_utils import get_disk_usage, detect_zfs, parse_size_bytes
 from core.file_operations import (
     PRIORITY_RANGE_ONDECK_MIN,
     PRIORITY_RANGE_ONDECK_MAX,
@@ -20,29 +21,8 @@ from core.file_operations import (
     PRIORITY_RANGE_WATCHLIST_MAX,
 )
 
-
-def _parse_size_bytes(size_str: str) -> int:
-    """Parse size string and return bytes. Returns 0 for auto-detect."""
-    if not size_str or size_str.strip() == "0":
-        return 0
-    size_str = size_str.strip().upper()
-    try:
-        if size_str.endswith('TB'):
-            return int(float(size_str[:-2]) * 1024**4)
-        elif size_str.endswith('GB'):
-            return int(float(size_str[:-2]) * 1024**3)
-        elif size_str.endswith('MB'):
-            return int(float(size_str[:-2]) * 1024**2)
-        elif size_str.endswith('T'):
-            return int(float(size_str[:-1]) * 1024**4)
-        elif size_str.endswith('G'):
-            return int(float(size_str[:-1]) * 1024**3)
-        elif size_str.endswith('M'):
-            return int(float(size_str[:-1]) * 1024**2)
-        else:
-            return int(float(size_str) * 1024**3)  # Default to GB
-    except ValueError:
-        return 0
+# Backward-compatible alias
+_parse_size_bytes = parse_size_bytes
 
 
 router = APIRouter()
@@ -52,8 +32,9 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 PLEXCACHE_PRODUCT_NAME = 'PlexCache-R'
 PLEXCACHE_PRODUCT_VERSION = '3.0'
 
-# Store OAuth state in memory
+# Store OAuth state in memory (with lock for thread safety)
 _oauth_state: Dict[str, Any] = {}
+_oauth_state_lock = threading.Lock()
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -190,11 +171,20 @@ async def save_plex_settings(request: Request):
     # Get single values
     plex_url = form.get("plex_url", "")
     plex_token = form.get("plex_token", "")
-    days_to_monitor = int(form.get("days_to_monitor", 183))
-    number_episodes = int(form.get("number_episodes", 5))
+    try:
+        days_to_monitor = int(form.get("days_to_monitor", 183))
+    except (ValueError, TypeError):
+        days_to_monitor = 183
+    try:
+        number_episodes = int(form.get("number_episodes", 5))
+    except (ValueError, TypeError):
+        number_episodes = 5
 
     # Get multi-value checkbox fields
-    valid_sections = [int(v) for v in form.getlist("valid_sections")]
+    try:
+        valid_sections = [int(v) for v in form.getlist("valid_sections")]
+    except (ValueError, TypeError):
+        valid_sections = []
 
     # Note: users_toggle, skip_ondeck, skip_watchlist are now managed by /settings/users
     success = settings_service.save_plex_settings({
@@ -1037,16 +1027,21 @@ async def import_settings_file(request: Request):
 
 def _get_or_create_client_id() -> str:
     """Get existing client ID from settings or create a new one"""
-    settings_service = get_settings_service()
-    settings = settings_service.get_all()
+    try:
+        settings_service = get_settings_service()
+        settings = settings_service.get_all()
 
-    if settings.get("plexcache_client_id"):
-        return settings["plexcache_client_id"]
+        if settings.get("plexcache_client_id"):
+            return settings["plexcache_client_id"]
 
-    # Generate and save new client ID
-    client_id = str(uuid.uuid4())
-    settings_service.save_general_settings({"plexcache_client_id": client_id})
-    return client_id
+        # Generate and save new client ID
+        client_id = str(uuid.uuid4())
+        settings_service.save_general_settings({"plexcache_client_id": client_id})
+        return client_id
+    except Exception as e:
+        import logging
+        logging.warning(f"Could not load/save client ID: {e}")
+        return str(uuid.uuid4())
 
 
 @router.post("/plex/oauth/start")
@@ -1080,11 +1075,12 @@ async def oauth_start():
         return JSONResponse({"success": False, "error": "Invalid response from Plex"})
 
     # Store pin for polling
-    _oauth_state[client_id] = {
-        "pin_id": pin_id,
-        "pin_code": pin_code,
-        "created": time.time()
-    }
+    with _oauth_state_lock:
+        _oauth_state[client_id] = {
+            "pin_id": pin_id,
+            "pin_code": pin_code,
+            "created": time.time()
+        }
 
     auth_url = f"https://app.plex.tv/auth#?clientID={client_id}&code={pin_code}&context%5Bdevice%5D%5Bproduct%5D={PLEXCACHE_PRODUCT_NAME}"
 
@@ -1098,16 +1094,17 @@ async def oauth_start():
 @router.get("/plex/oauth/poll")
 async def oauth_poll(client_id: str = Query(...)):
     """Poll for OAuth completion"""
-    if client_id not in _oauth_state:
-        return JSONResponse({"success": False, "error": "Invalid or expired client ID"})
+    with _oauth_state_lock:
+        if client_id not in _oauth_state:
+            return JSONResponse({"success": False, "error": "Invalid or expired client ID"})
 
-    state = _oauth_state[client_id]
-    pin_id = state["pin_id"]
+        state = _oauth_state[client_id]
+        pin_id = state["pin_id"]
 
-    # Check if state is too old (10 minutes)
-    if time.time() - state["created"] > 600:
-        del _oauth_state[client_id]
-        return JSONResponse({"success": False, "error": "OAuth session expired"})
+        # Check if state is too old (10 minutes)
+        if time.time() - state["created"] > 600:
+            del _oauth_state[client_id]
+            return JSONResponse({"success": False, "error": "OAuth session expired"})
 
     headers = {
         'Accept': 'application/json',
@@ -1128,7 +1125,8 @@ async def oauth_poll(client_id: str = Query(...)):
         auth_token = pin_status.get('authToken')
         if auth_token:
             # Clean up state
-            del _oauth_state[client_id]
+            with _oauth_state_lock:
+                _oauth_state.pop(client_id, None)
             return JSONResponse({
                 "success": True,
                 "complete": True,

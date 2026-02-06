@@ -9,6 +9,7 @@ import logging
 import threading
 import json
 import time
+import tempfile
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
 from typing import List, Set, Optional, Tuple, Dict, TYPE_CHECKING, Callable
@@ -169,10 +170,20 @@ class JSONTracker:
         pass
 
     def _save(self) -> None:
-        """Save tracker data to file."""
+        """Save tracker data to file atomically (write-to-temp-then-rename)."""
         try:
-            with open(self.tracker_file, 'w', encoding='utf-8') as f:
-                json.dump(self._data, f, indent=2)
+            dir_name = os.path.dirname(self.tracker_file) or '.'
+            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(self._data, f, indent=2)
+                os.replace(tmp_path, self.tracker_file)
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
             logging.error(f"Could not save {self._tracker_name} file: {type(e).__name__}: {e}")
 
@@ -322,10 +333,20 @@ class CacheTimestampTracker:
             self._timestamps = {}
 
     def _save(self) -> None:
-        """Save timestamps to file."""
+        """Save timestamps to file atomically (write-to-temp-then-rename)."""
         try:
-            with open(self.timestamp_file, 'w', encoding='utf-8') as f:
-                json.dump(self._timestamps, f, indent=2)
+            dir_name = os.path.dirname(self.timestamp_file) or '.'
+            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(self._timestamps, f, indent=2)
+                os.replace(tmp_path, self.timestamp_file)
+            except BaseException:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
         except IOError as e:
             logging.error(f"Could not save timestamp file: {type(e).__name__}: {e}")
 

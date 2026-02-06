@@ -180,25 +180,35 @@ async def evict_file(request: Request, file_path: str):
     """Evict a single file from cache"""
     cache_service = get_cache_service()
 
-    # URL decode the path
+    # URL decode the path and validate
     decoded_path = unquote(file_path)
+    if not decoded_path or not decoded_path.startswith("/"):
+        return '''<div class="alert alert-error" id="evict-alert">
+            <i data-lucide="alert-circle"></i>
+            <span>Invalid file path</span>
+        </div>
+        <script>
+            setTimeout(() => document.getElementById('evict-alert')?.remove(), 5000);
+        </script>'''
 
     result = cache_service.evict_file(decoded_path)
 
     # Return an alert message
-    if result["success"]:
+    if result.get("success"):
+        message = result.get("message", "File evicted")
         return f'''<div class="alert alert-success" id="evict-alert">
             <i data-lucide="check-circle"></i>
-            <span>{result["message"]}</span>
+            <span>{message}</span>
         </div>
         <script>
             setTimeout(() => document.getElementById('evict-alert')?.remove(), 3000);
             htmx.trigger('#cache-table-body', 'refresh');
         </script>'''
     else:
+        message = result.get("message", "Eviction failed")
         return f'''<div class="alert alert-error" id="evict-alert">
             <i data-lucide="alert-circle"></i>
-            <span>{result["message"]}</span>
+            <span>{message}</span>
         </div>
         <script>
             setTimeout(() => document.getElementById('evict-alert')?.remove(), 5000);

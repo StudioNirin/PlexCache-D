@@ -275,9 +275,12 @@ class MaintenanceService:
         cache_files = set()
         extensions = self.VIDEO_EXTENSIONS + self.SUBTITLE_EXTENSIONS
 
+        def _walk_error(err):
+            logging.warning(f"Permission error scanning directory: {err}")
+
         for cache_dir in cache_dirs:
             if os.path.exists(cache_dir):
-                for root, dirs, files in os.walk(cache_dir):
+                for root, dirs, files in os.walk(cache_dir, onerror=_walk_error):
                     # Prune excluded directories (modifying dirs in-place skips them)
                     dirs[:] = [d for d in dirs if not self._should_skip_directory(d)]
                     for f in files:
