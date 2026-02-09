@@ -101,7 +101,7 @@ def _check_blocked(action_name: str) -> Optional[str]:
 
     if runner.is_running:
         return (
-            '<div class="alert alert-warning" style="margin-bottom: 1rem;">'
+            '<div class="alert alert-warning maintenance-action-blocked" style="margin-bottom: 1rem;">'
             '<i data-lucide="alert-triangle"></i>'
             '<span>A maintenance action is already running. Please wait for it to complete.</span>'
             '</div><script>lucide.createIcons();</script>'
@@ -109,7 +109,7 @@ def _check_blocked(action_name: str) -> Optional[str]:
 
     if op_runner.is_running:
         return (
-            '<div class="alert alert-warning" style="margin-bottom: 1rem;">'
+            '<div class="alert alert-warning maintenance-action-blocked" style="margin-bottom: 1rem;">'
             '<i data-lucide="alert-triangle"></i>'
             '<span>A PlexCache operation is running. Please wait for it to complete.</span>'
             '</div><script>lucide.createIcons();</script>'

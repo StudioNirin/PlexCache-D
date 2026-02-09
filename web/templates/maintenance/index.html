@@ -264,8 +264,22 @@ function executeAction(action, formData, isDryRun) {
         // Close modal first
         closeConfirmModal();
 
-        // Check if this is an async "started in background" response
-        if (html.includes('maintenance-async-started')) {
+        // Check if this is a blocked response (operation or maintenance already running)
+        if (html.includes('maintenance-action-blocked')) {
+            // Show as temporary toast at top of audit content, don't replace page
+            const alertContainer = document.createElement('div');
+            alertContainer.id = 'blocked-alert';
+            alertContainer.innerHTML = html;
+            const auditContent = document.getElementById('audit-content');
+            auditContent.insertBefore(alertContainer, auditContent.firstChild);
+            lucide.createIcons();
+
+            // Auto-remove after 5 seconds
+            setTimeout(function() {
+                var el = document.getElementById('blocked-alert');
+                if (el) el.remove();
+            }, 5000);
+        } else if (html.includes('maintenance-async-started')) {
             // Show the alert at top of audit content
             const alertContainer = document.createElement('div');
             alertContainer.innerHTML = html;
