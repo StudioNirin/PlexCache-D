@@ -266,19 +266,14 @@ function executeAction(action, formData, isDryRun) {
 
         // Check if this is a blocked response (operation or maintenance already running)
         if (html.includes('maintenance-action-blocked')) {
-            // Show as temporary toast at top of audit content, don't replace page
-            const alertContainer = document.createElement('div');
-            alertContainer.id = 'blocked-alert';
-            alertContainer.innerHTML = html;
-            const auditContent = document.getElementById('audit-content');
-            auditContent.insertBefore(alertContainer, auditContent.firstChild);
-            lucide.createIcons();
-
-            // Auto-remove after 5 seconds
-            setTimeout(function() {
-                var el = document.getElementById('blocked-alert');
-                if (el) el.remove();
-            }, 5000);
+            // Extract message and show integrated warning inside the active banner
+            var tempDiv = document.createElement('div');
+            tempDiv.innerHTML = html;
+            var msgSpan = tempDiv.querySelector('span');
+            var message = msgSpan ? msgSpan.textContent : 'Action is blocked by a running operation.';
+            if (typeof showBannerWarning === 'function') {
+                showBannerWarning(message);
+            }
         } else if (html.includes('maintenance-async-started')) {
             // Show the alert at top of audit content
             const alertContainer = document.createElement('div');

@@ -1,46 +1,71 @@
 <!-- Global Operation Banner - centered toast on all pages when operation or maintenance is running -->
-{% if blocked_message is defined and blocked_message %}
-<div id="blocked-toast" style="position: fixed; top: 4.5rem; left: 50%; transform: translateX(-50%); z-index: 9998; background: #1a1d1f; border: 2px solid #e67e22; border-radius: 12px; padding: 0.6rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 0.75rem; animation: slideDown 0.3s ease-out;">
-    <i data-lucide="alert-triangle" style="width: 18px; height: 18px; color: #e67e22;"></i>
-    <span style="color: #fff; font-size: 0.9rem;">{{ blocked_message }}</span>
-</div>
-<style>@keyframes slideDown { from { opacity: 0; top: 3rem; } to { opacity: 1; top: 4.5rem; } }</style>
+<!-- Banner warning helper - expands a warning row inside the active banner -->
 <script>
-    lucide.createIcons();
+function showBannerWarning(message) {
+    var warning = document.getElementById('banner-warning');
+    var banner = document.getElementById('active-op-banner');
+    var textEl = document.getElementById('banner-warning-text');
+    if (!warning || !banner || !textEl) return;
+    textEl.textContent = message;
+    // Pause HTMX polling so it doesn't replace the warning before it's seen
+    var pollEl = document.querySelector('#global-operation-banner [hx-trigger]');
+    if (pollEl) { pollEl.setAttribute('hx-trigger', 'every 8s'); htmx.process(pollEl); }
+    // Expand with animation (double rAF ensures browser paints collapsed state first)
+    requestAnimationFrame(function() { requestAnimationFrame(function() {
+        banner.style.borderColor = '#e67e22';
+        warning.style.maxHeight = '2.5rem';
+        warning.style.maxWidth = '40rem';
+        warning.style.opacity = '1';
+        warning.style.paddingTop = '0.6rem';
+        warning.style.marginTop = '0.6rem';
+        warning.style.borderColor = 'rgba(230, 126, 34, 0.3)';
+    }); });
+    // Auto-collapse after 4 seconds
     setTimeout(function() {
-        var el = document.getElementById('blocked-toast');
-        if (el) {
-            el.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
-            el.style.opacity = '0';
-            el.style.transform = 'translateX(-50%) translateY(-10px)';
-            setTimeout(function() { if (el.parentNode) el.parentNode.removeChild(el); }, 400);
-        }
+        if (!warning) return;
+        warning.style.maxHeight = '0';
+        warning.style.maxWidth = '0';
+        warning.style.opacity = '0';
+        warning.style.paddingTop = '0';
+        warning.style.marginTop = '0';
+        warning.style.borderColor = 'transparent';
+        banner.style.borderColor = '#e5a00d';
     }, 4000);
+}
 </script>
-{% endif %}
 {% if maint_status is defined and maint_status.state == 'running' %}
 <!-- Maintenance action running -->
-<div style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 9999; background: #1a1d1f; border: 2px solid #e5a00d; border-radius: 12px; padding: 0.75rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 1rem;"
-     hx-get="/api/operation-banner" hx-trigger="every 2s" hx-swap="innerHTML" hx-target="#global-operation-banner">
-    <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <span class="spinner" style="width: 18px; height: 18px;"></span>
-        <strong style="color: #fff; font-size: 0.95rem;">{{ maint_status.action_display }}</strong>
+<div id="active-op-banner" style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 9999; background: #1a1d1f; border: 2px solid #e5a00d; border-radius: 12px; padding: 0.75rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; transition: border-color 0.3s ease-out;"
+     hx-get="/api/operation-banner" hx-trigger="every {{ '8s' if (blocked_message is defined and blocked_message) else '2s' }}" hx-swap="innerHTML" hx-target="#global-operation-banner">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span class="spinner" style="width: 18px; height: 18px;"></span>
+            <strong style="color: #fff; font-size: 0.95rem;">{{ maint_status.action_display }}</strong>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <button type="button" class="btn btn-sm btn-danger" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                    hx-post="/maintenance/stop-action"
+                    hx-target="#global-operation-banner"
+                    hx-swap="innerHTML">
+                <i data-lucide="square" style="width: 14px; height: 14px;"></i>
+                Stop
+            </button>
+            <button type="button" style="background: transparent; border: none; color: #fff; cursor: pointer; padding: 0.25rem; opacity: 0.7;"
+                    onclick="document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+            </button>
+        </div>
     </div>
-    <div style="display: flex; align-items: center; gap: 0.5rem;">
-        <button type="button" class="btn btn-sm btn-danger" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
-                hx-post="/maintenance/stop-action"
-                hx-target="#global-operation-banner"
-                hx-swap="innerHTML">
-            <i data-lucide="square" style="width: 14px; height: 14px;"></i>
-            Stop
-        </button>
-        <button type="button" style="background: transparent; border: none; color: #fff; cursor: pointer; padding: 0.25rem; opacity: 0.7;"
-                onclick="document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">
-            <i data-lucide="x" style="width: 18px; height: 18px;"></i>
-        </button>
+    <!-- Warning row - collapsed by default, expanded by showBannerWarning() -->
+    <div id="banner-warning" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; padding-top: 0; margin-top: 0; border-top: 1px solid transparent; transition: max-height 0.35s ease-out, max-width 0.4s ease-out, opacity 0.3s ease-out, padding-top 0.35s ease-out, margin-top 0.35s ease-out, border-color 0.3s ease-out;">
+        <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #e67e22; flex-shrink: 0;"></i>
+        <span id="banner-warning-text" style="font-size: 0.8rem; color: #e67e22; white-space: nowrap;"></span>
     </div>
 </div>
-<script>lucide.createIcons();</script>
+<script>
+    lucide.createIcons();
+    {% if blocked_message is defined and blocked_message %}showBannerWarning('{{ blocked_message }}');{% endif %}
+</script>
 {% elif maint_status is defined and maint_status.state == 'completed' %}
 <!-- Maintenance action completed -->
 <script>
@@ -127,31 +152,41 @@ function dismissMaintCompletionBanner() {
 </div>
 <script>lucide.createIcons();</script>
 {% elif status.state == 'running' %}
-<div style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 9999; background: #1a1d1f; border: 2px solid #e5a00d; border-radius: 12px; padding: 0.75rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 1rem;"
-     hx-get="/api/operation-banner" hx-trigger="every 2s" hx-swap="innerHTML" hx-target="#global-operation-banner">
-    <div style="display: flex; align-items: center; gap: 0.75rem;">
-        <span class="spinner" style="width: 18px; height: 18px;"></span>
-        <strong style="color: #fff; font-size: 0.95rem;">{{ 'Dry Run' if status.dry_run else 'Operation' }} in progress...</strong>
+<div id="active-op-banner" style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 9999; background: #1a1d1f; border: 2px solid #e5a00d; border-radius: 12px; padding: 0.75rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; flex-direction: column; align-items: center; transition: border-color 0.3s ease-out;"
+     hx-get="/api/operation-banner" hx-trigger="every {{ '8s' if (blocked_message is defined and blocked_message) else '2s' }}" hx-swap="innerHTML" hx-target="#global-operation-banner">
+    <div style="display: flex; align-items: center; justify-content: center; gap: 1rem;">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+            <span class="spinner" style="width: 18px; height: 18px;"></span>
+            <strong style="color: #fff; font-size: 0.95rem;">{{ 'Dry Run' if status.dry_run else 'Operation' }} in progress...</strong>
+        </div>
+        <div style="display: flex; align-items: center; gap: 0.5rem;">
+            <a href="/logs?live=true" class="btn btn-sm btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">
+                <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
+                Logs
+            </a>
+            <button type="button" class="btn btn-sm btn-danger" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
+                    hx-post="/operations/stop"
+                    hx-target="#global-operation-banner"
+                    hx-swap="innerHTML">
+                <i data-lucide="square" style="width: 14px; height: 14px;"></i>
+                Stop
+            </button>
+            <button type="button" style="background: transparent; border: none; color: #fff; cursor: pointer; padding: 0.25rem; opacity: 0.7;"
+                    onclick="document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">
+                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+            </button>
+        </div>
     </div>
-    <div style="display: flex; align-items: center; gap: 0.5rem;">
-        <a href="/logs?live=true" class="btn btn-sm btn-secondary" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;">
-            <i data-lucide="file-text" style="width: 14px; height: 14px;"></i>
-            Logs
-        </a>
-        <button type="button" class="btn btn-sm btn-danger" style="padding: 0.4rem 0.75rem; font-size: 0.85rem;"
-                hx-post="/operations/stop"
-                hx-target="#global-operation-banner"
-                hx-swap="innerHTML">
-            <i data-lucide="square" style="width: 14px; height: 14px;"></i>
-            Stop
-        </button>
-        <button type="button" style="background: transparent; border: none; color: #fff; cursor: pointer; padding: 0.25rem; opacity: 0.7;"
-                onclick="document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">
-            <i data-lucide="x" style="width: 18px; height: 18px;"></i>
-        </button>
+    <!-- Warning row - collapsed by default, expanded by showBannerWarning() -->
+    <div id="banner-warning" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; max-height: 0; max-width: 0; opacity: 0; overflow: hidden; padding-top: 0; margin-top: 0; border-top: 1px solid transparent; transition: max-height 0.35s ease-out, max-width 0.4s ease-out, opacity 0.3s ease-out, padding-top 0.35s ease-out, margin-top 0.35s ease-out, border-color 0.3s ease-out;">
+        <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: #e67e22; flex-shrink: 0;"></i>
+        <span id="banner-warning-text" style="font-size: 0.8rem; color: #e67e22; white-space: nowrap;"></span>
     </div>
 </div>
-<script>lucide.createIcons();</script>
+<script>
+    lucide.createIcons();
+    {% if blocked_message is defined and blocked_message %}showBannerWarning('{{ blocked_message }}');{% endif %}
+</script>
 {% elif status.state == 'completed' %}
 <!-- Check if we already showed this completion (prevent repeated flashing) -->
 <script>
