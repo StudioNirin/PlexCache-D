@@ -1,10 +1,13 @@
 """Operation routes - run cache operations"""
 
+import json
+
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from web.config import templates
 from web.services import get_operation_runner
+from web.services.maintenance_runner import get_maintenance_runner
 
 router = APIRouter()
 
@@ -27,8 +30,12 @@ async def run_operation(
     hx_target = request.headers.get("HX-Target", "")
 
     # Try to start the operation
+    maint_runner = get_maintenance_runner()
     if runner.is_running:
         message = "Operation already in progress"
+        success = False
+    elif maint_runner.is_running:
+        message = "A maintenance action is in progress. Please wait for it to complete."
         success = False
     else:
         success = runner.start_operation(dry_run=dry_run_bool, verbose=verbose_bool)
@@ -45,15 +52,23 @@ async def run_operation(
 
     if is_htmx:
         status = runner.get_status_dict()
+        maint_status = maint_runner.get_status_dict()
         # Use global banner template if targeting the global banner
         if hx_target == "global-operation-banner":
-            return templates.TemplateResponse(
+            response = templates.TemplateResponse(
                 "components/global_operation_banner.html",
                 {
                     "request": request,
-                    "status": status
+                    "status": status,
+                    "maint_status": maint_status
                 }
             )
+            # Show alert toast when blocked
+            if not success:
+                response.headers["HX-Trigger"] = json.dumps({
+                    "showAlert": {"type": "warning", "message": message}
+                })
+            return response
         # Default to original operation_status template
         return templates.TemplateResponse(
             "components/operation_status.html",
@@ -89,13 +104,15 @@ async def stop_operation(request: Request):
 
     if is_htmx:
         status = runner.get_status_dict()
+        maint_status = get_maintenance_runner().get_status_dict()
         # Use global banner template if targeting the global banner
         if hx_target == "global-operation-banner":
             return templates.TemplateResponse(
                 "components/global_operation_banner.html",
                 {
                     "request": request,
-                    "status": status
+                    "status": status,
+                    "maint_status": maint_status
                 }
             )
         # Default to original operation_status template
