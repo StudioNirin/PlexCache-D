@@ -1,7 +1,5 @@
 """Operation routes - run cache operations"""
 
-import json
-
 from fastapi import APIRouter, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -60,14 +58,10 @@ async def run_operation(
                 {
                     "request": request,
                     "status": status,
-                    "maint_status": maint_status
+                    "maint_status": maint_status,
+                    "blocked_message": message if not success else None
                 }
             )
-            # Show alert toast when blocked
-            if not success:
-                response.headers["HX-Trigger"] = json.dumps({
-                    "showAlert": {"type": "warning", "message": message}
-                })
             return response
         # Default to original operation_status template
         return templates.TemplateResponse(

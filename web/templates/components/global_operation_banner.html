@@ -1,4 +1,16 @@
 <!-- Global Operation Banner - centered toast on all pages when operation or maintenance is running -->
+{% if blocked_message is defined and blocked_message %}
+<script>
+(function() {
+    var c = document.getElementById('alert-container');
+    if (c) {
+        c.innerHTML = '<div class="alert alert-warning" id="blocked-toast"><i data-lucide="alert-triangle"></i><span>{{ blocked_message }}</span></div>';
+        lucide.createIcons();
+        setTimeout(function() { var el = document.getElementById('blocked-toast'); if (el) el.remove(); }, 5000);
+    }
+})();
+</script>
+{% endif %}
 {% if maint_status is defined and maint_status.state == 'running' %}
 <!-- Maintenance action running -->
 <div style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 9999; background: #1a1d1f; border: 2px solid #e5a00d; border-radius: 12px; padding: 0.75rem 1.25rem; box-shadow: 0 8px 32px rgba(0,0,0,0.6); display: flex; align-items: center; gap: 1rem;"
