@@ -85,7 +85,7 @@ class FileActivity:
         return f"{size_bytes:.2f} PB"
 
 
-MAX_RECENT_ACTIVITY = 100
+MAX_RECENT_ACTIVITY = 500
 
 
 def load_activity() -> List[FileActivity]:
@@ -200,6 +200,7 @@ class OperationRunner:
         self._max_log_messages = 500
         self._subscribers: List[asyncio.Queue] = []
         self._recent_activity: List[FileActivity] = load_activity()
+        self._max_recent_activity = MAX_RECENT_ACTIVITY
         self._stop_requested = False  # Flag to signal operation should stop
         self._app_instance: Optional["PlexCacheApp"] = None  # Reference to running app
         # Track current operation type based on headers
@@ -285,9 +286,19 @@ class OperationRunner:
 
         return sorted(users)
 
-    def _save_activity(self) -> None:
-        """Save in-memory activity to disk."""
-        save_activity(self._recent_activity)
+    def _save_activity(self, new_entry: FileActivity = None) -> None:
+        """Save activity to disk.
+
+        If new_entry is provided, loads existing entries from disk first
+        to avoid overwriting entries added by MaintenanceRunner.
+        """
+        if new_entry:
+            activities = load_activity()
+            activities.insert(0, new_entry)
+            activities = activities[:MAX_RECENT_ACTIVITY]
+            save_activity(activities)
+        else:
+            save_activity(self._recent_activity)
 
     @property
     def state(self) -> OperationState:
@@ -400,8 +411,8 @@ class OperationRunner:
                 self._recent_activity.insert(0, activity)
                 if len(self._recent_activity) > self._max_recent_activity:
                     self._recent_activity = self._recent_activity[:self._max_recent_activity]
-            # Persist to disk
-            self._save_activity()
+            # Persist to disk (load-merge-save to avoid overwriting maintenance entries)
+            self._save_activity(new_entry=activity)
             return
 
         # Note: Legacy preview header entries (without [Action] prefix) are intentionally
