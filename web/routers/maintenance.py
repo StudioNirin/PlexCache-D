@@ -14,12 +14,8 @@ from web.services.maintenance_runner import (
 )
 from web.services.operation_runner import get_operation_runner
 from web.services.web_cache import get_web_cache_service, CACHE_KEY_MAINTENANCE_AUDIT, CACHE_KEY_MAINTENANCE_HEALTH, CACHE_KEY_DASHBOARD_STATS
-from core.system_utils import SystemDetector
 
 logger = logging.getLogger(__name__)
-
-# Cache system detection (doesn't change during runtime)
-_system_detector = SystemDetector()
 
 router = APIRouter()
 
@@ -190,7 +186,6 @@ def run_audit(request: Request, refresh: bool = Query(default=False, description
             "request": request,
             "results": results,
             "cache_age": cache_age or "just now",
-            "is_unraid": _system_detector.is_unraid
         }
     )
     # Prevent browser caching so refresh button always fetches fresh data

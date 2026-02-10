@@ -7,6 +7,8 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
+from core.system_utils import SystemDetector
+
 # Paths
 WEB_DIR = Path(__file__).parent
 TEMPLATES_DIR = WEB_DIR / "templates"
@@ -34,6 +36,11 @@ templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 # Docker image tag - shows badge in sidebar when not "latest"
 IMAGE_TAG = os.environ.get("IMAGE_TAG", "latest")
 templates.env.globals["image_tag"] = IMAGE_TAG
+
+# Platform detection globals (available in all templates)
+_detector = SystemDetector()
+templates.env.globals["is_unraid"] = _detector.is_unraid
+templates.env.globals["is_docker"] = IS_DOCKER
 
 
 def get_time_format() -> str:

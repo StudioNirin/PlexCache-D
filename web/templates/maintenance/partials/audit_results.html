@@ -104,7 +104,7 @@
     </div>
     <div class="card-body" style="padding: 0.75rem;">
         <p class="text-muted" style="margin: 0 0 0.75rem 0;">
-            These files are on cache but not managed by PlexCache. The Unraid mover will handle them normally. Use the actions below if you want PlexCache to manage them:
+            These files are on cache but not managed by PlexCache. {% if is_unraid %}The Unraid mover will handle them normally.{% else %}They will not be automatically moved.{% endif %} Use the actions below if you want PlexCache to manage them:
         </p>
         <!-- Bulk Actions -->
         <div id="untracked-bulk-actions" class="flex gap-1 mb-1" style="display: none;">
@@ -592,7 +592,7 @@ function keepOnCacheSelected() {
             <strong style="color: var(--success);">What will happen:</strong>
             <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
                 <li>Copy each file to the array as a <code>.plexcached</code> backup</li>
-                <li>Add to the Unraid mover exclude list</li>
+                <li>Add to the {% if is_unraid %}Unraid mover exclude list{% else %}cache tracking list{% endif %}</li>
                 <li>Register in PlexCache tracking</li>
             </ol>
         </div>

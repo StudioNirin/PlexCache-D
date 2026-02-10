@@ -1,7 +1,6 @@
 """Setup wizard routes for first-run configuration"""
 
 import json
-import os
 import uuid
 import time
 import requests
@@ -106,8 +105,6 @@ async def setup_wizard(request: Request, step: int = 1):
         context["library_cacheable"] = settings.get("library_cacheable", {})
         context["cache_dir"] = settings.get("cache_dir", "/mnt/cache")
         context["path_mappings"] = settings.get("path_mappings", [])
-        # Check if running in Docker (existence of /.dockerenv or /run/.containerenv)
-        context["is_docker"] = os.path.exists("/.dockerenv") or os.path.exists("/run/.containerenv")
 
     elif step == 4:
         # Users - use cached data if available, otherwise fetch from Plex

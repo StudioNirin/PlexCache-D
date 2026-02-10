@@ -91,7 +91,7 @@
                         <input type="text" name="host_cache_path" value="{{ mapping.host_cache_path or mapping.cache_path or '' }}"
                                placeholder="e.g., /mnt/cache_downloads/Movies/">
                         <div class="form-hint">
-                            The actual host path the Unraid mover sees. Only needed if Docker remaps your cache path.
+                            The actual host path {% if is_unraid %}the Unraid mover{% else %}the host{% endif %} sees. Only needed if Docker remaps your cache path.
                         </div>
                     </div>
                     {% endif %}
