@@ -75,12 +75,10 @@ def get_media_identity(filepath: str) -> str:
         The base media identity (title + year for movies, show + episode for TV)
     """
     filename = os.path.basename(filepath)
-    # Remove extension
+    # Strip .plexcached suffix first if present, then remove the media extension
+    if filename.endswith('.plexcached'):
+        filename = filename[:-len('.plexcached')]
     name = os.path.splitext(filename)[0]
-    # Remove .plexcached extension if present
-    if name.endswith('.plexcached'):
-        name = name[:-len('.plexcached')]
-        name = os.path.splitext(name)[0]  # Remove the actual extension too
     # Remove everything from first '[' onwards (quality/codec info)
     if '[' in name:
         name = name[:name.index('[')].strip()
