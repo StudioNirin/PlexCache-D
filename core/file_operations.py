@@ -1625,7 +1625,7 @@ class PlexcachedMigration:
             self._mark_complete()
             return 0, 0, 0
 
-        logging.info("=== PlexCache-R Migration ===")
+        logging.info("=== PlexCache-D Migration ===")
         if duplicates_removed > 0:
             logging.info(f"Removed {duplicates_removed} duplicate entries from exclude list")
         logging.info(f"Checking {len(cache_files)} unique files in exclude list...")
@@ -1684,7 +1684,7 @@ class PlexcachedMigration:
             self._mark_complete()
         elif self._critical_error:
             logging.warning("Migration stopped due to critical error (disk full or permission issue)")
-            logging.warning("Please resolve the issue and restart PlexCache-R to continue migration")
+            logging.warning("Please resolve the issue and restart PlexCache-D to continue migration")
         else:
             logging.warning("Migration had errors - will retry on next run")
 
