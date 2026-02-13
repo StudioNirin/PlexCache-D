@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{{ page_title | default('PlexCache-R') }}{% endblock %} - PlexCache-R</title>
+    <title>{% block title %}{{ page_title | default('PlexCache-D') }}{% endblock %} - PlexCache-D</title>
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -42,7 +42,7 @@
         </button>
         <div class="mobile-brand">
             <i data-lucide="hard-drive"></i>
-            <span>PlexCache-R</span>
+            <span>PlexCache-D</span>
         </div>
         <div class="mobile-actions">
             <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -67,7 +67,7 @@
         <nav class="sidebar">
             <div class="sidebar-brand">
                 <i data-lucide="hard-drive"></i>
-                <span>PlexCache-R</span>
+                <span>PlexCache-D</span>
                 {% if image_tag is defined and image_tag != 'latest' %}
                 <span class="dev-badge">{{ image_tag | upper }}</span>
                 {% endif %}
@@ -134,7 +134,7 @@
                 {% block content %}{% endblock %}
 
                 <footer>
-                    PlexCache-R Web UI <span class="version">v0.1.0</span>
+                    PlexCache-D Web UI <span class="version">v0.1.0</span>
                 </footer>
             </div>
         </main>
