@@ -2843,6 +2843,7 @@ class FileMover:
                  create_plexcached_backups: bool = True,
                  hardlinked_files: str = "skip",
                  cleanup_empty_folders: bool = True,
+                 use_symlinks: bool = False,
                  bytes_progress_callback: Optional[Callable[[int, int], None]] = None):
         self.real_source = real_source
         self.cache_dir = cache_dir
@@ -2856,6 +2857,7 @@ class FileMover:
         self.create_plexcached_backups = create_plexcached_backups  # Whether to create .plexcached backups
         self.hardlinked_files = hardlinked_files  # How to handle hard-linked files: "skip" or "move"
         self.cleanup_empty_folders = cleanup_empty_folders  # Whether to remove empty parent folders after moves
+        self.use_symlinks = use_symlinks  # Whether to create symlinks at original locations after caching
         self._bytes_progress_callback = bytes_progress_callback  # Byte-level progress for operation banner
         self._exclude_file_lock = threading.Lock()
         # Progress tracking
@@ -2993,7 +2995,8 @@ class FileMover:
         move = None
         if destination == 'array':
             # Check if file already exists on array (no action needed)
-            if os.path.isfile(user_file_name):
+            # A symlink to the cache file makes isfile() return True, so exclude symlinks
+            if os.path.isfile(user_file_name) and not os.path.islink(user_file_name):
                 logging.debug(f"File already exists on array, skipping: {user_file_name}")
                 return None
 
@@ -3631,7 +3634,11 @@ class FileMover:
                 if os.path.isfile(array_file):
                     raise IOError(f"Delete verification failed: array file still exists at {array_file}")
 
-            # Step 3: Add to exclude file (and remove old entry if upgrade)
+            # Step 3: Create symlink at original location for non-Unraid Plex compatibility
+            if self.use_symlinks and original_path:
+                self._create_symlink(original_path, cache_file_name)
+
+            # Step 4: Add to exclude file (and remove old entry if upgrade)
             self._add_to_exclude_file(cache_file_name)
             if old_cache_file_to_remove:
                 self._remove_from_exclude_file(old_cache_file_to_remove)
@@ -3662,12 +3669,12 @@ class FileMover:
         except InterruptedError as e:
             # Copy was cancelled by stop request - clean up partial file
             logging.info(f"Copy cancelled (stop requested): {os.path.basename(cache_file_name)}")
-            self._cleanup_failed_cache_copy(array_file, cache_file_name)
+            self._cleanup_failed_cache_copy(array_file, cache_file_name, original_path)
             return 4  # Stopped by user
         except Exception as e:
             logging.error(f"Error copying to cache: {type(e).__name__}: {e}")
             # Attempt cleanup on failure
-            self._cleanup_failed_cache_copy(array_file, cache_file_name)
+            self._cleanup_failed_cache_copy(array_file, cache_file_name, original_path)
             return 1
 
     def _check_array_disk_space(self, cache_file: str, plexcached_file: str,
@@ -3833,6 +3840,11 @@ class FileMover:
         try:
             # Derive the original array file path and .plexcached path
             array_file = os.path.join(array_path, os.path.basename(cache_file))
+
+            # Remove symlink at original location before restoring (must happen before
+            # user0 conversion since on non-Unraid, array_file IS the original path)
+            if self.use_symlinks and os.path.islink(array_file):
+                self._remove_symlink(array_file)
 
             # Safety: ensure array operations use array-direct path (/mnt/user0/)
             # to avoid FUSE path issues (see _move_to_cache for full explanation).
@@ -4126,10 +4138,60 @@ class FileMover:
 
         return folders_removed
 
-    def _cleanup_failed_cache_copy(self, array_file: str, cache_file_name: str) -> None:
+    def _create_symlink(self, symlink_path: str, target_path: str) -> bool:
+        """Create a symlink at symlink_path pointing to target_path.
+
+        Used on non-Unraid systems so Plex can still find files at their original
+        locations after the original is renamed to .plexcached or deleted.
+
+        Non-fatal: logs warning on failure, returns False. Caching proceeds regardless.
+        Uses absolute paths for Docker compatibility.
+        """
+        try:
+            # Remove existing symlink if present (e.g., re-caching same file)
+            if os.path.islink(symlink_path):
+                os.remove(symlink_path)
+                logging.debug(f"Removed existing symlink: {symlink_path}")
+
+            # Ensure parent directory exists
+            parent_dir = os.path.dirname(symlink_path)
+            if parent_dir and not os.path.isdir(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+
+            os.symlink(target_path, symlink_path)
+            logging.debug(f"Created symlink: {symlink_path} -> {target_path}")
+            return True
+        except OSError as e:
+            logging.warning(f"Could not create symlink at {symlink_path}: {e}")
+            return False
+
+    def _remove_symlink(self, path: str) -> bool:
+        """Remove a symlink at the given path if it is a symlink.
+
+        Returns True if a symlink was removed, False if not a symlink.
+        """
+        if os.path.islink(path):
+            try:
+                os.remove(path)
+                logging.debug(f"Removed symlink: {path}")
+                return True
+            except OSError as e:
+                logging.warning(f"Could not remove symlink at {path}: {e}")
+                return False
+        return False
+
+    def _cleanup_failed_cache_copy(self, array_file: str, cache_file_name: str,
+                                   original_path: str = None) -> None:
         """Clean up after a failed cache copy operation."""
         plexcached_file = array_file + PLEXCACHED_EXTENSION
         try:
+            # Remove symlink if one was created before the failure
+            if self.use_symlinks:
+                symlink_location = original_path or array_file
+                if os.path.islink(symlink_location):
+                    os.remove(symlink_location)
+                    logging.debug(f"Cleanup: Removed symlink at {symlink_location}")
+
             # If we renamed the array file but copy failed, rename it back
             if os.path.isfile(plexcached_file) and not os.path.isfile(array_file):
                 os.rename(plexcached_file, array_file)
@@ -4192,8 +4254,17 @@ class PlexcachedRestorer:
                 continue
 
             try:
+                # Check if original location has a symlink (from use_symlinks mode)
+                if os.path.islink(original_file):
+                    try:
+                        os.remove(original_file)
+                        logging.info(f"Removed symlink before restore: {original_file}")
+                    except OSError as e:
+                        logging.warning(f"Cannot remove symlink at {original_file}: {e}")
+                        error_count += 1
+                        continue
                 # Check if original already exists (shouldn't happen, but be safe)
-                if os.path.exists(original_file):
+                elif os.path.exists(original_file):
                     logging.warning(f"Original file already exists, skipping: {original_file}")
                     error_count += 1
                     continue

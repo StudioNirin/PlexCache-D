@@ -520,6 +520,7 @@ class PlexCacheApp:
             create_plexcached_backups=self.config_manager.cache.create_plexcached_backups,
             hardlinked_files=self.config_manager.cache.hardlinked_files,
             cleanup_empty_folders=self.config_manager.cache.cleanup_empty_folders,
+            use_symlinks=self.config_manager.cache.use_symlinks,
             bytes_progress_callback=self._bytes_progress_callback
         )
 
