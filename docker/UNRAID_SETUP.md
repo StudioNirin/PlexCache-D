@@ -1,4 +1,4 @@
-# PlexCache-R Unraid Setup Guide
+# PlexCache-D Unraid Setup Guide
 
 This guide covers installing and configuring PlexCache-R on Unraid.
 
