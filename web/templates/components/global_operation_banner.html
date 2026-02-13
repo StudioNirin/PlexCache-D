@@ -52,29 +52,212 @@ function diSetExpandState(state) {
         if (state === 'tier3') { pill.classList.add('di-expanded'); pill.classList.add('di-detail'); }
     }
 }
-function diMinimize() { diSetExpandState('false'); }
+
+/* ── FLIP animation engine ───────────────────────────────────────
+   Smooth expand/collapse inspired by Apple Dynamic Island.
+   Uses FLIP (First-Last-Invert-Play) to animate display:none swaps.
+   diSetExpandState (above) is the instant/raw setter — used by
+   dismiss handlers, session restore, and HTMX callbacks.
+   diSmoothSetState (below) is the animated version — used by
+   hover, click, and minimize interactions only. */
+
+var _FLIP_EXPAND  = 380;   /* expand duration ms */
+var _FLIP_COLLAPSE = 280;  /* collapse duration ms */
+var _FLIP_EXIT_OVERLAP = 100;  /* start FLIP this many ms into exit animation */
+var _FLIP_EASE_EXPAND  = 'cubic-bezier(0.34, 1.56, 0.64, 1)';  /* spring overshoot */
+var _FLIP_EASE_COLLAPSE = 'cubic-bezier(0.4, 0, 0.2, 1)';       /* snappy settle */
+
+function diSmoothSetState(state) {
+    var outer = document.getElementById('global-operation-banner');
+    var pill = outer ? outer.querySelector('.di-pill') : null;
+    if (!outer || !pill) { diSetExpandState(state); return; }
+
+    var currentState = diGetExpandState();
+    if (currentState === state) return;
+
+    /* Cancel any in-flight animations (stored on outer — survives HTMX swaps) */
+    if (outer._flipCleanup) { outer._flipCleanup(); outer._flipCleanup = null; }
+    if (outer._exitTimeout) { clearTimeout(outer._exitTimeout); outer._exitTimeout = null; }
+
+    var tiers = { 'false': 0, 'tier2': 1, 'tier3': 2 };
+    var isExpanding = tiers[state] > tiers[currentState];
+
+    if (isExpanding) {
+        /* ── EXPAND: FLIP immediately ── */
+        _diDoFlip(outer, pill, currentState, state, true);
+    } else {
+        /* ── COLLAPSE: exit-animate content, then FLIP after overlap ── */
+        var isDetailOnly = (currentState === 'tier3' && state === 'tier2');
+        var exitTarget = isDetailOnly
+            ? pill.querySelector('.di-pill__detail')
+            : pill.querySelector('.di-pill__expanded');
+
+        /* Play exit animation (reverse of enter: scale 1→0.92, opacity 1→0) */
+        if (exitTarget) {
+            exitTarget.classList.remove('di-content-enter', 'di-content-exit');
+            void exitTarget.offsetWidth;
+            exitTarget.classList.add('di-content-exit');
+        }
+
+        /* Hide progress bar immediately so it can't slide during collapse */
+        var pb = pill.querySelector('.di-pill__progress');
+        if (pb) { pb.style.transition = 'none'; pb.style.opacity = '0'; }
+
+        /* Start FLIP partway through exit — they overlap seamlessly */
+        outer._exitTimeout = setTimeout(function() {
+            outer._exitTimeout = null;
+            var freshPill = outer.querySelector('.di-pill');
+            if (!freshPill) { diSetExpandState(state); return; }
+            if (exitTarget) exitTarget.classList.remove('di-content-exit');
+            _diDoFlip(outer, freshPill, currentState, state, false);
+        }, _FLIP_EXIT_OVERLAP);
+    }
+}
+
+function _diDoFlip(outer, pill, fromState, toState, isExpanding) {
+    var duration = isExpanding ? _FLIP_EXPAND : _FLIP_COLLAPSE;
+    var easing = isExpanding ? _FLIP_EASE_EXPAND : _FLIP_EASE_COLLAPSE;
+
+    /* 1. Snapshot ALL dimensional properties */
+    var cs = getComputedStyle(pill);
+    var startHeight = pill.offsetHeight;
+    var startBorderRadius = cs.borderRadius;
+    var startPaddingTop = cs.paddingTop;
+    var startPaddingBottom = cs.paddingBottom;
+    var startMinWidth = cs.minWidth;
+
+    /* 2. Freeze — lock current dimensions, hide progress bar */
+    var progressBar = pill.querySelector('.di-pill__progress');
+    if (progressBar && isExpanding) {
+        progressBar.style.transition = 'none';
+        progressBar.style.opacity = '0';
+    }
+    pill.style.willChange = 'height, border-radius, padding, min-width';
+    pill.style.transition = 'none';
+    pill.style.height = startHeight + 'px';
+    pill.style.borderRadius = startBorderRadius;
+    pill.style.paddingTop = startPaddingTop;
+    pill.style.paddingBottom = startPaddingBottom;
+    pill.style.minWidth = startMinWidth;
+    pill.style.overflow = 'hidden';
+
+    /* 3. Swap state — CSS display:none swap happens here */
+    diSetExpandState(toState);
+
+    /* 4. Measure target — temporarily clear overrides to read CSS end values */
+    pill.style.height = 'auto';
+    pill.style.borderRadius = '';
+    pill.style.paddingTop = '';
+    pill.style.paddingBottom = '';
+    pill.style.minWidth = '';
+    var endCs = getComputedStyle(pill);
+    var endHeight = pill.offsetHeight;
+    var endBorderRadius = endCs.borderRadius;
+    var endPaddingTop = endCs.paddingTop;
+    var endPaddingBottom = endCs.paddingBottom;
+    var endMinWidth = endCs.minWidth;
+
+    /* 5. Rewind ALL to start values */
+    pill.style.height = startHeight + 'px';
+    pill.style.borderRadius = startBorderRadius;
+    pill.style.paddingTop = startPaddingTop;
+    pill.style.paddingBottom = startPaddingBottom;
+    pill.style.minWidth = startMinWidth;
+
+    /* 6. Force reflow */
+    pill.offsetHeight;
+
+    /* 7. Animate ALL dimensional properties (spring easing) */
+    var animProps = ['height', 'border-radius', 'padding-top', 'padding-bottom', 'min-width'];
+    pill.style.transition = animProps.map(function(p) {
+        return p + ' ' + duration + 'ms ' + easing;
+    }).join(', ');
+    pill.style.height = endHeight + 'px';
+    pill.style.borderRadius = endBorderRadius;
+    pill.style.paddingTop = endPaddingTop;
+    pill.style.paddingBottom = endPaddingBottom;
+    pill.style.minWidth = endMinWidth;
+
+    /* 8. Content transitions */
+    if (isExpanding) {
+        var enterTarget = (fromState === 'tier2' && toState === 'tier3')
+            ? pill.querySelector('.di-pill__detail')
+            : pill.querySelector('.di-pill__expanded');
+        if (enterTarget) {
+            enterTarget.classList.remove('di-content-enter');
+            void enterTarget.offsetWidth;
+            enterTarget.classList.add('di-content-enter');
+        }
+    } else {
+        /* Collapse: settle-fade compact content, progress bar fades in last 45% */
+        var compact = pill.querySelector('.di-pill__compact');
+        if (compact) {
+            compact.classList.remove('di-content-settle');
+            void compact.offsetWidth;
+            compact.classList.add('di-content-settle');
+        }
+        if (progressBar) {
+            setTimeout(function() {
+                progressBar.style.transition = 'opacity ' + Math.round(duration * 0.45) + 'ms ease';
+                progressBar.style.opacity = '';
+            }, Math.round(duration * 0.55));
+        }
+    }
+
+    /* 9. Cleanup — remove ALL inline overrides so CSS takes over */
+    function cleanup() {
+        pill.style.height = '';
+        pill.style.borderRadius = '';
+        pill.style.paddingTop = '';
+        pill.style.paddingBottom = '';
+        pill.style.minWidth = '';
+        pill.style.overflow = '';
+        pill.style.transition = '';
+        pill.style.willChange = '';
+        if (progressBar) {
+            if (isExpanding) {
+                progressBar.style.transition = '';
+                progressBar.style.opacity = '';
+            } else {
+                setTimeout(function() { progressBar.style.transition = ''; }, 50);
+            }
+        }
+        var c = pill.querySelector('.di-pill__compact');
+        if (c) c.classList.remove('di-content-settle');
+        var e = pill.querySelector('.di-pill__expanded');
+        if (e) e.classList.remove('di-content-enter');
+        outer._flipCleanup = null;
+        pill.removeEventListener('transitionend', onEnd);
+    }
+    function onEnd(e) { if (e.propertyName === 'height' && e.target === pill) cleanup(); }
+    pill.addEventListener('transitionend', onEnd);
+    outer._flipCleanup = cleanup;
+    setTimeout(function() { if (outer._flipCleanup) outer._flipCleanup(); }, duration + 50);
+}
+
+function diMinimize() { diSmoothSetState('false'); }
 
 var _diHoverTimer = null;
 var _diLeaveTimer = null;
 function diHoverIn() {
     clearTimeout(_diLeaveTimer);
     if (diGetExpandState() === 'false') {
-        _diHoverTimer = setTimeout(function() { diSetExpandState('tier2'); }, 200);
+        _diHoverTimer = setTimeout(function() { diSmoothSetState('tier2'); }, 200);
     }
 }
 function diHoverOut() {
     clearTimeout(_diHoverTimer);
     if (diGetExpandState() === 'tier2') {
         _diLeaveTimer = setTimeout(function() {
-            if (diGetExpandState() === 'tier2') diSetExpandState('false');
+            if (diGetExpandState() === 'tier2') diSmoothSetState('false');
         }, 300);
     }
 }
 function diPillClick() {
     var state = diGetExpandState();
-    if (state === 'false') diSetExpandState('tier2');
-    else if (state === 'tier2') diSetExpandState('tier3');
-    else diSetExpandState('false');  /* tier3 → collapse back to compact */
+    if (state === 'false') diSmoothSetState('tier2');
+    else if (state === 'tier2') diSmoothSetState('tier3');
+    else diSmoothSetState('false');  /* tier3 → collapse back to compact */
 }
 
 // After every HTMX swap: re-render icons, sync animations, one-shot entrance
