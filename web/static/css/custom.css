@@ -708,6 +708,22 @@ footer {
     font-variant-numeric: tabular-nums;
 }
 
+/* ── Expand hint (visible in tier2 only, hidden in tier3) ── */
+.di-expand-hint {
+    display: none;
+    align-items: center;
+    justify-content: center;
+    gap: 0.3rem;
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.25);
+    cursor: pointer;
+    padding-top: 0.15rem;
+}
+#global-operation-banner[data-di-expanded="tier2"] .di-expand-hint,
+.di-pill.di-expanded:not(.di-detail) .di-expand-hint { display: flex; }
+#global-operation-banner[data-di-expanded="tier3"] .di-expand-hint,
+.di-pill.di-detail .di-expand-hint { display: none; }
+
 /* ── Detail panel (Tier 3) ───────────────────────────── */
 
 .di-pill .di-pill__detail { display: none; }

@@ -348,6 +348,11 @@ document.addEventListener('htmx:afterSwap', function(evt) {
         </div>
         {% endif %}
         {%- if maint_status.active_files %}
+        <!-- Tier 2 hint: click to expand detail panel -->
+        <div class="di-expand-hint">
+            <span>Click for details</span>
+            <i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i>
+        </div>
         <!-- Detail: active files (Tier 3) -->
         <div class="di-pill__detail">
             <div class="di-divider"></div>
@@ -408,7 +413,9 @@ document.addEventListener('htmx:afterSwap', function(evt) {
         {% endfor %}
     ];
     var detailHtml = '';
+    var hintHtml = '';
     if (affectedFiles.length > 0) {
+        hintHtml = '<div class="di-expand-hint"><span>Click for details</span><i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i></div>';
         detailHtml = '<div class="di-pill__detail"><div class="di-divider"></div>';
         affectedFiles.forEach(function(f) {
             detailHtml += '<div class="di-file-row"><span style="color: rgba(255,255,255,0.2);">&#8627;</span><span class="di-file-row__name">' + f + '</span></div>';
@@ -446,6 +453,7 @@ document.addEventListener('htmx:afterSwap', function(evt) {
                     </div>
                 </div>
                 <div style="font-size: 0.78rem; color: rgba(255,255,255,0.5);">${resultMsg}</div>
+                ${hintHtml}
                 ${detailHtml}
             </div>
         </div>`;
@@ -603,6 +611,11 @@ function dismissMaintCompletionBanner() {
         <div style="font-size: 0.78rem; color: rgba(255,255,255,0.5); text-align: center;">{{ status.elapsed_display }}</div>
         {% endif %}
         {%- if status.active_files is defined and status.active_files or status.recent_files is defined and status.recent_files or status.recent_logs is defined and status.recent_logs %}
+        <!-- Tier 2 hint: click to expand detail panel -->
+        <div class="di-expand-hint">
+            <span>Click for details</span>
+            <i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i>
+        </div>
         <!-- Detail: active files + completed files + log lines (Tier 3) -->
         <div class="di-pill__detail">
             {%- if status.active_files is defined and status.active_files %}
@@ -712,7 +725,9 @@ function dismissMaintCompletionBanner() {
         {% endfor %}
     ];
     var detailHtml = '';
+    var hintHtml = '';
     if (recentFiles.length > 0) {
+        hintHtml = '<div class="di-expand-hint"><span>Click for details</span><i data-lucide="chevron-down" style="width: 12px; height: 12px;"></i></div>';
         detailHtml = '<div class="di-pill__detail"><div class="di-divider"></div>';
         recentFiles.forEach(function(f) {
             var tagClass = f.action === 'Cached' ? 'di-action-tag--cached' : 'di-action-tag--restored';
@@ -756,6 +771,7 @@ function dismissMaintCompletionBanner() {
                     </div>
                 </div>
                 ${statsHtml}
+                ${hintHtml}
                 ${detailHtml}
             </div>
         </div>`;
