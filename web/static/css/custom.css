@@ -899,3 +899,50 @@ footer {
         max-height: 150px;
     }
 }
+
+/* ── Activity Filter Pills ────────────────────────────── */
+.activity-filter-bar {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.activity-filter-pill {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: rgba(255, 255, 255, 0.5);
+    padding: 0.2rem 0.65rem;
+    border-radius: 14px;
+    font-size: 0.72rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    line-height: 1.4;
+}
+
+.activity-filter-pill:hover {
+    border-color: rgba(255, 255, 255, 0.25);
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.activity-filter-pill.active {
+    background: var(--plex-orange, #e5a00d);
+    border-color: var(--plex-orange, #e5a00d);
+    color: #000;
+    font-weight: 600;
+}
+
+/* Light theme overrides */
+[data-theme="light"] .activity-filter-pill {
+    border-color: rgba(0, 0, 0, 0.15);
+    color: rgba(0, 0, 0, 0.5);
+}
+
+[data-theme="light"] .activity-filter-pill:hover {
+    border-color: rgba(0, 0, 0, 0.3);
+    color: rgba(0, 0, 0, 0.75);
+}
+
+[data-theme="light"] .activity-filter-pill.active {
+    color: #000;
+}

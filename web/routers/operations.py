@@ -168,20 +168,29 @@ async def get_operation_logs(request: Request):
 
 
 @router.get("/activity")
-async def get_recent_activity(request: Request):
+def get_recent_activity(request: Request):
     """Get recent file activity from operations"""
+    from web.services import get_settings_service
+
     runner = get_operation_runner()
     activity = runner.recent_activity
 
     is_htmx = request.headers.get("HX-Request") == "true"
 
     if is_htmx:
+        context = {
+            "request": request,
+            "activity": activity,
+        }
+        # Pass extra context when activity is empty for contextual empty states
+        if not activity:
+            settings_service = get_settings_service()
+            context["plex_connected"] = settings_service.check_plex_connection()
+            context["last_run"] = settings_service.get_last_run_time()
+
         return templates.TemplateResponse(
             "components/recent_activity.html",
-            {
-                "request": request,
-                "activity": activity
-            }
+            context
         )
 
     return JSONResponse({"activity": activity})

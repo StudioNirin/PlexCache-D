@@ -659,6 +659,13 @@ body {
     margin-top: 0.25rem;
 }
 
+.stat-detail {
+    color: var(--plex-text-muted);
+    font-size: 0.72rem;
+    margin-top: 0.2rem;
+    opacity: 0.7;
+}
+
 /* ==================== Progress Bar ==================== */
 
 .progress-container {

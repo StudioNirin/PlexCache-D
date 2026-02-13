@@ -17,6 +17,7 @@ from web.config import PROJECT_ROOT, DATA_DIR, SETTINGS_FILE as CONFIG_SETTINGS_
 # Activity persistence settings - use DATA_DIR for Docker compatibility
 ACTIVITY_FILE = DATA_DIR / "recent_activity.json"
 LAST_RUN_FILE = DATA_DIR / "last_run.txt"
+LAST_RUN_SUMMARY_FILE = DATA_DIR / "last_run_summary.json"
 SETTINGS_FILE = CONFIG_SETTINGS_FILE
 DEFAULT_ACTIVITY_RETENTION_HOURS = 24
 
@@ -29,6 +30,17 @@ def save_last_run_time():
             f.write(datetime.now().isoformat())
     except IOError:
         pass
+
+
+def load_last_run_summary() -> Optional[dict]:
+    """Load the last run summary from disk."""
+    try:
+        if LAST_RUN_SUMMARY_FILE.exists():
+            with open(LAST_RUN_SUMMARY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        pass
+    return None
 
 
 def _get_activity_retention_hours() -> int:
@@ -319,6 +331,29 @@ class OperationRunner:
             save_activity(activities)
         else:
             save_activity(self._recent_activity)
+
+    def _save_last_run_summary(self):
+        """Save a summary of the completed operation to disk."""
+        try:
+            result = self._current_result
+            if not result:
+                return
+            LAST_RUN_SUMMARY_FILE.parent.mkdir(parents=True, exist_ok=True)
+            summary = {
+                "status": result.state.value,
+                "timestamp": datetime.now().isoformat(),
+                "files_cached": result.files_cached,
+                "files_restored": result.files_restored,
+                "bytes_cached": result.bytes_cached,
+                "bytes_restored": result.bytes_restored,
+                "duration_seconds": round(result.duration_seconds, 1),
+                "error_count": result.error_count,
+                "dry_run": result.dry_run,
+            }
+            with open(LAST_RUN_SUMMARY_FILE, 'w', encoding='utf-8') as f:
+                json.dump(summary, f, indent=2)
+        except IOError:
+            pass
 
     @property
     def state(self) -> OperationState:
@@ -762,8 +797,9 @@ class OperationRunner:
                     self._current_result.state = OperationState.COMPLETED
                     self._state = OperationState.COMPLETED
 
-            # Always save last run time when operation finishes (success or failure)
+            # Always save last run time and summary when operation finishes
             save_last_run_time()
+            self._save_last_run_summary()
 
     def get_status_dict(self) -> dict:
         """Get status as a dictionary for API responses"""

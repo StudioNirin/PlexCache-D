@@ -9,6 +9,7 @@ from urllib.parse import unquote
 
 from web.config import templates, PLEXCACHE_PRODUCT_VERSION
 from web.services import get_cache_service, get_settings_service, get_operation_runner, get_scheduler_service, ScheduleConfig, get_maintenance_service
+from web.services.operation_runner import load_last_run_summary, OperationRunner
 from web.services.web_cache import get_web_cache_service, CACHE_KEY_DASHBOARD_STATS, CACHE_KEY_MAINTENANCE_HEALTH
 
 router = APIRouter()
@@ -70,8 +71,26 @@ def _get_dashboard_stats_data(use_cache: bool = True) -> tuple[dict, str | None]
         "next_run_relative": schedule_status.get("next_run_relative"),
         "health_status": health["status"],
         "health_issues": health["orphaned_count"],
-        "health_warnings": health["stale_exclude_count"] + health["stale_timestamp_count"]
+        "health_warnings": health["stale_exclude_count"] + health["stale_timestamp_count"],
+        "health_orphaned_count": health["orphaned_count"],
+        "health_stale_exclude_count": health["stale_exclude_count"],
+        "health_stale_timestamp_count": health["stale_timestamp_count"],
+        "last_run_summary": None,
     }
+
+    # Load last run summary
+    summary = load_last_run_summary()
+    if summary:
+        stats["last_run_summary"] = {
+            "status": summary.get("status", "unknown"),
+            "files_cached": summary.get("files_cached", 0),
+            "files_restored": summary.get("files_restored", 0),
+            "bytes_cached_display": OperationRunner._format_bytes(summary["bytes_cached"]) if summary.get("bytes_cached") else "",
+            "bytes_restored_display": OperationRunner._format_bytes(summary["bytes_restored"]) if summary.get("bytes_restored") else "",
+            "duration_display": OperationRunner._format_duration(summary.get("duration_seconds", 0)),
+            "error_count": summary.get("error_count", 0),
+            "dry_run": summary.get("dry_run", False),
+        }
 
     # Cache the results
     web_cache.set(CACHE_KEY_DASHBOARD_STATS, stats)

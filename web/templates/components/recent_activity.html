@@ -1,7 +1,7 @@
 <!-- Recent Activity component - HTMX partial (last 24 hours) -->
 {% if activity %}
 {% for item in activity %}
-<tr>
+<tr data-action="{{ item.action }}">
     <td>{{ item.time_display }}</td>
     <td>
         {% if item.action in ('Cached', 'Protected', 'Fixed') %}
@@ -33,8 +33,17 @@
 {% else %}
 <tr>
     <td colspan="5" class="text-muted" style="text-align: center; padding: 2rem;">
-        <i data-lucide="inbox" style="width: 32px; height: 32px; margin-bottom: 0.5rem; display: block; margin: 0 auto 0.5rem;"></i>
-        No recent activity
+        {% if plex_connected is defined and not plex_connected %}
+        <i data-lucide="settings" style="width: 32px; height: 32px; display: block; margin: 0 auto 0.5rem;"></i>
+        <div>Set up your Plex connection to get started</div>
+        <a href="/settings" style="font-size: 0.85rem; margin-top: 0.5rem; display: inline-block;">Go to Settings</a>
+        {% elif last_run is defined and not last_run %}
+        <i data-lucide="play-circle" style="width: 32px; height: 32px; display: block; margin: 0 auto 0.5rem;"></i>
+        <div>Ready to go! Run your first cache operation.</div>
+        {% else %}
+        <i data-lucide="inbox" style="width: 32px; height: 32px; display: block; margin: 0 auto 0.5rem;"></i>
+        <div>No recent activity</div>
+        {% endif %}
     </td>
 </tr>
 {% endif %}
