@@ -26,8 +26,8 @@ If using CA Mover Tuning plugin, set the exclude file path to:
     </Overview>
     <Category>MediaServer:Other Tools:</Category>
     <WebUI>http://[IP]:[PORT:5757]</WebUI>
-    <TemplateURL>https://raw.githubusercontent.com/Brandon-Haney/PlexCache-D/v3.0/docker/plexcache-d.xml</TemplateURL>
-    <Icon>https://raw.githubusercontent.com/Brandon-Haney/PlexCache-D/v3.0/docker/icon.png</Icon>
+    <TemplateURL>https://raw.githubusercontent.com/StudioNirin/PlexCache-D/v3.0/docker/plexcache-d.xml</TemplateURL>
+    <Icon>https://raw.githubusercontent.com/StudioNirin/PlexCache-D/v3.0/docker/icon.png</Icon>
     <ExtraParams/>
     <PostArgs/>
     <CPUset/>
