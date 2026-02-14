@@ -388,6 +388,102 @@ class TestGetMoveCommandSymlinkGuard:
 
 
 # ============================================================================
+# _should_add_to_cache / _should_add_to_array symlink guard tests
+# ============================================================================
+
+class TestShouldAddSymlinkGuards:
+    """Test that _should_add_to_cache and _should_add_to_array don't treat symlinks as real files."""
+
+    @needs_symlink
+    def test_should_add_to_cache_does_not_delete_symlink(self, tmp_path):
+        """Second run: file already on cache with symlink at original — symlink must survive."""
+        mover = _make_symlink_mover(tmp_path, use_symlinks=True, create_backups=True)
+        mover.last_already_cached_count = 0
+
+        storage_dir = tmp_path / "storage" / "Movies"
+        storage_dir.mkdir(parents=True)
+
+        cache_dir = tmp_path / "cache" / "Movies"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "movie.mkv"
+        cache_file.write_bytes(b"cached content")
+
+        # .plexcached backup exists on array
+        plexcached = storage_dir / ("movie.mkv" + PLEXCACHED_EXTENSION)
+        plexcached.write_bytes(b"original content")
+
+        # Symlink at original location (created by first run)
+        original = storage_dir / "movie.mkv"
+        os.symlink(str(cache_file), str(original))
+
+        result = mover._should_add_to_cache(str(original), str(cache_file))
+
+        # Should return False (already cached)
+        assert result is False
+        # Symlink must NOT be deleted
+        assert os.path.islink(str(original))
+        # .plexcached backup must NOT be deleted
+        assert plexcached.exists()
+
+    @needs_symlink
+    def test_should_add_to_cache_recreates_missing_symlink(self, tmp_path):
+        """If symlink was deleted (e.g., by Plex scan), it should be re-created."""
+        mover = _make_symlink_mover(tmp_path, use_symlinks=True, create_backups=True)
+        mover.last_already_cached_count = 0
+
+        storage_dir = tmp_path / "storage" / "Movies"
+        storage_dir.mkdir(parents=True)
+
+        cache_dir = tmp_path / "cache" / "Movies"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "movie.mkv"
+        cache_file.write_bytes(b"cached content")
+
+        # .plexcached backup exists but NO symlink (deleted by Plex or manually)
+        plexcached = storage_dir / ("movie.mkv" + PLEXCACHED_EXTENSION)
+        plexcached.write_bytes(b"original content")
+
+        original = storage_dir / "movie.mkv"
+        # No symlink and no real file at original location
+
+        result = mover._should_add_to_cache(str(original), str(cache_file))
+
+        assert result is False
+        # Symlink should be re-created
+        assert os.path.islink(str(original))
+        assert os.readlink(str(original)) == str(cache_file)
+
+    @needs_symlink
+    def test_should_add_to_array_does_not_delete_cache_for_symlink(self, tmp_path):
+        """Eviction: symlink at array path must not cause cache file deletion."""
+        mover = _make_symlink_mover(tmp_path, use_symlinks=True, create_backups=True)
+
+        storage_dir = tmp_path / "storage" / "Movies"
+        storage_dir.mkdir(parents=True)
+
+        cache_dir = tmp_path / "cache" / "Movies"
+        cache_dir.mkdir(parents=True)
+        cache_file = cache_dir / "movie.mkv"
+        cache_file.write_bytes(b"cached content")
+
+        # Symlink at array location
+        original = storage_dir / "movie.mkv"
+        os.symlink(str(cache_file), str(original))
+
+        should_add, cache_removed = mover._should_add_to_array(
+            str(original), str(cache_file)
+        )
+
+        # Should add to array (symlink doesn't count as real file)
+        assert should_add is True
+        assert cache_removed is False
+        # Cache file must still exist
+        assert cache_file.exists()
+        # Symlink should still exist (removal happens in _move_to_array)
+        assert os.path.islink(str(original))
+
+
+# ============================================================================
 # _cleanup_failed_cache_copy tests
 # ============================================================================
 

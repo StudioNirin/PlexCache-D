@@ -2046,7 +2046,8 @@ class FileFilter:
                  ondeck_tracker: Optional['OnDeckTracker'] = None,
                  watchlist_tracker: Optional['WatchlistTracker'] = None,
                  path_modifier: Optional['MultiPathModifier'] = None,
-                 is_docker: bool = False):
+                 is_docker: bool = False,
+                 use_symlinks: bool = False):
         self.real_source = real_source
         self.cache_dir = cache_dir
         self.is_unraid = is_unraid
@@ -2057,7 +2058,26 @@ class FileFilter:
         self.watchlist_tracker = watchlist_tracker
         self.path_modifier = path_modifier  # For multi-path support
         self.is_docker = is_docker  # For path translation in Docker
+        self.use_symlinks = use_symlinks  # Whether to create/preserve symlinks at original locations
         self.last_already_cached_count = 0  # Track files already on cache during filtering
+
+    def _create_symlink(self, symlink_path: str, target_path: str) -> bool:
+        """Create a symlink at symlink_path pointing to target_path.
+
+        Non-fatal: logs warning on failure, returns False.
+        """
+        try:
+            if os.path.islink(symlink_path):
+                os.remove(symlink_path)
+            parent_dir = os.path.dirname(symlink_path)
+            if parent_dir and not os.path.isdir(parent_dir):
+                os.makedirs(parent_dir, exist_ok=True)
+            os.symlink(target_path, symlink_path)
+            logging.debug(f"Created symlink: {symlink_path} -> {target_path}")
+            return True
+        except OSError as e:
+            logging.warning(f"Could not create symlink at {symlink_path}: {e}")
+            return False
 
     def _translate_to_host_path(self, cache_path: str) -> str:
         """Translate container cache path to host cache path for exclude file.
@@ -2230,8 +2250,8 @@ class FileFilter:
         array_file = get_array_direct_path(file) if self.is_unraid else file
         array_path = os.path.dirname(array_file)
 
-        # Check if exact file already exists on array
-        if os.path.isfile(array_file):
+        # Check if exact file already exists on array (symlinks don't count — they point to cache)
+        if os.path.isfile(array_file) and not os.path.islink(array_file):
             # File already exists in the array - check if there's a cache version to clean up
             cache_removed = False
             if os.path.isfile(cache_file_name):
@@ -2277,7 +2297,8 @@ class FileFilter:
 
             # If array version also exists, rename it to .plexcached (preserve as backup)
             # This ensures we have a recovery option if the cache drive fails
-            if os.path.isfile(array_file):
+            # Symlinks don't count as real array files — they point to the cache copy
+            if os.path.isfile(array_file) and not os.path.islink(array_file):
                 plexcached_file = array_file + PLEXCACHED_EXTENSION
                 # Only rename if .plexcached doesn't already exist
                 if not os.path.isfile(plexcached_file):
@@ -2288,6 +2309,9 @@ class FileFilter:
                         pass  # File already removed
                     except OSError as e:
                         logging.error(f"Failed to create backup of array file {array_file}: {type(e).__name__}: {e}")
+                    # Create symlink at original location if enabled
+                    if self.use_symlinks:
+                        self._create_symlink(array_file, cache_file_name)
                 else:
                     # .plexcached backup already exists, safe to remove duplicate array file
                     try:
@@ -2297,6 +2321,13 @@ class FileFilter:
                         pass
                     except OSError as e:
                         logging.error(f"Failed to remove array file {array_file}: {type(e).__name__}: {e}")
+                    # Create symlink at original location if enabled
+                    if self.use_symlinks:
+                        self._create_symlink(array_file, cache_file_name)
+
+            # Re-create symlink if it's missing (e.g., Plex scan or manual deletion removed it)
+            if self.use_symlinks and not os.path.islink(array_file) and not os.path.isfile(array_file):
+                self._create_symlink(array_file, cache_file_name)
 
             return False
 
