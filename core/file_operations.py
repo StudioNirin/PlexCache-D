@@ -1021,6 +1021,10 @@ class OnDeckTracker(JSONTracker):
         with self._lock:
             now_iso = datetime.now().isoformat()
 
+            # Track that this entry was seen this run (for cleanup_unseen)
+            if hasattr(self, '_seen_this_run'):
+                self._seen_this_run.add(file_path)
+
             if file_path in self._data:
                 entry = self._data[file_path]
                 # Add user if not already in list
@@ -1145,16 +1149,24 @@ class OnDeckTracker(JSONTracker):
         positions.sort()
         return positions[0]
 
-    def clear_for_run(self) -> None:
-        """Clear all entries at the start of a run.
+    def prepare_for_run(self) -> None:
+        """Prepare tracker for a new run while preserving first_seen timestamps.
 
-        OnDeck status is ephemeral - items are only OnDeck for the current run.
-        This is called at the start of each run to reset the tracker.
+        Clears per-run fields (users, ondeck_users, episode_info) on all entries
+        so they can be repopulated by update_entry() calls. Initializes the
+        _seen_this_run set to track which entries are refreshed this run.
+
+        Unlike the old clear_for_run(), this does NOT delete entries — first_seen
+        timestamps are preserved so OnDeck retention can accumulate correctly.
         """
         with self._lock:
-            self._data = {}
-            self._save()
-            logging.debug("Cleared OnDeck tracker for new run")
+            self._seen_this_run = set()
+            for file_path, entry in self._data.items():
+                entry['users'] = []
+                entry['ondeck_users'] = []
+                entry.pop('episode_info', None)
+            # Don't save yet — update_entry() calls will save as entries are refreshed
+            logging.debug("Prepared OnDeck tracker for new run (preserved first_seen timestamps)")
 
     def cleanup_stale_entries(self, max_days_since_seen: int = 1) -> int:
         """Remove entries that haven't been seen recently.
@@ -1191,6 +1203,68 @@ class OnDeckTracker(JSONTracker):
                 logging.debug(f"Cleaned up {len(stale)} stale OnDeck tracker entries")
 
             return len(stale)
+
+    def cleanup_unseen(self) -> int:
+        """Remove entries not seen during the current run.
+
+        Called after all update_entry() calls to remove items that fell off
+        OnDeck naturally (no longer reported by Plex for any user).
+
+        Returns:
+            Number of entries removed.
+        """
+        with self._lock:
+            seen = getattr(self, '_seen_this_run', None)
+            if seen is None:
+                # prepare_for_run() wasn't called, skip cleanup
+                return 0
+
+            unseen = [path for path in self._data if path not in seen]
+            for path in unseen:
+                del self._data[path]
+
+            if unseen:
+                self._save()
+                logging.debug(f"Removed {len(unseen)} OnDeck entries no longer on any user's OnDeck")
+
+            return len(unseen)
+
+    def is_expired(self, file_path: str, retention_days: float) -> bool:
+        """Check if an OnDeck item has expired based on retention period.
+
+        Args:
+            file_path: The path to the media file.
+            retention_days: Number of days before expiry. 0 = disabled.
+
+        Returns:
+            True if the item was first seen more than retention_days ago.
+            Returns False if disabled, no entry exists, or no first_seen.
+        """
+        if retention_days <= 0:
+            return False
+
+        with self._lock:
+            entry = self._data.get(file_path)
+            if entry is None:
+                return False
+
+            first_seen_str = entry.get('first_seen')
+            if not first_seen_str:
+                return False
+
+            try:
+                first_seen = datetime.fromisoformat(first_seen_str)
+                age_days = (datetime.now() - first_seen).total_seconds() / 86400
+                if age_days > retention_days:
+                    filename = os.path.basename(file_path)
+                    logging.debug(
+                        f"OnDeck retention expired ({age_days:.1f} days > {retention_days} days): {filename}"
+                    )
+                    return True
+                return False
+            except (ValueError, TypeError) as e:
+                logging.warning(f"Invalid first_seen timestamp for {file_path}: {e}")
+                return False
 
 
 # Priority score ranges for UI display and documentation

@@ -39,6 +39,15 @@
                     </div>
                 </div>
 
+                <div class="grid grid-2">
+                    <div class="form-group">
+                        <label for="ondeck_retention_days">OnDeck Retention (days)</label>
+                        <input type="number" id="ondeck_retention_days" name="ondeck_retention_days"
+                               value="{{ '%g' % (settings.ondeck_retention_days | default(0) | float) }}" min="0" max="365" step="0.5">
+                        <div class="form-hint">Auto-expire OnDeck items after this period (0 = never expire)</div>
+                    </div>
+                </div>
+
                 <div class="form-group">
                     <label class="switch">
                         <input type="checkbox" name="remote_watchlist_toggle"

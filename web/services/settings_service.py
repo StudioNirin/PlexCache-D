@@ -283,6 +283,7 @@ class SettingsService:
             "watchlist_toggle": ("watchlist_toggle", lambda x: x == "on" or x is True),
             "watchlist_episodes": ("watchlist_episodes", safe_int),
             "watchlist_retention_days": ("watchlist_retention_days", float),
+            "ondeck_retention_days": ("ondeck_retention_days", float),
             "watched_move": ("watched_move", lambda x: x == "on" or x is True),
             "create_plexcached_backups": ("create_plexcached_backups", lambda x: x == "on" or x is True),
             "cleanup_empty_folders": ("cleanup_empty_folders", lambda x: x == "on" or x is True),

@@ -141,6 +141,12 @@ class CacheConfig:
     # Supports fractional days (e.g., 0.5 = 12 hours) for testing
     watchlist_retention_days: float = 0
 
+    # OnDeck retention: auto-expire OnDeck items after X days
+    # Items are no longer protected after this period, becoming eligible for move-back and eviction
+    # 0 = disabled (items stay as long as they're on any user's OnDeck)
+    # Supports fractional days (e.g., 0.5 = 12 hours) for testing
+    ondeck_retention_days: float = 0
+
     # Cache drive size: manual override for total cache drive capacity
     # Useful for ZFS pools where auto-detection shows dataset size instead of pool size
     # Supports formats: "3.7TB", "500GB", "250" (defaults to GB)
@@ -392,6 +398,9 @@ class ConfigManager:
 
         # Load watchlist retention setting (default 0 = disabled)
         self.cache.watchlist_retention_days = self.settings_data.get('watchlist_retention_days', 0)
+
+        # Load OnDeck retention setting (default 0 = disabled)
+        self.cache.ondeck_retention_days = self.settings_data.get('ondeck_retention_days', 0)
 
         # Load and parse cache drive size override (for ZFS/etc)
         self.cache.cache_drive_size = self.settings_data.get('cache_drive_size', "")

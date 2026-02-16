@@ -933,8 +933,8 @@ class PlexCacheApp:
         # Use a set to collect already-modified paths (real source paths)
         modified_paths_set = set()
 
-        # Clear OnDeck tracker at start of each run (OnDeck status is ephemeral)
-        self.ondeck_tracker.clear_for_run()
+        # Prepare OnDeck tracker for new run (preserves first_seen for retention tracking)
+        self.ondeck_tracker.prepare_for_run()
 
         # Fetch OnDeck Media - returns List[OnDeckItem] with file path, username, and episode metadata
         logging.debug("Fetching OnDeck media...")
@@ -979,6 +979,21 @@ class PlexCacheApp:
                 "episode_info": {"show": ep["show"], "season": ep["season"],
                                  "episode": ep["episode"]} if ep else None
             }
+
+        # Check OnDeck retention — expired items are no longer protected
+        ondeck_retention_days = self.config_manager.cache.ondeck_retention_days
+        if ondeck_retention_days > 0:
+            expired = set()
+            for item in ondeck_items_list:
+                real_path = plex_to_real.get(item.file_path, item.file_path)
+                if self.ondeck_tracker.is_expired(real_path, ondeck_retention_days):
+                    expired.add(real_path)
+            if expired:
+                modified_ondeck = [p for p in modified_ondeck if p not in expired]
+                logging.info(f"Skipped {len(expired)} OnDeck items due to retention expiry ({ondeck_retention_days} days)")
+
+        # Cleanup entries no longer on any user's OnDeck
+        self.ondeck_tracker.cleanup_unseen()
 
         # Store modified OnDeck items for filtering later
         self.ondeck_items = set(modified_ondeck)
