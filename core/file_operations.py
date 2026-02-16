@@ -980,6 +980,10 @@ class OnDeckTracker(JSONTracker):
             "users": ["Brandon", "Home"],
             "first_seen": "2025-12-01T10:00:00.000000",
             "last_seen": "2025-12-03T10:00:00.000000",
+            "user_first_seen": {
+                "Brandon": "2025-12-01T10:00:00.000000",
+                "Home": "2025-12-03T10:00:00.000000"
+            },
             "episode_info": {
                 "show": "Foundation",
                 "season": 2,
@@ -994,6 +998,7 @@ class OnDeckTracker(JSONTracker):
     - users: All users who have this file in their OnDeck queue (current or prefetched)
     - first_seen: When item was first added to OnDeck (for staleness calculation)
     - last_seen: When item was last seen during a scan
+    - user_first_seen: Per-user first_seen timestamps (for per-user retention expiry)
     - episode_info: For TV episodes, contains show/season/episode and whether this is
                    the actual OnDeck episode vs a prefetched next episode
     - ondeck_users: Users for whom this is the CURRENT OnDeck episode (not prefetched)
@@ -1035,6 +1040,10 @@ class OnDeckTracker(JSONTracker):
                 # Backfill first_seen for existing entries (migration)
                 if 'first_seen' not in entry:
                     entry['first_seen'] = now_iso
+                # Per-user first_seen (for per-user retention expiry)
+                ufs = entry.setdefault('user_first_seen', {})
+                if username not in ufs:
+                    ufs[username] = now_iso
 
                 # Track ondeck_users separately (users for whom this is current ondeck)
                 if is_current_ondeck:
@@ -1058,7 +1067,8 @@ class OnDeckTracker(JSONTracker):
                 new_entry = {
                     'users': [username],
                     'first_seen': now_iso,
-                    'last_seen': now_iso
+                    'last_seen': now_iso,
+                    'user_first_seen': {username: now_iso}
                 }
                 if is_current_ondeck:
                     new_entry['ondeck_users'] = [username]
@@ -1209,6 +1219,8 @@ class OnDeckTracker(JSONTracker):
 
         Called after all update_entry() calls to remove items that fell off
         OnDeck naturally (no longer reported by Plex for any user).
+        Also trims user_first_seen on surviving entries to only include
+        current users.
 
         Returns:
             Number of entries removed.
@@ -1223,6 +1235,15 @@ class OnDeckTracker(JSONTracker):
             for path in unseen:
                 del self._data[path]
 
+            # Trim user_first_seen on surviving entries to only include current users
+            for path, entry in self._data.items():
+                ufs = entry.get('user_first_seen')
+                if ufs:
+                    current_users = set(entry.get('users', []))
+                    stale_users = [u for u in ufs if u not in current_users]
+                    for u in stale_users:
+                        del ufs[u]
+
             if unseen:
                 self._save()
                 logging.debug(f"Removed {len(unseen)} OnDeck entries no longer on any user's OnDeck")
@@ -1230,15 +1251,19 @@ class OnDeckTracker(JSONTracker):
             return len(unseen)
 
     def is_expired(self, file_path: str, retention_days: float) -> bool:
-        """Check if an OnDeck item has expired based on retention period.
+        """Check if an OnDeck item has expired based on per-user retention.
+
+        An item only expires when ALL current users have exceeded the retention
+        period. If ANY user is still within retention, the item stays protected.
 
         Args:
             file_path: The path to the media file.
             retention_days: Number of days before expiry. 0 = disabled.
 
         Returns:
-            True if the item was first seen more than retention_days ago.
-            Returns False if disabled, no entry exists, or no first_seen.
+            True if all current users have exceeded retention_days.
+            Returns False if disabled, no entry exists, no users, or any
+            user is still within retention.
         """
         if retention_days <= 0:
             return False
@@ -1248,23 +1273,43 @@ class OnDeckTracker(JSONTracker):
             if entry is None:
                 return False
 
-            first_seen_str = entry.get('first_seen')
-            if not first_seen_str:
-                return False
+            now = datetime.now()
+            current_users = entry.get('users', [])
+            user_first_seen = entry.get('user_first_seen', {})
 
-            try:
-                first_seen = datetime.fromisoformat(first_seen_str)
-                age_days = (datetime.now() - first_seen).total_seconds() / 86400
-                if age_days > retention_days:
-                    filename = os.path.basename(file_path)
-                    logging.debug(
-                        f"OnDeck retention expired ({age_days:.1f} days > {retention_days} days): {filename}"
-                    )
-                    return True
-                return False
-            except (ValueError, TypeError) as e:
-                logging.warning(f"Invalid first_seen timestamp for {file_path}: {e}")
-                return False
+            if not current_users:
+                return False  # No users = conservative, don't expire
+
+            filename = os.path.basename(file_path)
+            max_age = 0.0
+
+            for user in current_users:
+                ufs_str = user_first_seen.get(user)
+                if not ufs_str:
+                    # Migration: no per-user data, fall back to file-level first_seen
+                    ufs_str = entry.get('first_seen')
+                if not ufs_str:
+                    return False  # No timestamp = conservative
+
+                try:
+                    first_seen = datetime.fromisoformat(ufs_str)
+                    age_days = (now - first_seen).total_seconds() / 86400
+                    max_age = max(max_age, age_days)
+                    if age_days <= retention_days:
+                        logging.debug(
+                            f"OnDeck retention: {filename} kept alive by {user} "
+                            f"({age_days:.1f} days <= {retention_days} days)"
+                        )
+                        return False  # This user is still within retention
+                except (ValueError, TypeError):
+                    return False  # Bad timestamp = conservative
+
+            # All current users exceeded retention
+            logging.debug(
+                f"OnDeck retention expired for all {len(current_users)} user(s) "
+                f"({max_age:.1f} days > {retention_days} days): {filename}"
+            )
+            return True
 
 
 # Priority score ranges for UI display and documentation
@@ -1324,6 +1369,7 @@ class CachePriorityManager:
         self.ondeck_tracker = ondeck_tracker
         self.eviction_min_priority = eviction_min_priority
         self.number_episodes = number_episodes
+        self.active_ondeck_paths: Optional[Set[str]] = None  # Set by app when retention is enabled
 
     def calculate_priority(self, cache_path: str) -> int:
         """Calculate 0-100 priority score for a cached file.
@@ -1414,7 +1460,11 @@ class CachePriorityManager:
         # Factor 6: Episode Position (+15 for current OnDeck, +10 for next X episodes, 0 otherwise)
         # Current/next episodes in a series get higher priority
         # X = half of number_episodes setting (so if prefetching 5 episodes, prioritize next 2-3)
-        if self._is_tv_episode(cache_path):
+        # Only award bonus if item is actively protected (not expired from ondeck retention)
+        # active_ondeck_paths=None means retention is disabled, so all ondeck items get bonus
+        if self._is_tv_episode(cache_path) and (
+            self.active_ondeck_paths is None or cache_path in self.active_ondeck_paths
+        ):
             episodes_ahead = self._get_episodes_ahead_of_ondeck(cache_path)
             if episodes_ahead >= 0:  # -1 means not applicable
                 if episodes_ahead == 0:

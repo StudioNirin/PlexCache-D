@@ -999,6 +999,16 @@ class PlexCacheApp:
         self.ondeck_items = set(modified_ondeck)
         modified_paths_set.update(self.ondeck_items)
 
+        # Update priority manager with active ondeck cache paths (for episode position scoring)
+        # When retention is enabled, expired items should not get episode position bonuses
+        if ondeck_retention_days > 0 and self.file_path_modifier:
+            ondeck_cache_paths = set()
+            for f in self.ondeck_items:
+                cache_path, _ = self.file_path_modifier.convert_real_to_cache(f)
+                if cache_path:
+                    ondeck_cache_paths.add(cache_path)
+            self.priority_manager.active_ondeck_paths = ondeck_cache_paths
+
         # Track source for OnDeck items
         for item in self.ondeck_items:
             self.source_map[item] = "ondeck"
