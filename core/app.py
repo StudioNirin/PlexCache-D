@@ -308,7 +308,7 @@ class PlexCacheApp:
         logging.info("")
         # Log version and build info for debugging
         build_commit = os.environ.get('GIT_COMMIT', 'dev')
-        logging.info(f"=== PlexCache-R v{__version__} (build: {build_commit}) ===")
+        logging.info(f"=== PlexCache-D v{__version__} (build: {build_commit}) ===")
         # Log file ownership configuration (PUID/PGID)
         self.file_utils.log_ownership_config()
 
@@ -552,8 +552,8 @@ class PlexCacheApp:
         stays enabled — critical for correct .plexcached renames.
 
         Note: This detection is a performance hint for get_array_direct_path(). Safety-
-        critical operations (_move_to_cache, _move_to_array) also probe /mnt/user0/
-        directly as defense in depth.
+        critical operations (_move_to_cache, _move_to_array, _should_add_to_cache) also
+        probe /mnt/user0/ directly as defense in depth.
 
         Only runs on Unraid (non-ZFS systems are unaffected).
         """
@@ -584,7 +584,7 @@ class PlexCacheApp:
                         if user0_has_files:
                             logging.info(
                                 f"ZFS cache detected for: {real_path}, but array files also exist "
-                                f"at {user0_path} — share is NOT pool-only (likely shareUseCache=yes/prefer). "
+                                f"at {user0_path} — hybrid share (likely shareUseCache=yes/prefer). "
                                 f"Array-direct conversion remains enabled."
                             )
                         else:
@@ -597,7 +597,7 @@ class PlexCacheApp:
                         zfs_prefixes.add(prefix)
                         logging.warning(
                             f"ZFS detected for {real_path} but /mnt/user0 not accessible to verify. "
-                            f"Assuming pool-only."
+                            f"Assuming pool-only. If running in Docker, ensure /mnt/user0 is mounted."
                         )
                 else:
                     logging.debug(f"No ZFS detected for: {real_path} (standard array path)")

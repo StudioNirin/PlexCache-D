@@ -1,5 +1,5 @@
 /**
- * PlexCache-R Web UI JavaScript
+ * PlexCache-D Web UI JavaScript
  * Shared utilities and HTMX error handling
  */
 

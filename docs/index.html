@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PlexCache-R Log Analyzer</title>
+    <title>PlexCache-D Log Analyzer</title>
     <style>
         :root {
             --bg-primary: #1a1a2e;
@@ -1137,17 +1137,17 @@
 <body>
     <div class="container">
         <header>
-            <h1>PlexCache-R <span>Log Analyzer</span></h1>
+            <h1>PlexCache-D <span>Log Analyzer</span></h1>
             <p>Paste a log file to quickly diagnose issues and identify problems</p>
         </header>
 
         <section class="input-section" id="input-section">
             <label for="log-input">Paste log content or drag & drop a file:</label>
             <div class="textarea-wrapper" id="drop-zone">
-                <textarea id="log-input" placeholder="Paste your PlexCache-R log content here...
+                <textarea id="log-input" placeholder="Paste your PlexCache-D log content here...
 
 Example log format:
-2024-01-15 10:30:22,123 - INFO - === PlexCache-R ===
+2024-01-15 10:30:22,123 - INFO - === PlexCache-D ===
 2024-01-15 10:30:22,456 - DEBUG - Loading configuration...
 ..."></textarea>
                 <div class="drop-hint">
@@ -1360,8 +1360,8 @@ Example log format:
 
         <footer>
             <p>
-                <a href="https://github.com/StudioNirin/PlexCache-R" target="_blank">PlexCache-R</a> &mdash;
-                Open an <a href="https://github.com/StudioNirin/PlexCache-R/issues" target="_blank">issue</a> if you need help
+                <a href="https://github.com/StudioNirin/PlexCache-D" target="_blank">PlexCache-D</a> &mdash;
+                Open an <a href="https://github.com/StudioNirin/PlexCache-D/issues" target="_blank">issue</a> if you need help
             </p>
         </footer>
     </div>
@@ -1369,7 +1369,7 @@ Example log format:
     <script>
         // Log section definitions for navigation
         const LOG_SECTIONS = [
-            { id: 'startup', name: 'Startup', patterns: [/=== PlexCache-R ===/i, /Loading configuration/i, /Initializing/i, /Connected to Plex/i] },
+            { id: 'startup', name: 'Startup', patterns: [/=== PlexCache-D ===/i, /Loading configuration/i, /Initializing/i, /Connected to Plex/i] },
             { id: 'ondeck', name: 'OnDeck', patterns: [/--- Fetching Media ---/i, /Fetching OnDeck/i, /OnDeck found/i, /OnDeck:.*items/i] },
             { id: 'paths', name: 'Path Mapping', patterns: [/Converted path using/i, /Skipping disabled/i, /path mapping/i, /No matching library folder/i] },
             { id: 'subtitles', name: 'Subtitles', patterns: [/Finding subtitles/i, /subtitle.*found/i, /\.srt|\.ass|\.sub/i] },
@@ -2403,7 +2403,7 @@ Example log format:
             }
 
             // Check if log seems truncated (no start marker)
-            const hasStart = parsed.lines.some(l => /=== PlexCache-R ===/i.test(l.message));
+            const hasStart = parsed.lines.some(l => /=== PlexCache-D ===/i.test(l.message));
             if (!hasStart && parsed.lines.length > 0) {
                 hints.push({
                     title: "Log may be truncated",
@@ -2425,7 +2425,7 @@ Example log format:
 
         // Timeline event patterns
         const TIMELINE_PATTERNS = [
-            { pattern: /=== PlexCache-R ===/i, event: "PlexCache-R Started", type: "info" },
+            { pattern: /=== PlexCache-D ===/i, event: "PlexCache-D Started", type: "info" },
             { pattern: /Connected to Plex/i, event: "Connected to Plex Server", type: "success" },
             { pattern: /--- Fetching Media ---/i, event: "Fetching Media Lists", type: "info" },
             { pattern: /Fetching OnDeck media/i, event: "Fetching OnDeck", type: "info" },
@@ -2643,7 +2643,7 @@ Example log format:
 
         // Generate text diagnosis for copying
         function generateDiagnosisText(parsed, problems, config, operations, missingInfo) {
-            let text = '=== PlexCache-R Log Diagnosis ===\n\n';
+            let text = '=== PlexCache-D Log Diagnosis ===\n\n';
 
             text += 'Summary:\n';
             text += `  Lines: ${parsed.lines.length}\n`;
@@ -3061,7 +3061,7 @@ Example log format:
 
             const parsed = parseLog(logText);
             if (parsed.lines.length === 0) {
-                alert('Could not parse any log lines. Make sure this is a valid PlexCache-R log.');
+                alert('Could not parse any log lines. Make sure this is a valid PlexCache-D log.');
                 return;
             }
 
@@ -3316,7 +3316,7 @@ Example log format:
         // Sample log for testing - comprehensive example showing all features
         document.getElementById('sample-btn').addEventListener('click', () => {
             textarea.value = `2024-01-15 10:30:22,123 - INFO -
-2024-01-15 10:30:22,124 - INFO - === PlexCache-R ===
+2024-01-15 10:30:22,124 - INFO - === PlexCache-D ===
 2024-01-15 10:30:22,456 - DEBUG - Loading configuration...
 2024-01-15 10:30:22,789 - DEBUG - Initializing components...
 2024-01-15 10:30:23,012 - INFO - VERBOSE MODE enabled

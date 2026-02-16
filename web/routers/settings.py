@@ -24,7 +24,7 @@ from core.file_operations import (
 router = APIRouter()
 
 # OAuth constants
-PLEXCACHE_PRODUCT_NAME = 'PlexCache-R'
+PLEXCACHE_PRODUCT_NAME = 'PlexCache-D'
 
 # Store OAuth state in memory (with lock for thread safety)
 _oauth_state: Dict[str, Any] = {}
@@ -678,8 +678,8 @@ def test_webhook(request: Request, webhook_url: str = Form(...)):
     if platform == 'discord':
         payload = {
             "embeds": [{
-                "title": "PlexCache-R Test Notification",
-                "description": "This is a test message from PlexCache-R. Your webhook is configured correctly!",
+                "title": "PlexCache-D Test Notification",
+                "description": "This is a test message from PlexCache-D. Your webhook is configured correctly!",
                 "color": 3066993,  # Green
                 "fields": [
                     {"name": "Status", "value": "Connected", "inline": True},
@@ -693,11 +693,11 @@ def test_webhook(request: Request, webhook_url: str = Form(...)):
             "blocks": [
                 {
                     "type": "header",
-                    "text": {"type": "plain_text", "text": "PlexCache-R Test Notification"}
+                    "text": {"type": "plain_text", "text": "PlexCache-D Test Notification"}
                 },
                 {
                     "type": "section",
-                    "text": {"type": "mrkdwn", "text": "This is a test message from PlexCache-R. Your webhook is configured correctly!"}
+                    "text": {"type": "mrkdwn", "text": "This is a test message from PlexCache-D. Your webhook is configured correctly!"}
                 },
                 {
                     "type": "context",
@@ -707,7 +707,7 @@ def test_webhook(request: Request, webhook_url: str = Form(...)):
         }
     else:
         payload = {
-            "text": f"PlexCache-R Test Notification\n\nThis is a test message from PlexCache-R. Your webhook is configured correctly!\n\nSent at {timestamp}"
+            "text": f"PlexCache-D Test Notification\n\nThis is a test message from PlexCache-D. Your webhook is configured correctly!\n\nSent at {timestamp}"
         }
 
     # Send the test message

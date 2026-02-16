@@ -540,7 +540,7 @@ class WebhookHandler(logging.Handler):
             "color": self._get_status_color(),
             "fields": fields,
             "footer": {
-                "text": "PlexCache-R"
+                "text": "PlexCache-D"
             },
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }
@@ -635,7 +635,7 @@ class WebhookHandler(logging.Handler):
             "elements": [
                 {
                     "type": "mrkdwn",
-                    "text": f"PlexCache-R • {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                    "text": f"PlexCache-D • {datetime.now().strftime('%Y-%m-%d %H:%M')}"
                 }
             ]
         })

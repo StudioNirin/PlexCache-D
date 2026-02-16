@@ -1,4 +1,4 @@
-"""Shared test fixtures for PlexCache-R test suite."""
+"""Shared test fixtures for PlexCache-D test suite."""
 
 import os
 import sys
