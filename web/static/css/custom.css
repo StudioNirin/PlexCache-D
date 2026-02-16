@@ -321,21 +321,16 @@ footer {
     display: none;
 }
 
-/* Global Operation Banner - centered toast notification */
+/* Global Operation Banner - centered within content-wrapper */
 #global-operation-banner {
-    position: fixed;
+    position: sticky;
     top: 1rem;
-    left: calc(50% + var(--sidebar-width) / 2);
-    transform: translateX(-50%);
     z-index: 9999;
     pointer-events: none;
     display: flex;
     justify-content: center;
-}
-
-body.sidebar-collapsed #global-operation-banner,
-.sidebar-collapsed-init #global-operation-banner {
-    left: calc(50% + var(--sidebar-collapsed) / 2);
+    height: 0;
+    overflow: visible;
 }
 
 #global-operation-banner:empty {
@@ -883,10 +878,7 @@ body.sidebar-collapsed #global-operation-banner,
 /* ── Mobile responsive ───────────────────────────────── */
 @media (max-width: 768px) {
     #global-operation-banner {
-        top: 70px;
-        left: 0.5rem;
-        right: 0.5rem;
-        transform: none;
+        top: 0;
     }
 
     .di-pill {

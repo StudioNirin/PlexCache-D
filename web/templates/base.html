@@ -56,13 +56,6 @@
     <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" onclick="closeSidebar()"></div>
 
-    <!-- Global Operation Status Banner - floating overlay on all pages -->
-    <div id="global-operation-banner"
-         hx-get="/api/operation-banner"
-         hx-trigger="load"
-         hx-swap="innerHTML">
-    </div>
-
     <div class="app-container">
         <!-- Sidebar -->
         <nav class="sidebar">
@@ -127,6 +120,13 @@
                         <i data-lucide="sun" class="icon-sun"></i>
                         <i data-lucide="moon" class="icon-moon"></i>
                     </button>
+                </div>
+
+                <!-- Global Operation Status Banner -->
+                <div id="global-operation-banner"
+                     hx-get="/api/operation-banner"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
                 </div>
 
                 <!-- Alert container for toast notifications -->
