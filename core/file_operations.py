@@ -2774,7 +2774,11 @@ class FileFilter:
         array_path = os.path.dirname(array_file)
 
         # Check if exact file already exists on array (symlinks don't count — they point to cache)
-        if os.path.isfile(array_file) and not os.path.islink(array_file):
+        # Guard: If .plexcached exists, the original was renamed — don't trust the existence
+        # check (on ZFS Unraid, /mnt/user0/ FUSE can show cache files as array files).
+        # Let _move_to_array() handle the restore properly.
+        plexcached_on_array = array_file + PLEXCACHED_EXTENSION
+        if os.path.isfile(array_file) and not os.path.islink(array_file) and not os.path.isfile(plexcached_on_array):
             # File already exists in the array - check if there's a cache version to clean up
             cache_removed = False
             if os.path.isfile(cache_file_name):
@@ -3631,7 +3635,10 @@ class FileMover:
         if destination == 'array':
             # Check if file already exists on array (no action needed)
             # A symlink to the cache file makes isfile() return True, so exclude symlinks
-            if os.path.isfile(user_file_name) and not os.path.islink(user_file_name):
+            # Guard: If .plexcached exists, the original was renamed — don't trust the
+            # existence check (ZFS FUSE leak). Let _move_to_array() handle the restore.
+            plexcached_on_array = user_file_name + PLEXCACHED_EXTENSION
+            if os.path.isfile(user_file_name) and not os.path.islink(user_file_name) and not os.path.isfile(plexcached_on_array):
                 logging.debug(f"File already exists on array, skipping: {user_file_name}")
                 return None
 
@@ -4581,19 +4588,14 @@ class FileMover:
                             return 1
                 else:
                     # Same size (or cache missing), just rename back (fast)
-                    # But first check if array file already exists (redundant backup scenario)
-                    # CRITICAL: Use /mnt/user0/ (array direct) to avoid FUSE showing cache file
-                    array_direct = get_array_direct_path(array_file)
-                    if os.path.isfile(array_direct):
-                        # Array file truly exists (verified via array-direct path)
-                        # Just delete the redundant .plexcached backup
-                        operation_type = "Restored"  # Array already has it
-                        os.remove(plexcached_file)
-                        logging.debug(f"Deleted redundant .plexcached (array file exists): {plexcached_file}")
-                    else:
-                        operation_type = "Restored"  # Fast rename
-                        os.rename(plexcached_file, array_file)
-                        logging.debug(f"Restored array file: {plexcached_file} -> {array_file}")
+                    # Always rename rather than checking if original "exists" via /mnt/user0/.
+                    # On ZFS Unraid, /mnt/user0/ FUSE can show cache files as array files,
+                    # making existence checks unreliable. Renaming is always safe — if the
+                    # file genuinely exists, os.rename() atomically replaces it with the
+                    # identical .plexcached content (which IS the original, just renamed).
+                    operation_type = "Restored"
+                    os.rename(plexcached_file, array_file)
+                    logging.debug(f"Restored array file: {plexcached_file} -> {array_file}")
 
             # Scenario 2: Check for filename-change upgrade (different .plexcached with same media identity)
             elif os.path.isfile(cache_file):
