@@ -28,6 +28,7 @@
                     <div class="form-group">
                         <label for="watchlist_episodes">Watchlist Episodes to Prefetch</label>
                         <input type="number" id="watchlist_episodes" name="watchlist_episodes"
+                               class="input-narrow"
                                value="{{ settings.watchlist_episodes | default(3) }}" min="0" max="10">
                     </div>
                 </div>
@@ -62,6 +63,7 @@
                 <div class="form-group">
                     <label for="cache_retention_hours">Cache Retention (hours)</label>
                     <input type="number" id="cache_retention_hours" name="cache_retention_hours"
+                           class="input-narrow"
                            value="{{ settings.cache_retention_hours | default(12) }}" min="0" max="720">
                     <div class="form-hint">Keep files cached at least this long before moving back (0 = no minimum)</div>
                 </div>
@@ -69,6 +71,7 @@
                 <div class="form-group">
                     <label for="watchlist_retention_days">Watchlist Retention (days)</label>
                     <input type="number" id="watchlist_retention_days" name="watchlist_retention_days"
+                           class="input-narrow"
                            value="{{ '%g' % (settings.watchlist_retention_days | default(14) | float) }}" min="0" max="365" step="0.5">
                     <div class="form-hint">Auto-expire watchlist items after this period (0 = never expire)</div>
                 </div>
@@ -78,6 +81,7 @@
                 <div class="form-group">
                     <label for="ondeck_retention_days">OnDeck Retention (days)</label>
                     <input type="number" id="ondeck_retention_days" name="ondeck_retention_days"
+                           class="input-narrow"
                            value="{{ '%g' % (settings.ondeck_retention_days | default(0) | float) }}" min="0" max="365" step="0.5">
                     <div class="form-hint">Auto-expire OnDeck items after this period (0 = never expire)</div>
                 </div>
@@ -125,7 +129,7 @@
                 <div class="form-hint">For non-Unraid systems: creates a symlink at the original file
                 location pointing to the cached copy, so Plex can still find files. Not needed on Unraid
                 or mergerfs (FUSE handles this). In Docker, both paths must be mounted at the same absolute
-                paths in PlexCache-R and Plex containers.</div>
+                paths in PlexCache-D and Plex containers.</div>
             </div>
 
             <div class="form-group">
@@ -180,6 +184,7 @@
             <div class="form-group">
                 <label for="cache_drive_size">Cache Drive Size {% if drive_info.is_zfs and not drive_info.is_manual_override %}(recommended for ZFS){% else %}(optional){% endif %}</label>
                 <input type="text" id="cache_drive_size" name="cache_drive_size"
+                       class="input-medium"
                        value="{{ settings.cache_drive_size | default('') }}"
                        placeholder="Auto-detect"
                        oninput="updateCacheCalculations()">
@@ -204,6 +209,7 @@
                 <div class="form-group">
                     <label for="cache_limit">Cache Limit</label>
                     <input type="text" id="cache_limit" name="cache_limit"
+                           class="input-medium"
                            value="{{ settings.cache_limit | default('250GB') }}"
                            placeholder="500GB or 75%"
                            oninput="updateCacheCalculations()">
@@ -219,6 +225,7 @@
                 <div class="form-group">
                     <label for="min_free_space">Min Free Space</label>
                     <input type="text" id="min_free_space" name="min_free_space"
+                           class="input-medium"
                            value="{{ settings.min_free_space | default('') }}"
                            placeholder="50GB or 5%"
                            oninput="updateCacheCalculations()">
@@ -235,6 +242,7 @@
             <div class="form-group" style="margin-top: 1rem;">
                 <label for="plexcache_quota">PlexCache Quota</label>
                 <input type="text" id="plexcache_quota" name="plexcache_quota"
+                       class="input-medium"
                        value="{{ settings.plexcache_quota | default('') }}"
                        placeholder="500GB or 75%"
                        oninput="updateCacheCalculations()">
@@ -267,6 +275,7 @@
                     <div class="form-group">
                         <label for="cache_eviction_threshold_percent">Eviction Threshold (%)</label>
                         <input type="number" id="cache_eviction_threshold_percent" name="cache_eviction_threshold_percent"
+                               class="input-narrow"
                                value="{{ settings.cache_eviction_threshold_percent | default(95) }}" min="50" max="100"
                                oninput="updateCacheCalculations()">
                         <div class="form-hint">Start evicting low-priority files when total drive usage exceeds this percentage of your Cache Limit</div>
@@ -276,6 +285,7 @@
                     <div class="form-group">
                         <label for="eviction_min_priority">Minimum Priority to Keep</label>
                         <input type="number" id="eviction_min_priority" name="eviction_min_priority"
+                               class="input-narrow"
                                value="{{ settings.eviction_min_priority | default(60) }}" min="0" max="100">
                         <div class="form-hint">Only evict files below this priority (OnDeck ~{{ priority_range.ondeck_min }}-{{ priority_range.ondeck_max }}, Watchlist ~{{ priority_range.watchlist_min }}-{{ priority_range.watchlist_max }})</div>
                     </div>
@@ -302,6 +312,7 @@
                 <div class="form-group">
                     <label for="max_concurrent_moves_cache">Concurrent Moves to Cache</label>
                     <input type="number" id="max_concurrent_moves_cache" name="max_concurrent_moves_cache"
+                           class="input-narrow"
                            value="{{ settings.max_concurrent_moves_cache | default(5) }}" min="1" max="10">
                     <div class="form-hint">Max parallel file operations when moving TO cache (default: 5)</div>
                 </div>
@@ -309,6 +320,7 @@
                 <div class="form-group">
                     <label for="max_concurrent_moves_array">Concurrent Moves to Array</label>
                     <input type="number" id="max_concurrent_moves_array" name="max_concurrent_moves_array"
+                           class="input-narrow"
                            value="{{ settings.max_concurrent_moves_array | default(2) }}" min="1" max="10">
                     <div class="form-hint">Max parallel file operations when moving TO array (default: 2)</div>
                 </div>

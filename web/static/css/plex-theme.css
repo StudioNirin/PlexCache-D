@@ -923,6 +923,15 @@ textarea {
     resize: vertical;
 }
 
+/* Input width hints — size inputs to match expected data length */
+.input-narrow {
+    max-width: 120px;
+}
+
+.input-medium {
+    max-width: 200px;
+}
+
 .form-hint {
     font-size: 0.8rem;
     color: var(--plex-text-muted);
