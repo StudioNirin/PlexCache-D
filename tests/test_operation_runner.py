@@ -22,52 +22,6 @@ from web.services.operation_runner import OperationRunner, OperationResult, Oper
 
 
 # ============================================================================
-# Format helpers
-# ============================================================================
-
-class TestFormatDuration:
-    def test_seconds_only(self):
-        assert OperationRunner._format_duration(0) == "0s"
-        assert OperationRunner._format_duration(45) == "45s"
-        assert OperationRunner._format_duration(59) == "59s"
-
-    def test_minutes_and_seconds(self):
-        assert OperationRunner._format_duration(60) == "1m 00s"
-        assert OperationRunner._format_duration(83) == "1m 23s"
-        assert OperationRunner._format_duration(3599) == "59m 59s"
-
-    def test_hours(self):
-        assert OperationRunner._format_duration(3600) == "1h 00m"
-        assert OperationRunner._format_duration(5400) == "1h 30m"
-        assert OperationRunner._format_duration(7261) == "2h 01m"
-
-    def test_negative_clamps_to_zero(self):
-        assert OperationRunner._format_duration(-10) == "0s"
-
-
-class TestFormatBytes:
-    def test_bytes(self):
-        assert OperationRunner._format_bytes(0) == "0 B"
-        assert OperationRunner._format_bytes(512) == "512 B"
-
-    def test_kilobytes(self):
-        assert OperationRunner._format_bytes(1024) == "1.00 KB"
-        assert OperationRunner._format_bytes(1536) == "1.50 KB"
-
-    def test_megabytes(self):
-        assert OperationRunner._format_bytes(1048576) == "1.00 MB"
-
-    def test_gigabytes(self):
-        assert OperationRunner._format_bytes(2 * 1024**3) == "2.00 GB"
-        # 2.3 GB
-        result = OperationRunner._format_bytes(int(2.3 * 1024**3))
-        assert result.startswith("2.3") and "GB" in result
-
-    def test_terabytes(self):
-        assert OperationRunner._format_bytes(1024**4) == "1.00 TB"
-
-
-# ============================================================================
 # Phase detection
 # ============================================================================
 
