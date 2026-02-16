@@ -31,6 +31,34 @@ MINIMUM_SPACE_FOR_RENAME = 100 * 1024 * 1024  # 100 MB
 SUBTITLE_EXTENSIONS = {'.srt', '.sub', '.ass', '.ssa', '.vtt', '.idx', '.sbv'}
 
 
+def save_json_atomically(filepath: str, data, label: str = "data") -> None:
+    """Save JSON data to file atomically (write-to-temp-then-rename).
+
+    Creates a temp file in the same directory, writes data, then atomically
+    replaces the target file. This prevents corruption from interrupted writes.
+
+    Args:
+        filepath: Target file path.
+        data: JSON-serializable data to write.
+        label: Human-readable label for error messages.
+    """
+    try:
+        dir_name = os.path.dirname(filepath) or '.'
+        fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2)
+            os.replace(tmp_path, filepath)
+        except BaseException:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+    except IOError as e:
+        logging.error(f"Could not save {label} file: {type(e).__name__}: {e}")
+
+
 def is_subtitle_file(filepath: str) -> bool:
     """Check if a file is a subtitle based on its extension."""
     ext = os.path.splitext(filepath)[1].lower()
@@ -40,22 +68,21 @@ def is_subtitle_file(filepath: str) -> bool:
 def format_bytes(bytes_value: int) -> str:
     """Format bytes into human-readable string (e.g., '1.5 GB').
 
-    Args:
-        bytes_value: Size in bytes to format.
-
-    Returns:
-        Human-readable string with appropriate unit.
+    Canonical implementation — import from core.system_utils.
+    Re-exported here for convenience.
     """
-    if bytes_value < 1024:
-        return f"{bytes_value} B"
-    elif bytes_value < 1024 ** 2:
-        return f"{bytes_value / 1024:.2f} KB"
-    elif bytes_value < 1024 ** 3:
-        return f"{bytes_value / (1024 ** 2):.2f} MB"
-    elif bytes_value < 1024 ** 4:
-        return f"{bytes_value / (1024 ** 3):.2f} GB"
-    else:
-        return f"{bytes_value / (1024 ** 4):.2f} TB"
+    from core.system_utils import format_bytes as _fb
+    return _fb(bytes_value)
+
+
+def format_duration(seconds: float) -> str:
+    """Format seconds into human-readable duration like '1m 23s' or '45s'.
+
+    Canonical implementation — import from core.system_utils.
+    Re-exported here for convenience.
+    """
+    from core.system_utils import format_duration as _fd
+    return _fd(seconds)
 
 
 def get_media_identity(filepath: str) -> str:
@@ -169,21 +196,7 @@ class JSONTracker:
 
     def _save(self) -> None:
         """Save tracker data to file atomically (write-to-temp-then-rename)."""
-        try:
-            dir_name = os.path.dirname(self.tracker_file) or '.'
-            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(self._data, f, indent=2)
-                os.replace(tmp_path, self.tracker_file)
-            except BaseException:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            logging.error(f"Could not save {self._tracker_name} file: {type(e).__name__}: {e}")
+        save_json_atomically(self.tracker_file, self._data, self._tracker_name)
 
     def _find_entry_by_filename(self, file_path: str) -> Optional[Tuple[str, dict]]:
         """Find a tracker entry by matching filename when full path doesn't match.
@@ -339,21 +352,7 @@ class CacheTimestampTracker:
 
     def _save(self) -> None:
         """Save timestamps to file atomically (write-to-temp-then-rename)."""
-        try:
-            dir_name = os.path.dirname(self.timestamp_file) or '.'
-            fd, tmp_path = tempfile.mkstemp(dir=dir_name, suffix='.tmp')
-            try:
-                with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                    json.dump(self._timestamps, f, indent=2)
-                os.replace(tmp_path, self.timestamp_file)
-            except BaseException:
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-                raise
-        except IOError as e:
-            logging.error(f"Could not save timestamp file: {type(e).__name__}: {e}")
+        save_json_atomically(self.timestamp_file, self._timestamps, "timestamp")
 
     def record_cache_time(self, cache_file_path: str, source: str = "unknown",
                           original_inode: Optional[int] = None,

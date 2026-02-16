@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Any, Tuple
 
 from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
-from core.system_utils import get_array_direct_path
+from core.system_utils import get_array_direct_path, format_bytes, translate_container_to_host_path, translate_host_to_container_path, remove_from_exclude_file, remove_from_timestamps_file
 
 
 @dataclass
@@ -173,55 +173,14 @@ class MaintenanceService:
             return {}
 
     def _translate_host_to_container_path(self, path: str) -> str:
-        """Translate host cache path back to container path.
-
-        The exclude file contains host paths (for Unraid mover), but cache_files
-        uses container paths. This translates host paths back to container paths
-        for accurate comparison.
-        """
+        """Translate host cache path to container path."""
         settings = self._load_settings()
-        path_mappings = settings.get('path_mappings', [])
-
-        for mapping in path_mappings:
-            host_cache_path = mapping.get('host_cache_path', '')
-            cache_path = mapping.get('cache_path', '')
-
-            if not host_cache_path or not cache_path:
-                continue
-            if host_cache_path == cache_path:
-                continue  # No translation needed
-
-            host_prefix = host_cache_path.rstrip('/')
-            if path.startswith(host_prefix):
-                container_prefix = cache_path.rstrip('/')
-                return path.replace(host_prefix, container_prefix, 1)
-
-        return path
+        return translate_host_to_container_path(path, settings.get('path_mappings', []))
 
     def _translate_container_to_host_path(self, path: str) -> str:
-        """Translate container cache path to host path for exclude file.
-
-        When writing to the exclude file, paths must be host paths so the
-        Unraid mover can understand them.
-        """
+        """Translate container cache path to host path for exclude file."""
         settings = self._load_settings()
-        path_mappings = settings.get('path_mappings', [])
-
-        for mapping in path_mappings:
-            host_cache_path = mapping.get('host_cache_path', '')
-            cache_path = mapping.get('cache_path', '')
-
-            if not host_cache_path or not cache_path:
-                continue
-            if host_cache_path == cache_path:
-                continue  # No translation needed
-
-            container_prefix = cache_path.rstrip('/')
-            if path.startswith(container_prefix):
-                host_prefix = host_cache_path.rstrip('/')
-                return path.replace(container_prefix, host_prefix, 1)
-
-        return path
+        return translate_container_to_host_path(path, settings.get('path_mappings', []))
 
     def _should_skip_directory(self, dirname: str) -> bool:
         """Check if directory should be skipped during scanning.
@@ -278,22 +237,6 @@ class MaintenanceService:
         self._array_dirs = array_dirs
         return cache_dirs, array_dirs
 
-    def _format_size(self, size_bytes: int) -> str:
-        """Format bytes into human-readable string"""
-        if size_bytes == 0:
-            return "0 B"
-
-        units = ['B', 'KB', 'MB', 'GB', 'TB']
-        unit_index = 0
-        size = float(size_bytes)
-
-        while size >= 1024 and unit_index < len(units) - 1:
-            size /= 1024
-            unit_index += 1
-
-        if unit_index == 0:
-            return f"{int(size)} B"
-        return f"{size:.2f} {units[unit_index]}"
 
     def _copy_with_progress(self, src: str, dst: str,
                              bytes_progress_callback: Optional[Callable] = None) -> None:
@@ -561,7 +504,7 @@ class MaintenanceService:
                 cache_path=cache_path,
                 filename=filename,
                 size=size,
-                size_display=self._format_size(size),
+                size_display=format_bytes(size),
                 has_plexcached_backup=has_backup,
                 backup_path=backup_path,
                 has_array_duplicate=has_dup,
@@ -599,7 +542,7 @@ class MaintenanceService:
                     array_path=array_path,
                     filename=filename,
                     size=size,
-                    size_display=self._format_size(size)
+                    size_display=format_bytes(size)
                 ))
 
         results.duplicates.sort(key=lambda f: f.size, reverse=True)
@@ -660,7 +603,7 @@ class MaintenanceService:
                                 plexcached_path=plexcached_path,
                                 original_filename=original_name,
                                 size=size,
-                                size_display=self._format_size(size),
+                                size_display=format_bytes(size),
                                 restore_path=original_array_path,
                                 backup_type="redundant"
                             ))
@@ -684,7 +627,7 @@ class MaintenanceService:
                                     plexcached_path=plexcached_path,
                                     original_filename=original_name,
                                     size=size,
-                                    size_display=self._format_size(size),
+                                    size_display=format_bytes(size),
                                     restore_path=original_array_path,
                                     backup_type="superseded",
                                     replacement_file=replacement
@@ -695,7 +638,7 @@ class MaintenanceService:
                                     plexcached_path=plexcached_path,
                                     original_filename=original_name,
                                     size=size,
-                                    size_display=self._format_size(size),
+                                    size_display=format_bytes(size),
                                     restore_path=original_array_path,
                                     backup_type="orphaned"
                                 ))
@@ -1645,39 +1588,12 @@ class MaintenanceService:
 
     def _remove_from_exclude_file(self, cache_path: str):
         """Remove a path from the exclude file"""
-        if not self.exclude_file.exists():
-            return
-
-        try:
-            with open(self.exclude_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-
-            # Translate container path to host path for comparison
-            # (exclude file contains host paths for Unraid mover)
-            host_path = self._translate_container_to_host_path(cache_path)
-            new_lines = [line for line in lines if line.strip() != host_path]
-
-            with open(self.exclude_file, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-        except IOError:
-            pass
+        settings = self._load_settings()
+        remove_from_exclude_file(self.exclude_file, cache_path, settings.get('path_mappings', []))
 
     def _remove_from_timestamps(self, cache_path: str):
         """Remove a path from the timestamps file"""
-        if not self.timestamps_file.exists():
-            return
-
-        try:
-            with open(self.timestamps_file, 'r', encoding='utf-8') as f:
-                timestamps = json.load(f)
-
-            if cache_path in timestamps:
-                del timestamps[cache_path]
-
-                with open(self.timestamps_file, 'w', encoding='utf-8') as f:
-                    json.dump(timestamps, f, indent=2)
-        except (IOError, json.JSONDecodeError):
-            pass
+        remove_from_timestamps_file(self.timestamps_file, cache_path)
 
 
 # Singleton instance

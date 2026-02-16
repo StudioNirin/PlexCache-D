@@ -106,7 +106,7 @@ def cache_drive(request: Request, expiring_within: int = 7):
 
 
 @router.get("/priorities", response_class=HTMLResponse)
-async def cache_priorities(
+def cache_priorities(
     request: Request,
     sort: str = Query("priority", description="Sort column"),
     dir: str = Query("desc", description="Sort direction")

@@ -63,7 +63,7 @@ def get_or_create_client_id(settings: Dict) -> str:
 
 
 @router.get("/setup", response_class=HTMLResponse)
-async def setup_wizard(request: Request, step: int = 1):
+def setup_wizard(request: Request, step: int = 1):
     """Main setup wizard page"""
     settings_service = get_settings_service()
     saved_settings = settings_service.get_all()
@@ -145,13 +145,13 @@ async def setup_wizard(request: Request, step: int = 1):
 
 
 @router.post("/setup/step1", response_class=HTMLResponse)
-async def setup_step1_post(request: Request):
+def setup_step1_post(request: Request):
     """Handle step 1 (Welcome) - just move to next step"""
     return RedirectResponse(url="/setup?step=2", status_code=303)
 
 
 @router.post("/setup/step2", response_class=HTMLResponse)
-async def setup_step2_post(
+def setup_step2_post(
     request: Request,
     plex_url: str = Form(...),
     plex_token: str = Form(...)
@@ -445,7 +445,7 @@ async def setup_step5_post(request: Request):
 
 
 @router.post("/setup/complete", response_class=HTMLResponse)
-async def setup_complete_post(request: Request):
+def setup_complete_post(request: Request):
     """Handle setup completion - write all settings to disk"""
     settings_service = get_settings_service()
 
@@ -468,7 +468,7 @@ async def setup_complete_post(request: Request):
 
 # OAuth endpoints for Plex authentication
 @router.post("/setup/oauth/start")
-async def oauth_start(request: Request):
+def oauth_start(request: Request):
     """Start Plex OAuth flow - returns auth URL"""
     settings_service = get_settings_service()
     settings = settings_service.get_all()
@@ -520,7 +520,7 @@ async def oauth_start(request: Request):
 
 
 @router.get("/setup/oauth/poll")
-async def oauth_poll(client_id: str = Query(...)):
+def oauth_poll(client_id: str = Query(...)):
     """Poll for OAuth completion"""
     if client_id not in _oauth_state:
         return JSONResponse({"success": False, "error": "Invalid client ID"})
@@ -564,7 +564,7 @@ async def oauth_poll(client_id: str = Query(...)):
 
 
 @router.post("/setup/test-connection")
-async def test_plex_connection(
+def test_plex_connection(
     plex_url: str = Form(...),
     plex_token: str = Form(...)
 ):
@@ -586,7 +586,7 @@ async def test_plex_connection(
 
 
 @router.post("/setup/prefetch-users")
-async def prefetch_users(
+def prefetch_users(
     plex_url: str = Form(...),
     plex_token: str = Form(...)
 ):
@@ -628,7 +628,7 @@ async def prefetch_users(
 
 
 @router.post("/setup/prefetch-tokens")
-async def prefetch_tokens():
+def prefetch_tokens():
     """Prefetch user tokens in background while user is on step 4.
 
     This speeds up the step 4 -> step 5 transition by fetching all user
@@ -694,7 +694,7 @@ async def prefetch_tokens():
 
 
 @router.post("/setup/discover-servers")
-async def discover_servers(plex_token: str = Form(...)):
+def discover_servers(plex_token: str = Form(...)):
     """Discover Plex servers associated with the authenticated account"""
     settings_service = get_settings_service()
     settings = settings_service.get_all()
@@ -763,7 +763,7 @@ async def discover_servers(plex_token: str = Form(...)):
 
 
 @router.get("/setup/import/detect")
-async def detect_import_files():
+def detect_import_files():
     """Detect available import files in /config/import/"""
     from web.services import get_import_service
 

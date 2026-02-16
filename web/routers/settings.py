@@ -20,9 +20,6 @@ from core.file_operations import (
     PRIORITY_RANGE_WATCHLIST_MAX,
 )
 
-# Backward-compatible alias
-_parse_size_bytes = parse_size_bytes
-
 
 router = APIRouter()
 
@@ -35,7 +32,7 @@ _oauth_state_lock = threading.Lock()
 
 
 @router.get("/", response_class=HTMLResponse)
-async def settings_index(request: Request):
+def settings_index(request: Request):
     """Settings overview - redirects to plex tab"""
     settings_service = get_settings_service()
     settings = settings_service.get_plex_settings()
@@ -54,7 +51,7 @@ async def settings_index(request: Request):
 
 
 @router.get("/plex", response_class=HTMLResponse)
-async def settings_plex(request: Request):
+def settings_plex(request: Request):
     """Plex settings tab (user settings moved to /settings/users)"""
     settings_service = get_settings_service()
     settings = settings_service.get_plex_settings()
@@ -73,7 +70,7 @@ async def settings_plex(request: Request):
 
 
 @router.get("/plex/libraries", response_class=HTMLResponse)
-async def get_plex_libraries(request: Request):
+def get_plex_libraries(request: Request):
     """Fetch library sections from Plex (HTMX partial)"""
     settings_service = get_settings_service()
     settings = settings_service.get_plex_settings()
@@ -90,7 +87,7 @@ async def get_plex_libraries(request: Request):
 
 
 @router.get("/plex/users", response_class=HTMLResponse)
-async def get_plex_users(request: Request):
+def get_plex_users(request: Request):
     """Fetch users from Plex (HTMX partial)"""
     settings_service = get_settings_service()
     settings = settings_service.get_plex_settings()
@@ -109,7 +106,7 @@ async def get_plex_users(request: Request):
 
 
 @router.post("/plex/test", response_class=HTMLResponse)
-async def test_plex_connection(request: Request):
+def test_plex_connection(request: Request):
     """Test Plex connection and return detailed status"""
     settings_service = get_settings_service()
     settings = settings_service.get_plex_settings()
@@ -217,7 +214,7 @@ async def save_plex_settings(request: Request):
 # =============================================================================
 
 @router.get("/users", response_class=HTMLResponse)
-async def settings_users(request: Request):
+def settings_users(request: Request):
     """Users settings tab - renders with skeleton for lazy load"""
     settings_service = get_settings_service()
     user_settings = settings_service.get_user_settings()
@@ -239,7 +236,7 @@ async def settings_users(request: Request):
 
 
 @router.get("/users/list", response_class=HTMLResponse)
-async def get_users_list(request: Request):
+def get_users_list(request: Request):
     """Fetch users list for lazy loading (HTMX partial)"""
     import logging
     logger = logging.getLogger(__name__)
@@ -270,7 +267,7 @@ async def get_users_list(request: Request):
 
 
 @router.post("/users/sync", response_class=HTMLResponse)
-async def sync_users(request: Request):
+def sync_users(request: Request):
     """Sync users from Plex (HTMX)"""
     settings_service = get_settings_service()
     result = settings_service.sync_users_from_plex()
@@ -354,7 +351,7 @@ async def save_user_settings(request: Request):
 
 
 @router.get("/paths", response_class=HTMLResponse)
-async def settings_paths(request: Request):
+def settings_paths(request: Request):
     """Path mappings tab"""
     settings_service = get_settings_service()
     mappings = settings_service.get_path_mappings()
@@ -371,7 +368,7 @@ async def settings_paths(request: Request):
 
 
 @router.post("/paths", response_class=HTMLResponse)
-async def add_path_mapping(
+def add_path_mapping(
     request: Request,
     name: str = Form(...),
     plex_path: str = Form(...),
@@ -416,7 +413,7 @@ async def add_path_mapping(
 
 
 @router.put("/paths/{index}", response_class=HTMLResponse)
-async def update_path_mapping(
+def update_path_mapping(
     request: Request,
     index: int,
     name: str = Form(...),
@@ -459,7 +456,7 @@ async def update_path_mapping(
 
 
 @router.delete("/paths/{index}", response_class=HTMLResponse)
-async def delete_path_mapping(request: Request, index: int):
+def delete_path_mapping(request: Request, index: int):
     """Delete a path mapping and return the updated list"""
     settings_service = get_settings_service()
 
@@ -477,7 +474,7 @@ async def delete_path_mapping(request: Request, index: int):
 
 
 @router.get("/cache", response_class=HTMLResponse)
-async def settings_cache(request: Request):
+def settings_cache(request: Request):
     """Cache settings tab"""
     import shutil
     settings_service = get_settings_service()
@@ -499,7 +496,7 @@ async def settings_cache(request: Request):
 
     if cache_dir:
         try:
-            drive_size_override = _parse_size_bytes(all_settings.get("cache_drive_size", ""))
+            drive_size_override = parse_size_bytes(all_settings.get("cache_drive_size", ""))
             disk_usage = get_disk_usage(cache_dir, drive_size_override)
             drive_info["total_bytes"] = disk_usage.total
             # Format size
@@ -586,7 +583,7 @@ async def save_cache_settings(request: Request):
 
 
 @router.get("/notifications", response_class=HTMLResponse)
-async def settings_notifications(request: Request):
+def settings_notifications(request: Request):
     """Notification settings tab"""
     import os
 
@@ -613,7 +610,7 @@ async def settings_notifications(request: Request):
 
 
 @router.put("/notifications", response_class=HTMLResponse)
-async def save_notification_settings(
+def save_notification_settings(
     request: Request,
     notification_type: str = Form("system"),
     webhook_url: str = Form(""),
@@ -654,7 +651,7 @@ async def save_notification_settings(
 
 
 @router.post("/notifications/test", response_class=HTMLResponse)
-async def test_webhook(request: Request, webhook_url: str = Form(...)):
+def test_webhook(request: Request, webhook_url: str = Form(...)):
     """Send a test message to the configured webhook"""
     import json
     import requests
@@ -745,7 +742,7 @@ async def test_webhook(request: Request, webhook_url: str = Form(...)):
 
 
 @router.get("/logging", response_class=HTMLResponse)
-async def settings_logging(request: Request):
+def settings_logging(request: Request):
     """Logging settings tab"""
     settings_service = get_settings_service()
     settings = settings_service.get_logging_settings()
@@ -762,7 +759,7 @@ async def settings_logging(request: Request):
 
 
 @router.put("/logging", response_class=HTMLResponse)
-async def save_logging_settings(
+def save_logging_settings(
     request: Request,
     max_log_files: int = Form(24),
     keep_error_logs_days: int = Form(7),
@@ -800,7 +797,7 @@ async def save_logging_settings(
 
 
 @router.get("/schedule", response_class=HTMLResponse)
-async def settings_schedule(request: Request):
+def settings_schedule(request: Request):
     """Schedule settings tab"""
     scheduler_service = get_scheduler_service()
     schedule = scheduler_service.get_status()
@@ -817,14 +814,14 @@ async def settings_schedule(request: Request):
 
 
 @router.get("/import", response_class=HTMLResponse)
-async def settings_import(request: Request):
+def settings_import(request: Request):
     """Redirect old import tab to new import-export tab"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/settings/import-export", status_code=302)
 
 
 @router.get("/backup", response_class=HTMLResponse)
-async def settings_backup_redirect(request: Request):
+def settings_backup_redirect(request: Request):
     """Redirect old backup tab to new import-export tab"""
     from fastapi.responses import RedirectResponse
     return RedirectResponse(url="/settings/import-export", status_code=302)
@@ -835,7 +832,7 @@ async def settings_backup_redirect(request: Request):
 # =============================================================================
 
 @router.get("/import-export", response_class=HTMLResponse)
-async def settings_import_export(request: Request):
+def settings_import_export(request: Request):
     """Import/Export settings tab"""
     # Check if any previous CLI imports have been completed
     import_completed_dir = CONFIG_DIR / "import" / "completed"
@@ -853,7 +850,7 @@ async def settings_import_export(request: Request):
 
 
 @router.get("/import-export/export")
-async def export_settings_file(request: Request, include_sensitive: bool = True):
+def export_settings_file(request: Request, include_sensitive: bool = True):
     """Export settings as downloadable JSON file"""
     import json
     from datetime import datetime
@@ -1048,7 +1045,7 @@ def _get_or_create_client_id() -> str:
 
 
 @router.post("/plex/oauth/start")
-async def oauth_start():
+def oauth_start():
     """Start Plex OAuth flow - returns auth URL"""
     client_id = _get_or_create_client_id()
 
@@ -1095,7 +1092,7 @@ async def oauth_start():
 
 
 @router.get("/plex/oauth/poll")
-async def oauth_poll(client_id: str = Query(...)):
+def oauth_poll(client_id: str = Query(...)):
     """Poll for OAuth completion"""
     with _oauth_state_lock:
         if client_id not in _oauth_state:

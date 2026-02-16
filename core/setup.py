@@ -1,4 +1,4 @@
-import json, os, requests, ntpath, posixpath, uuid, time, webbrowser
+import json, os, requests, uuid, time, webbrowser
 from urllib.parse import urlparse
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest
@@ -36,14 +36,6 @@ def write_settings(filename, data):
     except (IOError, OSError) as e:
         print(f"Error writing settings file: {e}")
         raise
-
-def convert_path_to_posix(path):
-    path = path.replace(ntpath.sep, posixpath.sep)
-    return posixpath.normpath(path)
-
-def convert_path_to_nt(path):
-    path = path.replace(posixpath.sep, ntpath.sep)
-    return ntpath.normpath(path)
 
 def prompt_user_for_number(prompt_message, default_value, data_key, data_type=int):
     while True:
@@ -130,31 +122,6 @@ def is_valid_plex_url(url):
         return all([result.scheme, result.netloc])
     except ValueError:
         return False
-
-# Helper to compute a common root for a list of paths
-def find_common_root(paths):
-    """Return the deepest common directory for all given paths."""
-    if not paths:
-        return "/"
-
-    # Normalize trailing slashes and split
-    normed = [p.rstrip('/') for p in paths]
-    split_paths = [p.split('/') for p in normed]
-
-    common_parts = []
-    for parts in zip(*split_paths):
-        if all(part == parts[0] for part in parts):
-            common_parts.append(parts[0])
-        else:
-            break
-
-    # Handle leading empty string (absolute paths)
-    if common_parts and common_parts[0] == '':
-        if len(common_parts) == 1:
-            return '/'
-        return "/" + "/".join(common_parts[1:])
-    return "/" + "/".join(common_parts) if common_parts else "/"
-
 
 def is_unraid():
     """Check if running on Unraid."""

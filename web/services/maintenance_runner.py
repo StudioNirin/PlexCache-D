@@ -13,32 +13,13 @@ from typing import Optional, Callable, Any, List
 from dataclasses import dataclass, field
 
 from web.services.maintenance_service import ActionResult
+from core.system_utils import format_bytes, format_duration
+
+# Backward-compatible aliases for any external imports
+_format_duration = format_duration
+_format_bytes = format_bytes
 
 logger = logging.getLogger(__name__)
-
-
-def _format_duration(seconds: float) -> str:
-    """Format seconds into human-readable duration like '1m 23s' or '45s'"""
-    seconds = max(0, seconds)
-    if seconds < 60:
-        return f"{int(seconds)}s"
-    minutes = int(seconds // 60)
-    secs = int(seconds % 60)
-    if minutes < 60:
-        return f"{minutes}m {secs:02d}s"
-    hours = int(minutes // 60)
-    mins = minutes % 60
-    return f"{hours}h {mins:02d}m"
-
-
-def _format_bytes(num_bytes: int) -> str:
-    """Format bytes into human-readable string like '2.1 GB' or '450 MB'"""
-    size = float(num_bytes)
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size < 1024 or unit == 'TB':
-            return f"{size:.1f} {unit}" if unit != 'B' else f"{int(size)} B"
-        size /= 1024
-    return f"{size:.1f} TB"
 
 
 # Actions that should run asynchronously (heavy I/O)

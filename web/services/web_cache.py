@@ -9,6 +9,7 @@ from typing import Any, Callable, Dict, Optional
 from dataclasses import dataclass
 
 from web.config import PROJECT_ROOT, DATA_DIR
+from core.system_utils import format_bytes, format_duration
 
 
 @dataclass
@@ -307,9 +308,9 @@ def init_web_cache():
         if summary:
             stats["last_run_summary"] = {
                 "status": summary.get("status", "unknown"),
-                "bytes_cached_display": _OR._format_bytes(summary["bytes_cached"]) if summary.get("bytes_cached") else "",
-                "bytes_restored_display": _OR._format_bytes(summary["bytes_restored"]) if summary.get("bytes_restored") else "",
-                "duration_display": _OR._format_duration(summary.get("duration_seconds", 0)),
+                "bytes_cached_display": format_bytes(summary["bytes_cached"]) if summary.get("bytes_cached") else "",
+                "bytes_restored_display": format_bytes(summary["bytes_restored"]) if summary.get("bytes_restored") else "",
+                "duration_display": format_duration(summary.get("duration_seconds", 0)),
                 "error_count": summary.get("error_count", 0),
                 "dry_run": summary.get("dry_run", False),
             }
