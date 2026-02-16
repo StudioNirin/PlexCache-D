@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}{{ page_title | default('PlexCache-R') }}{% endblock %} - PlexCache-R</title>
+    <title>{% block title %}{{ page_title | default('PlexCache-D') }}{% endblock %} - PlexCache-D</title>
 
     <!-- Favicon -->
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
@@ -43,7 +43,7 @@
         </button>
         <div class="mobile-brand">
             <div class="sidebar-brand-icon"><i data-lucide="hard-drive"></i></div>
-            <span>PlexCache-R</span>
+            <span>PlexCache-D</span>
         </div>
         <div class="mobile-actions">
             <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -56,19 +56,12 @@
     <!-- Sidebar Overlay -->
     <div class="sidebar-overlay" onclick="closeSidebar()"></div>
 
-    <!-- Global Operation Status Banner - floating overlay on all pages -->
-    <div id="global-operation-banner"
-         hx-get="/api/operation-banner"
-         hx-trigger="load"
-         hx-swap="innerHTML">
-    </div>
-
     <div class="app-container">
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-brand">
                 <div class="sidebar-brand-icon"><i data-lucide="hard-drive"></i></div>
-                <span>PlexCache-R</span>
+                <span>PlexCache-D</span>
                 {% if image_tag is defined and image_tag != 'latest' %}
                 <span class="dev-badge">{{ image_tag | upper }}</span>
                 {% endif %}
@@ -129,13 +122,20 @@
                     </button>
                 </div>
 
+                <!-- Global Operation Status Banner -->
+                <div id="global-operation-banner"
+                     hx-get="/api/operation-banner"
+                     hx-trigger="load"
+                     hx-swap="innerHTML">
+                </div>
+
                 <!-- Alert container for toast notifications -->
                 <div id="alert-container"></div>
 
                 {% block content %}{% endblock %}
 
                 <footer>
-                    PlexCache-R Web UI <span class="version">v{{ web_version }}</span>
+                    PlexCache-D Web UI <span class="version">v{{ web_version }}</span>
                 </footer>
             </div>
         </main>

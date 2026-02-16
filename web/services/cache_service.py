@@ -10,10 +10,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
-from core.system_utils import get_disk_usage, detect_zfs, get_array_direct_path, parse_size_bytes
-
-# Backward-compatible alias
-_parse_size_bytes = parse_size_bytes
+from core.system_utils import get_disk_usage, detect_zfs, get_array_direct_path, parse_size_bytes, format_bytes, translate_container_to_host_path, translate_host_to_container_path, remove_from_exclude_file, remove_from_timestamps_file
 
 
 # Subtitle file extensions (case-insensitive)
@@ -84,54 +81,14 @@ class CacheService:
         return settings.get("cache_dir", "")
 
     def _translate_container_to_host_path(self, path: str) -> str:
-        """Translate container cache path to host path for exclude file.
-
-        When writing to the exclude file, paths must be host paths so the
-        Unraid mover can understand them.
-        """
+        """Translate container cache path to host path for exclude file."""
         settings = self._load_settings()
-        path_mappings = settings.get('path_mappings', [])
-
-        for mapping in path_mappings:
-            host_cache_path = mapping.get('host_cache_path', '')
-            cache_path = mapping.get('cache_path', '')
-
-            if not host_cache_path or not cache_path:
-                continue
-            if host_cache_path == cache_path:
-                continue  # No translation needed
-
-            container_prefix = cache_path.rstrip('/')
-            if path.startswith(container_prefix):
-                host_prefix = host_cache_path.rstrip('/')
-                return path.replace(container_prefix, host_prefix, 1)
-
-        return path
+        return translate_container_to_host_path(path, settings.get('path_mappings', []))
 
     def _translate_host_to_container_path(self, path: str) -> str:
-        """Translate host cache path to container path.
-
-        When reading from the exclude file, paths are host paths but we need
-        container paths to check file existence inside Docker.
-        """
+        """Translate host cache path to container path."""
         settings = self._load_settings()
-        path_mappings = settings.get('path_mappings', [])
-
-        for mapping in path_mappings:
-            host_cache_path = mapping.get('host_cache_path', '')
-            cache_path = mapping.get('cache_path', '')
-
-            if not host_cache_path or not cache_path:
-                continue
-            if host_cache_path == cache_path:
-                continue  # No translation needed
-
-            host_prefix = host_cache_path.rstrip('/')
-            if path.startswith(host_prefix):
-                container_prefix = cache_path.rstrip('/')
-                return path.replace(host_prefix, container_prefix, 1)
-
-        return path
+        return translate_host_to_container_path(path, settings.get('path_mappings', []))
 
     def _get_cache_dir_for_display(self, settings: Dict = None) -> str:
         """Get the cache directory for UI display, preferring host paths.
@@ -205,23 +162,6 @@ class CacheService:
             filename = filename[:match.start()]
 
         return filename
-
-    def _format_size(self, size_bytes: int) -> str:
-        """Format bytes into human-readable string"""
-        if size_bytes == 0:
-            return "0 B"
-
-        units = ['B', 'KB', 'MB', 'GB', 'TB']
-        unit_index = 0
-        size = float(size_bytes)
-
-        while size >= 1024 and unit_index < len(units) - 1:
-            size /= 1024
-            unit_index += 1
-
-        if unit_index == 0:
-            return f"{int(size)} B"
-        return f"{size:.2f} {units[unit_index]}"
 
     def get_cached_files_list(self) -> List[str]:
         """Get list of cached file paths from timestamps.json (primary) or exclude file (fallback)"""
@@ -683,7 +623,7 @@ class CacheService:
                 path=cache_path,
                 filename=filename,
                 size=size,
-                size_display=self._format_size(size),
+                size_display=format_bytes(size),
                 cached_at=cached_at,
                 cache_age_hours=cache_age_hours,
                 source=source,
@@ -735,7 +675,7 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                drive_size_override = parse_size_bytes(settings.get("cache_drive_size", ""))
                 disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
@@ -786,7 +726,7 @@ class CacheService:
                 if disk_used > eviction_threshold_bytes:
                     eviction_over_threshold = True
                     eviction_over_by = disk_used - eviction_threshold_bytes
-                    eviction_over_by_display = self._format_size(eviction_over_by)
+                    eviction_over_by_display = format_bytes(eviction_over_by)
 
         cache_limit_exceeded = False
         if cache_limit_bytes > 0 and disk_used >= cache_limit_bytes:
@@ -849,12 +789,12 @@ class CacheService:
 
         return {
             "cache_files": len(all_files),  # Grouped count (subtitles with videos)
-            "cache_size": self._format_size(disk_used),  # Actual disk used
+            "cache_size": format_bytes(disk_used),  # Actual disk used
             "cache_size_bytes": disk_used,
-            "cache_limit": self._format_size(disk_total),  # Actual disk total
+            "cache_limit": format_bytes(disk_total),  # Actual disk total
             "cache_limit_bytes": disk_total,
             "usage_percent": usage_percent,
-            "cached_files_size": self._format_size(cached_files_size),  # PlexCache files only
+            "cached_files_size": format_bytes(cached_files_size),  # PlexCache files only
             "cached_files_size_bytes": cached_files_size,
             "ondeck_count": ondeck_count,
             "watchlist_count": watchlist_count,
@@ -894,7 +834,7 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                drive_size_override = parse_size_bytes(settings.get("cache_drive_size", ""))
                 has_manual_drive_size = drive_size_override > 0
                 disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
@@ -973,22 +913,12 @@ class CacheService:
                     # Percentage-based limit
                     percent_val = int(limit_str.rstrip("%"))
                     cache_limit_bytes = int(disk_total * percent_val / 100)
-                    cache_limit_display = f"{percent_val}% = {self._format_size(cache_limit_bytes)}"
+                    cache_limit_display = f"{percent_val}% = {format_bytes(cache_limit_bytes)}"
                     cache_limit_percent = percent_val
                 else:
-                    # Absolute value - parse size string (e.g., "1000GB", "500G", "1TB")
-                    import re
-                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", limit_str, re.IGNORECASE)
-                    if match:
-                        value = float(match.group(1))
-                        unit = (match.group(2) or "GB").upper()
-                        if unit in ("T", "TB"):
-                            cache_limit_bytes = int(value * 1024**4)
-                        elif unit in ("G", "GB"):
-                            cache_limit_bytes = int(value * 1024**3)
-                        elif unit in ("M", "MB"):
-                            cache_limit_bytes = int(value * 1024**2)
-                        cache_limit_display = self._format_size(cache_limit_bytes)
+                    cache_limit_bytes = parse_size_bytes(limit_str)
+                    if cache_limit_bytes > 0:
+                        cache_limit_display = format_bytes(cache_limit_bytes)
                         if disk_total > 0:
                             cache_limit_percent = round(cache_limit_bytes / disk_total * 100, 1)
             except (ValueError, TypeError):
@@ -1017,21 +947,12 @@ class CacheService:
                 if mfs_str.upper().endswith('%'):
                     percent_val = int(mfs_str.rstrip('%').rstrip().upper().rstrip('%'))
                     min_free_space_bytes = int(disk_total * percent_val / 100)
-                    min_free_space_display = f"{percent_val}% = {self._format_size(min_free_space_bytes)}"
+                    min_free_space_display = f"{percent_val}% = {format_bytes(min_free_space_bytes)}"
                     min_free_space_percent = percent_val
                 else:
-                    import re
-                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", mfs_str, re.IGNORECASE)
-                    if match:
-                        value = float(match.group(1))
-                        unit = (match.group(2) or "GB").upper()
-                        if unit in ("T", "TB"):
-                            min_free_space_bytes = int(value * 1024**4)
-                        elif unit in ("G", "GB"):
-                            min_free_space_bytes = int(value * 1024**3)
-                        elif unit in ("M", "MB"):
-                            min_free_space_bytes = int(value * 1024**2)
-                        min_free_space_display = self._format_size(min_free_space_bytes)
+                    min_free_space_bytes = parse_size_bytes(mfs_str)
+                    if min_free_space_bytes > 0:
+                        min_free_space_display = format_bytes(min_free_space_bytes)
                         if disk_total > 0:
                             min_free_space_percent = round(min_free_space_bytes / disk_total * 100, 1)
             except (ValueError, TypeError):
@@ -1058,20 +979,12 @@ class CacheService:
                     if disk_total > 0:
                         percent_val = int(quota_str.rstrip('%'))
                         plexcache_quota_bytes = int(disk_total * percent_val / 100)
-                        plexcache_quota_display = f"{percent_val}% = {self._format_size(plexcache_quota_bytes)}"
+                        plexcache_quota_display = f"{percent_val}% = {format_bytes(plexcache_quota_bytes)}"
                         plexcache_quota_percent = percent_val
                 else:
-                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", quota_str, re.IGNORECASE)
-                    if match:
-                        value = float(match.group(1))
-                        unit = (match.group(2) or "GB").upper()
-                        if unit in ("T", "TB"):
-                            plexcache_quota_bytes = int(value * 1024**4)
-                        elif unit in ("G", "GB"):
-                            plexcache_quota_bytes = int(value * 1024**3)
-                        elif unit in ("M", "MB"):
-                            plexcache_quota_bytes = int(value * 1024**2)
-                        plexcache_quota_display = self._format_size(plexcache_quota_bytes)
+                    plexcache_quota_bytes = parse_size_bytes(quota_str)
+                    if plexcache_quota_bytes > 0:
+                        plexcache_quota_display = format_bytes(plexcache_quota_bytes)
                         if disk_total > 0:
                             plexcache_quota_percent = round(plexcache_quota_bytes / disk_total * 100, 1)
             except (ValueError, TypeError):
@@ -1094,7 +1007,7 @@ class CacheService:
 
         if cache_limit_bytes > 0:
             eviction_threshold_bytes = int(cache_limit_bytes * eviction_threshold_setting / 100)
-            eviction_threshold_display = self._format_size(eviction_threshold_bytes)
+            eviction_threshold_display = format_bytes(eviction_threshold_bytes)
             if disk_total > 0:
                 eviction_threshold_percent_of_drive = round(eviction_threshold_bytes / disk_total * 100, 1)
             # Check if drive usage is over threshold
@@ -1138,14 +1051,14 @@ class CacheService:
             # Storage Overview
             "storage": {
                 "total": disk_total,
-                "total_display": self._format_size(disk_total),
+                "total_display": format_bytes(disk_total),
                 "used": disk_used,
-                "used_display": self._format_size(disk_used),
+                "used_display": format_bytes(disk_used),
                 "free": disk_free,
-                "free_display": self._format_size(disk_free),
+                "free_display": format_bytes(disk_free),
                 "usage_percent": calc_percent(disk_used, disk_total),
                 "cached_size": total_cached_size,
-                "cached_size_display": self._format_size(total_cached_size),
+                "cached_size_display": format_bytes(total_cached_size),
                 "cached_percent": calc_percent(total_cached_size, disk_total),
                 "file_count": len(all_files),
                 # ZFS detection (values may need manual override)
@@ -1157,7 +1070,7 @@ class CacheService:
                 "cache_limit_percent": cache_limit_percent,
                 "cache_limit_used_percent": cache_limit_used_percent,
                 "cache_limit_available": cache_limit_available,
-                "cache_limit_available_display": self._format_size(cache_limit_available) if cache_limit_bytes > 0 else None,
+                "cache_limit_available_display": format_bytes(cache_limit_available) if cache_limit_bytes > 0 else None,
                 # Eviction threshold info
                 "eviction_threshold_bytes": eviction_threshold_bytes,
                 "eviction_threshold_display": eviction_threshold_display,
@@ -1166,25 +1079,25 @@ class CacheService:
                 "eviction_over_threshold": eviction_over_threshold,
                 "eviction_approaching": eviction_approaching,
                 "eviction_over_by": eviction_over_by,
-                "eviction_over_by_display": self._format_size(eviction_over_by) if eviction_over_by > 0 else None,
+                "eviction_over_by_display": format_bytes(eviction_over_by) if eviction_over_by > 0 else None,
                 # Min free space info
                 "min_free_space_bytes": min_free_space_bytes,
                 "min_free_space_display": min_free_space_display,
                 "min_free_space_percent": min_free_space_percent,
                 "min_free_space_warning": min_free_space_warning,
                 "min_free_space_available": min_free_space_available,
-                "min_free_space_available_display": self._format_size(min_free_space_available) if min_free_space_bytes > 0 else None,
+                "min_free_space_available_display": format_bytes(min_free_space_available) if min_free_space_bytes > 0 else None,
                 # PlexCache quota info
                 "plexcache_quota_bytes": plexcache_quota_bytes,
                 "plexcache_quota_display": plexcache_quota_display,
                 "plexcache_quota_percent": plexcache_quota_percent,
                 "plexcache_quota_used_percent": plexcache_quota_used_percent,
                 "plexcache_quota_available": plexcache_quota_available,
-                "plexcache_quota_available_display": self._format_size(plexcache_quota_available) if plexcache_quota_bytes > 0 else None,
+                "plexcache_quota_available_display": format_bytes(plexcache_quota_available) if plexcache_quota_bytes > 0 else None,
                 "plexcache_quota_warning": plexcache_quota_warning,
                 # Stacked bar data
                 "other_drive_size": other_drive_size,
-                "other_drive_size_display": self._format_size(other_drive_size),
+                "other_drive_size_display": format_bytes(other_drive_size),
                 "other_drive_percent": other_drive_percent,
                 "cache_bar_status": cache_bar_status  # "safe", "approaching", or "over"
             },
@@ -1193,19 +1106,19 @@ class CacheService:
                 "ondeck": {
                     "count": ondeck_count,
                     "size": ondeck_size,
-                    "size_display": self._format_size(ondeck_size),
+                    "size_display": format_bytes(ondeck_size),
                     "percent": calc_percent(ondeck_size, total_cached_size) if total_cached_size > 0 else 0
                 },
                 "watchlist": {
                     "count": watchlist_count,
                     "size": watchlist_size,
-                    "size_display": self._format_size(watchlist_size),
+                    "size_display": format_bytes(watchlist_size),
                     "percent": calc_percent(watchlist_size, total_cached_size) if total_cached_size > 0 else 0
                 },
                 "other": {
                     "count": other_count,
                     "size": other_size,
-                    "size_display": self._format_size(other_size),
+                    "size_display": format_bytes(other_size),
                     "percent": calc_percent(other_size, total_cached_size) if total_cached_size > 0 else 0
                 }
             },
@@ -1334,19 +1247,19 @@ class CacheService:
                 "count": len(high_files),
                 "percent": calc_percent(len(high_files), total_count),
                 "size": sum(f["size"] for f in high_files),
-                "size_display": self._format_size(sum(f["size"] for f in high_files))
+                "size_display": format_bytes(sum(f["size"] for f in high_files))
             },
             "medium": {
                 "count": len(medium_files),
                 "percent": calc_percent(len(medium_files), total_count),
                 "size": sum(f["size"] for f in medium_files),
-                "size_display": self._format_size(sum(f["size"] for f in medium_files))
+                "size_display": format_bytes(sum(f["size"] for f in medium_files))
             },
             "low": {
                 "count": len(low_files),
                 "percent": calc_percent(len(low_files), total_count),
                 "size": sum(f["size"] for f in low_files),
-                "size_display": self._format_size(sum(f["size"] for f in low_files))
+                "size_display": format_bytes(sum(f["size"] for f in low_files))
             }
         }
 
@@ -1361,7 +1274,7 @@ class CacheService:
             "watchlist_count": watchlist_count,
             "other_count": other_count,
             "total_size": total_size,
-            "total_size_display": self._format_size(total_size)
+            "total_size_display": format_bytes(total_size)
         }
 
         # Eviction settings and current status
@@ -1377,7 +1290,7 @@ class CacheService:
 
         if cache_dir and os.path.exists(cache_dir):
             try:
-                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                drive_size_override = parse_size_bytes(settings.get("cache_drive_size", ""))
                 disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
@@ -1402,7 +1315,7 @@ class CacheService:
             "current_usage_percent": current_usage_percent,
             "would_evict_count": would_evict_count,
             "would_evict_size": would_evict_size,
-            "would_evict_size_display": self._format_size(would_evict_size)
+            "would_evict_size_display": format_bytes(would_evict_size)
         }
 
         return {
@@ -1432,7 +1345,7 @@ class CacheService:
         disk_total = 0
         if cache_dir and os.path.exists(cache_dir):
             try:
-                drive_size_override = _parse_size_bytes(settings.get("cache_drive_size", ""))
+                drive_size_override = parse_size_bytes(settings.get("cache_drive_size", ""))
                 disk = get_disk_usage(cache_dir, drive_size_override)
                 disk_used = disk.used
                 disk_total = disk.total
@@ -1451,17 +1364,7 @@ class CacheService:
                     percent_val = int(limit_str.rstrip("%"))
                     cache_limit_bytes = int(disk_total * percent_val / 100)
                 else:
-                    # Absolute value (e.g., "500GB", "1TB")
-                    match = re.match(r"^(\d+(?:\.\d+)?)\s*(TB|GB|MB|T|G|M)?$", limit_str, re.IGNORECASE)
-                    if match:
-                        value = float(match.group(1))
-                        unit = (match.group(2) or "GB").upper()
-                        if unit in ("T", "TB"):
-                            cache_limit_bytes = int(value * 1024**4)
-                        elif unit in ("G", "GB"):
-                            cache_limit_bytes = int(value * 1024**3)
-                        elif unit in ("M", "MB"):
-                            cache_limit_bytes = int(value * 1024**2)
+                    cache_limit_bytes = parse_size_bytes(limit_str)
             except (ValueError, TypeError):
                 pass
 
@@ -1498,16 +1401,16 @@ class CacheService:
         return {
             "threshold_percent": threshold_percent,
             "cache_limit_bytes": cache_limit_bytes,
-            "cache_limit_display": self._format_size(cache_limit_bytes),
+            "cache_limit_display": format_bytes(cache_limit_bytes),
             "current_usage_percent": round((disk_used / cache_limit_bytes * 100), 1) if cache_limit_bytes > 0 else 0,
             "target_usage_percent": threshold_percent,
             "target_bytes": target_bytes,
-            "target_bytes_display": self._format_size(target_bytes),
+            "target_bytes_display": format_bytes(target_bytes),
             "bytes_to_free": bytes_to_free,
-            "bytes_to_free_display": self._format_size(bytes_to_free),
+            "bytes_to_free_display": format_bytes(bytes_to_free),
             "would_evict": would_evict,
             "total_freed": freed_so_far,
-            "total_freed_display": self._format_size(freed_so_far),
+            "total_freed_display": format_bytes(freed_so_far),
             "remaining_count": remaining_count
         }
 
@@ -1655,41 +1558,12 @@ class CacheService:
 
     def _remove_from_exclude_file(self, cache_path: str):
         """Remove a path from the exclude file"""
-        if not self.exclude_file.exists():
-            return
-
-        try:
-            with open(self.exclude_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-
-            # Translate container path to host path for comparison
-            # (exclude file contains host paths for Unraid mover)
-            host_path = self._translate_container_to_host_path(cache_path)
-            new_lines = [line for line in lines if line.strip() != host_path]
-
-            with open(self.exclude_file, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-        except IOError as e:
-            logging.warning(f"Could not update exclude file: {e}")
+        settings = self._load_settings()
+        remove_from_exclude_file(self.exclude_file, cache_path, settings.get('path_mappings', []))
 
     def _remove_from_timestamps(self, cache_path: str):
         """Remove a path from the timestamps file"""
-        if not self.timestamps_file.exists():
-            return
-
-        try:
-            with open(self.timestamps_file, 'r', encoding='utf-8') as f:
-                timestamps = json.load(f)
-
-            if cache_path in timestamps:
-                del timestamps[cache_path]
-
-                with open(self.timestamps_file, 'w', encoding='utf-8') as f:
-                    json.dump(timestamps, f, indent=2)
-            else:
-                logging.debug(f"Path not found in timestamps (may already be removed): {cache_path}")
-        except (IOError, json.JSONDecodeError) as e:
-            logging.warning(f"Could not update timestamps file: {e}")
+        remove_from_timestamps_file(self.timestamps_file, cache_path)
 
 
 # Singleton instance

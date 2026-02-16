@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request):
+def dashboard(request: Request):
     """Main dashboard page - loads instantly with skeleton, data fetched via HTMX"""
     operation_runner = get_operation_runner()
 

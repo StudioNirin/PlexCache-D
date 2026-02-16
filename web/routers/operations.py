@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.post("/run")
-async def run_operation(
+def run_operation(
     request: Request,
     dry_run: str = Form("false"),
     verbose: str = Form("false")
@@ -82,7 +82,7 @@ async def run_operation(
 
 
 @router.post("/stop")
-async def stop_operation(request: Request):
+def stop_operation(request: Request):
     """Stop the current operation"""
     runner = get_operation_runner()
 
@@ -128,7 +128,7 @@ async def stop_operation(request: Request):
 
 
 @router.get("/status")
-async def get_status(request: Request):
+def get_status(request: Request):
     """Get current operation status"""
     runner = get_operation_runner()
     status = runner.get_status_dict()
@@ -145,26 +145,6 @@ async def get_status(request: Request):
         )
 
     return JSONResponse(status)
-
-
-@router.get("/logs")
-async def get_operation_logs(request: Request):
-    """Get captured log messages from current/last operation"""
-    runner = get_operation_runner()
-    logs = runner.log_messages
-
-    is_htmx = request.headers.get("HX-Request") == "true"
-
-    if is_htmx:
-        return templates.TemplateResponse(
-            "components/operation_logs.html",
-            {
-                "request": request,
-                "logs": logs
-            }
-        )
-
-    return JSONResponse({"logs": logs})
 
 
 @router.get("/activity")

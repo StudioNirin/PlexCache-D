@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Tuple
 from dataclasses import dataclass
+from core.system_utils import parse_size_bytes
 
 # Get the directory where config.py is located
 _SCRIPT_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -140,6 +141,12 @@ class CacheConfig:
     # 0 = disabled (files stay as long as they're on any user's watchlist)
     # Supports fractional days (e.g., 0.5 = 12 hours) for testing
     watchlist_retention_days: float = 0
+
+    # OnDeck retention: auto-expire OnDeck items after X days
+    # Items are no longer protected after this period, becoming eligible for move-back and eviction
+    # 0 = disabled (items stay as long as they're on any user's OnDeck)
+    # Supports fractional days (e.g., 0.5 = 12 hours) for testing
+    ondeck_retention_days: float = 0
 
     # Cache drive size: manual override for total cache drive capacity
     # Useful for ZFS pools where auto-detection shows dataset size instead of pool size
@@ -398,9 +405,12 @@ class ConfigManager:
         # Load watchlist retention setting (default 0 = disabled)
         self.cache.watchlist_retention_days = self.settings_data.get('watchlist_retention_days', 0)
 
+        # Load OnDeck retention setting (default 0 = disabled)
+        self.cache.ondeck_retention_days = self.settings_data.get('ondeck_retention_days', 0)
+
         # Load and parse cache drive size override (for ZFS/etc)
         self.cache.cache_drive_size = self.settings_data.get('cache_drive_size', "")
-        self.cache.cache_drive_size_bytes = self._parse_size_bytes(self.cache.cache_drive_size)
+        self.cache.cache_drive_size_bytes = parse_size_bytes(self.cache.cache_drive_size)
 
         # Load and parse cache limit setting
         self.cache.cache_limit = self.settings_data.get('cache_limit', "")
@@ -823,52 +833,6 @@ class ConfigManager:
             logging.warning(f"Invalid cache_limit value '{limit_str}'. Using no limit.")
             return 0
 
-    def _parse_size_bytes(self, size_str: str) -> int:
-        """Parse size string and return bytes.
-
-        Supports formats:
-        - "3.7TB" or "3.7tb" -> 3.7 * 1024^4 bytes
-        - "250GB" or "250gb" -> 250 * 1024^3 bytes
-        - "500MB" or "500mb" -> 500 * 1024^2 bytes
-        - "250" -> defaults to GB (250 * 1024^3 bytes)
-        - "" -> 0 (auto-detect)
-
-        Returns:
-            Bytes as int, or 0 for auto-detect
-        """
-        if not size_str or size_str.strip() == "0":
-            return 0
-
-        size_str = size_str.strip().upper()
-
-        try:
-            # Check for size units
-            if size_str.endswith('TB'):
-                size = float(size_str[:-2])
-                return int(size * 1024 * 1024 * 1024 * 1024)
-            elif size_str.endswith('GB'):
-                size = float(size_str[:-2])
-                return int(size * 1024 * 1024 * 1024)
-            elif size_str.endswith('MB'):
-                size = float(size_str[:-2])
-                return int(size * 1024 * 1024)
-            elif size_str.endswith('T'):
-                size = float(size_str[:-1])
-                return int(size * 1024 * 1024 * 1024 * 1024)
-            elif size_str.endswith('G'):
-                size = float(size_str[:-1])
-                return int(size * 1024 * 1024 * 1024)
-            elif size_str.endswith('M'):
-                size = float(size_str[:-1])
-                return int(size * 1024 * 1024)
-            else:
-                # No unit specified, default to GB
-                size = float(size_str)
-                return int(size * 1024 * 1024 * 1024)
-
-        except ValueError:
-            logging.warning(f"Invalid size value '{size_str}'. Using auto-detect.")
-            return 0
 
     @staticmethod
     def _add_trailing_slashes(value: str) -> str:

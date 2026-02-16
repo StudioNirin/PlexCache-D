@@ -1,4 +1,4 @@
-import json, os, requests, ntpath, posixpath, uuid, time, webbrowser
+import json, os, requests, uuid, time, webbrowser
 from urllib.parse import urlparse
 from plexapi.server import PlexServer
 from plexapi.exceptions import BadRequest
@@ -36,14 +36,6 @@ def write_settings(filename, data):
     except (IOError, OSError) as e:
         print(f"Error writing settings file: {e}")
         raise
-
-def convert_path_to_posix(path):
-    path = path.replace(ntpath.sep, posixpath.sep)
-    return posixpath.normpath(path)
-
-def convert_path_to_nt(path):
-    path = path.replace(posixpath.sep, ntpath.sep)
-    return ntpath.normpath(path)
 
 def prompt_user_for_number(prompt_message, default_value, data_key, data_type=int):
     while True:
@@ -130,31 +122,6 @@ def is_valid_plex_url(url):
         return all([result.scheme, result.netloc])
     except ValueError:
         return False
-
-# Helper to compute a common root for a list of paths
-def find_common_root(paths):
-    """Return the deepest common directory for all given paths."""
-    if not paths:
-        return "/"
-
-    # Normalize trailing slashes and split
-    normed = [p.rstrip('/') for p in paths]
-    split_paths = [p.split('/') for p in normed]
-
-    common_parts = []
-    for parts in zip(*split_paths):
-        if all(part == parts[0] for part in parts):
-            common_parts.append(parts[0])
-        else:
-            break
-
-    # Handle leading empty string (absolute paths)
-    if common_parts and common_parts[0] == '':
-        if len(common_parts) == 1:
-            return '/'
-        return "/" + "/".join(common_parts[1:])
-    return "/" + "/".join(common_parts) if common_parts else "/"
-
 
 def is_unraid():
     """Check if running on Unraid."""
@@ -439,9 +406,9 @@ def configure_path_mappings(settings):
 
 # ----------------  Plex OAuth PIN Authentication ----------------
 
-# PlexCache-R client identifier - stored in settings for consistency
+# PlexCache-D client identifier - stored in settings for consistency
 PLEXCACHE_CLIENT_ID_KEY = 'plexcache_client_id'
-PLEXCACHE_PRODUCT_NAME = 'PlexCache-R'
+PLEXCACHE_PRODUCT_NAME = 'PlexCache-D'
 from core import __version__ as PLEXCACHE_PRODUCT_VERSION
 
 
@@ -1115,10 +1082,10 @@ def _test_webhook(url: str, platform: str) -> bool:
         # Discord embed test
         payload = {
             "embeds": [{
-                "title": "PlexCache-R Test",
+                "title": "PlexCache-D Test",
                 "description": "Webhook configured successfully!",
                 "color": 3066993,  # Green
-                "footer": {"text": "PlexCache-R Setup"}
+                "footer": {"text": "PlexCache-D Setup"}
             }]
         }
     elif platform == 'slack':
@@ -1127,7 +1094,7 @@ def _test_webhook(url: str, platform: str) -> bool:
             "blocks": [
                 {
                     "type": "header",
-                    "text": {"type": "plain_text", "text": "PlexCache-R Test", "emoji": True}
+                    "text": {"type": "plain_text", "text": "PlexCache-D Test", "emoji": True}
                 },
                 {
                     "type": "section",
@@ -1137,8 +1104,8 @@ def _test_webhook(url: str, platform: str) -> bool:
         }
     else:
         # Generic test
-        payload = {"content": "PlexCache-R: Webhook configured successfully!",
-                   "text": "PlexCache-R: Webhook configured successfully!"}
+        payload = {"content": "PlexCache-D: Webhook configured successfully!",
+                   "text": "PlexCache-D: Webhook configured successfully!"}
 
     try:
         response = requests.post(url, json=payload, headers=headers, timeout=10)
@@ -1422,7 +1389,7 @@ def _setup_summary():
 
 
 def setup(advanced_mode: bool = False):
-    """Run the PlexCache-R setup wizard.
+    """Run the PlexCache-D setup wizard.
 
     Args:
         advanced_mode: If True, show all configuration options.
@@ -1688,7 +1655,7 @@ def run_setup():
             setup()
     else:
         # New setup - just start it directly without asking
-        print("Welcome to PlexCache-R Setup!")
+        print("Welcome to PlexCache-D Setup!")
         print(f"Creating new configuration at: {settings_filename}\n")
         settings_data = {}
         setup()

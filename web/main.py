@@ -1,4 +1,4 @@
-"""PlexCache-R Web UI - FastAPI Application"""
+"""PlexCache-D Web UI - FastAPI Application"""
 
 import logging
 from contextlib import asynccontextmanager
@@ -13,6 +13,7 @@ from web.config import templates, STATIC_DIR, PROJECT_ROOT, CONFIG_DIR, SETTINGS
 from web.routers import dashboard, cache, settings, operations, logs, api, maintenance, setup
 from web.services import get_scheduler_service, get_settings_service
 from web.services.web_cache import init_web_cache, get_web_cache_service
+import os
 from core.system_utils import SystemDetector, detect_zfs, set_zfs_prefixes
 
 
@@ -52,9 +53,33 @@ def _detect_zfs_paths():
             continue
         real_path = mapping.get('real_path', '')
         if real_path and real_path.startswith('/mnt/user/') and detect_zfs(real_path):
-            prefix = real_path.rstrip('/') + '/'
-            zfs_prefixes.add(prefix)
-            logging.info(f"ZFS pool detected for: {real_path} (array-direct conversion disabled)")
+            # Verify truly pool-only by probing /mnt/user0/ for array files
+            # Hybrid shares (shareUseCache=yes/prefer) have files on BOTH ZFS cache + array
+            user0_path = '/mnt/user0/' + real_path[len('/mnt/user/'):]
+            if os.path.exists('/mnt/user0'):
+                user0_has_files = False
+                if os.path.isdir(user0_path):
+                    try:
+                        with os.scandir(user0_path) as it:
+                            user0_has_files = next(it, None) is not None
+                    except OSError:
+                        pass
+
+                if user0_has_files:
+                    logging.info(
+                        f"ZFS cache detected for: {real_path}, but array files also exist "
+                        f"at {user0_path} — hybrid share (likely shareUseCache=yes/prefer). "
+                        f"Array-direct conversion remains enabled."
+                    )
+                else:
+                    prefix = real_path.rstrip('/') + '/'
+                    zfs_prefixes.add(prefix)
+                    logging.info(f"ZFS pool-only detected for: {real_path} (array-direct conversion disabled)")
+            else:
+                # /mnt/user0 not accessible — cannot verify, assume pool-only
+                prefix = real_path.rstrip('/') + '/'
+                zfs_prefixes.add(prefix)
+                logging.warning(f"ZFS detected for {real_path} but /mnt/user0 not accessible — assuming pool-only")
 
     if zfs_prefixes:
         set_zfs_prefixes(zfs_prefixes)
@@ -84,7 +109,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan - startup and shutdown"""
     # Startup
     _suppress_noisy_loggers()
-    print(f"PlexCache-R Web UI starting...")
+    print(f"PlexCache-D Web UI starting...")
     print(f"Project root: {PROJECT_ROOT}")
 
     # Detect ZFS-backed path mappings before any file operations
@@ -114,7 +139,7 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
-    print("PlexCache-R Web UI shutting down...")
+    print("PlexCache-D Web UI shutting down...")
     scheduler.stop()
 
     # Stop web cache background refresh
@@ -124,8 +149,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="PlexCache-R",
-    description="Web UI for PlexCache-R media cache management",
+    title="PlexCache-D",
+    description="Web UI for PlexCache-D media cache management",
     version=__version__,
     lifespan=lifespan
 )

@@ -1,4 +1,4 @@
-/* PlexCache-R Web UI Custom Styles */
+/* PlexCache-D Web UI Custom Styles */
 
 /* Status indicators */
 .status-ok {
@@ -321,10 +321,10 @@ footer {
     display: none;
 }
 
-/* Global Operation Banner - centered toast notification */
+/* Global Operation Banner - centered within content-wrapper */
 #global-operation-banner {
-    position: fixed;
-    top: 1rem;
+    position: absolute;
+    top: 0;
     left: 50%;
     transform: translateX(-50%);
     z-index: 9999;
@@ -878,9 +878,8 @@ footer {
 /* ── Mobile responsive ───────────────────────────────── */
 @media (max-width: 768px) {
     #global-operation-banner {
-        top: 70px;
-        left: 0.5rem;
-        right: 0.5rem;
+        left: 0;
+        right: 0;
         transform: none;
     }
 

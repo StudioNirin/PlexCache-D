@@ -23,6 +23,21 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Syntax check uncovered modules
+        run: |
+          python -c "
+          import py_compile, glob, sys
+          errors = []
+          for f in glob.glob('web/routers/*.py') + glob.glob('web/services/*.py'):
+              try:
+                  py_compile.compile(f, doraise=True)
+              except py_compile.PyCompileError as e:
+                  errors.append(str(e))
+          if errors:
+              print('\n'.join(errors))
+              sys.exit(1)
+          "
+
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short
 
@@ -59,8 +74,8 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ vars.DOCKERHUB_ENABLED == 'true' && format('{0}/plexcache-r', secrets.DOCKERHUB_USERNAME) || '' }}
-            ghcr.io/${{ github.repository_owner }}/plexcache-r
+            ${{ vars.DOCKERHUB_ENABLED == 'true' && format('{0}/plexcache-d', secrets.DOCKERHUB_USERNAME) || '' }}
+            ghcr.io/${{ github.repository_owner }}/plexcache-d
           tags: |
             # dev tag for v3.0-dev branch
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/v3.0-dev' }}

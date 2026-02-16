@@ -10,8 +10,9 @@ from web.config import templates, get_time_format
 from web.services.maintenance_service import get_maintenance_service
 from web.services.maintenance_runner import (
     get_maintenance_runner, ASYNC_ACTIONS, ACTION_HISTORY_LABELS,
-    MaintenanceHistoryEntry, get_maintenance_history, _format_duration,
+    MaintenanceHistoryEntry, get_maintenance_history,
 )
+from core.system_utils import format_duration, format_cache_age
 from web.services.operation_runner import get_operation_runner
 from web.services.web_cache import get_web_cache_service, CACHE_KEY_MAINTENANCE_AUDIT, CACHE_KEY_MAINTENANCE_HEALTH, CACHE_KEY_DASHBOARD_STATS
 
@@ -33,16 +34,7 @@ def _get_cache_age_display(key: str) -> Optional[str]:
     """Get human-readable cache age for a key"""
     web_cache = get_web_cache_service()
     _, updated_at = web_cache.get_with_age(key)
-    if not updated_at:
-        return None
-
-    age_seconds = (datetime.now() - updated_at).total_seconds()
-    if age_seconds < 60:
-        return "just now"
-    elif age_seconds < 3600:
-        return f"{int(age_seconds / 60)} min ago"
-    else:
-        return f"{int(age_seconds / 3600)} hr ago"
+    return format_cache_age(updated_at)
 
 
 def _invalidate_caches():
@@ -168,7 +160,7 @@ def _start_async_action(action_name: str, service_method, method_args=(), method
 
 
 @router.get("/", response_class=HTMLResponse)
-async def maintenance_page(request: Request):
+def maintenance_page(request: Request):
     """Main maintenance page - loads instantly with skeleton, audit fetched via HTMX"""
     return templates.TemplateResponse(
         "maintenance/index.html",
@@ -185,15 +177,7 @@ def run_audit(request: Request, refresh: bool = Query(default=False, description
     results, updated_at = _get_cached_audit_results(force_refresh=refresh)
 
     # Calculate cache age display
-    cache_age = None
-    if updated_at:
-        age_seconds = (datetime.now() - updated_at).total_seconds()
-        if age_seconds < 60:
-            cache_age = "just now"
-        elif age_seconds < 3600:
-            cache_age = f"{int(age_seconds / 60)} min ago"
-        else:
-            cache_age = f"{int(age_seconds / 3600)} hr ago"
+    cache_age = format_cache_age(updated_at)
 
     response = templates.TemplateResponse(
         "maintenance/partials/audit_results.html",
@@ -226,7 +210,7 @@ def health_summary(request: Request):
 # === Maintenance Runner Control Routes ===
 
 @router.post("/stop-action", response_class=HTMLResponse)
-async def stop_maintenance_action(request: Request):
+def stop_maintenance_action(request: Request):
     """Stop the current maintenance action"""
     from web.services.maintenance_runner import get_maintenance_runner
 
@@ -244,7 +228,7 @@ async def stop_maintenance_action(request: Request):
 
 
 @router.post("/dismiss-action")
-async def dismiss_maintenance_action():
+def dismiss_maintenance_action():
     """Dismiss a completed/failed maintenance action"""
     runner = get_maintenance_runner()
     runner.dismiss()
@@ -274,7 +258,7 @@ def _record_sync_action(
             timestamp=started_at.isoformat(),
             completed_at=completed_at.isoformat(),
             duration_seconds=round(duration, 1),
-            duration_display=_format_duration(duration),
+            duration_display=format_duration(duration),
             file_count=result.affected_count if hasattr(result, "affected_count") else 0,
             affected_count=result.affected_count if hasattr(result, "affected_count") else 0,
             success=result.success if hasattr(result, "success") else True,

@@ -13,6 +13,7 @@ from typing import Optional, List, Dict, Callable
 from dataclasses import dataclass, field
 
 from web.config import PROJECT_ROOT, DATA_DIR, SETTINGS_FILE as CONFIG_SETTINGS_FILE, get_time_format
+from core.system_utils import format_bytes, format_duration
 
 # Activity persistence settings - use DATA_DIR for Docker compatibility
 ACTIVITY_FILE = DATA_DIR / "recent_activity.json"
@@ -90,11 +91,7 @@ class FileActivity:
     def _format_size(self, size_bytes: int) -> str:
         if size_bytes == 0:
             return "-"
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size_bytes < 1024:
-                return f"{size_bytes:.2f} {unit}"
-            size_bytes /= 1024
-        return f"{size_bytes:.2f} PB"
+        return format_bytes(size_bytes)
 
 
 MAX_RECENT_ACTIVITY = 500
@@ -428,32 +425,11 @@ class OperationRunner:
 
     # Regex to extract file count from "Caching to cache drive (N file(s)):"
     _cache_count_re = re.compile(r'Caching to cache drive \((\d+)\s+\w+')
-    # Regex to extract file count from "Total media to cache: N files"
-    _total_media_re = re.compile(r'Total media to cache:\s*(\d+)')
 
-    @staticmethod
-    def _format_duration(seconds: float) -> str:
-        """Format seconds into human-readable duration like '1m 23s' or '45s'"""
-        seconds = max(0, seconds)
-        if seconds < 60:
-            return f"{int(seconds)}s"
-        minutes = int(seconds // 60)
-        secs = int(seconds % 60)
-        if minutes < 60:
-            return f"{minutes}m {secs:02d}s"
-        hours = int(minutes // 60)
-        mins = minutes % 60
-        return f"{hours}h {mins:02d}m"
 
-    @staticmethod
-    def _format_bytes(num_bytes: int) -> str:
-        """Format bytes into human-readable string like '2.1 GB' or '450 MB'"""
-        size = float(num_bytes)
-        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-            if size < 1024 or unit == 'TB':
-                return f"{size:.1f} {unit}" if unit != 'B' else f"{int(size)} B"
-            size /= 1024
-        return f"{size:.1f} TB"
+    # Backward-compatible static method aliases for external callers
+    _format_duration = staticmethod(format_duration)
+    _format_bytes = staticmethod(format_bytes)
 
     def _parse_phase(self, msg: str):
         """Detect phase transitions and extract counts from log messages."""
@@ -493,16 +469,11 @@ class OperationRunner:
                 self._current_result.files_to_restore_total += int(m.group(1))
                 return
 
-            # "Caching to cache drive (N file(s)):"
+            # "Caching to cache drive (N file(s)):" — the actual move count
             m = self._cache_count_re.search(clean_msg)
             if m:
                 self._current_result.files_to_cache_total = int(m.group(1))
                 return
-
-            # "Total media to cache: N files" — only set if caching header hasn't set it yet
-            m = self._total_media_re.search(clean_msg)
-            if m and self._current_result.files_to_cache_total == 0:
-                self._current_result.files_to_cache_total = int(m.group(1))
 
     def _parse_file_operation(self, msg: str):
         """Parse log message to extract file operations"""
