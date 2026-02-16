@@ -323,14 +323,14 @@ footer {
 
 /* Global Operation Banner - centered within content-wrapper */
 #global-operation-banner {
-    position: sticky;
-    top: 1rem;
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
     z-index: 9999;
     pointer-events: none;
     display: flex;
     justify-content: center;
-    height: 0;
-    overflow: visible;
 }
 
 #global-operation-banner:empty {
@@ -878,7 +878,9 @@ footer {
 /* ── Mobile responsive ───────────────────────────────── */
 @media (max-width: 768px) {
     #global-operation-banner {
-        top: 0;
+        left: 0;
+        right: 0;
+        transform: none;
     }
 
     .di-pill {
