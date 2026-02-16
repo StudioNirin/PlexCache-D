@@ -11,7 +11,7 @@ router = APIRouter()
 
 
 @router.post("/run")
-defrun_operation(
+def run_operation(
     request: Request,
     dry_run: str = Form("false"),
     verbose: str = Form("false")
@@ -82,7 +82,7 @@ defrun_operation(
 
 
 @router.post("/stop")
-defstop_operation(request: Request):
+def stop_operation(request: Request):
     """Stop the current operation"""
     runner = get_operation_runner()
 
@@ -128,7 +128,7 @@ defstop_operation(request: Request):
 
 
 @router.get("/status")
-defget_status(request: Request):
+def get_status(request: Request):
     """Get current operation status"""
     runner = get_operation_runner()
     status = runner.get_status_dict()

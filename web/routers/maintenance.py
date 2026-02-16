@@ -160,7 +160,7 @@ def _start_async_action(action_name: str, service_method, method_args=(), method
 
 
 @router.get("/", response_class=HTMLResponse)
-defmaintenance_page(request: Request):
+def maintenance_page(request: Request):
     """Main maintenance page - loads instantly with skeleton, audit fetched via HTMX"""
     return templates.TemplateResponse(
         "maintenance/index.html",
@@ -210,7 +210,7 @@ def health_summary(request: Request):
 # === Maintenance Runner Control Routes ===
 
 @router.post("/stop-action", response_class=HTMLResponse)
-defstop_maintenance_action(request: Request):
+def stop_maintenance_action(request: Request):
     """Stop the current maintenance action"""
     from web.services.maintenance_runner import get_maintenance_runner
 
@@ -228,7 +228,7 @@ defstop_maintenance_action(request: Request):
 
 
 @router.post("/dismiss-action")
-defdismiss_maintenance_action():
+def dismiss_maintenance_action():
     """Dismiss a completed/failed maintenance action"""
     runner = get_maintenance_runner()
     runner.dismiss()
