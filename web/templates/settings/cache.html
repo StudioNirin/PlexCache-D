@@ -30,22 +30,6 @@
                         <input type="number" id="watchlist_episodes" name="watchlist_episodes"
                                value="{{ settings.watchlist_episodes | default(3) }}" min="0" max="10">
                     </div>
-
-                    <div class="form-group">
-                        <label for="watchlist_retention_days">Watchlist Retention (days)</label>
-                        <input type="number" id="watchlist_retention_days" name="watchlist_retention_days"
-                               value="{{ '%g' % (settings.watchlist_retention_days | default(14) | float) }}" min="0" max="365" step="0.5">
-                        <div class="form-hint">Auto-expire watchlist items after this period (0 = never expire)</div>
-                    </div>
-                </div>
-
-                <div class="grid grid-2">
-                    <div class="form-group">
-                        <label for="ondeck_retention_days">OnDeck Retention (days)</label>
-                        <input type="number" id="ondeck_retention_days" name="ondeck_retention_days"
-                               value="{{ '%g' % (settings.ondeck_retention_days | default(0) | float) }}" min="0" max="365" step="0.5">
-                        <div class="form-hint">Auto-expire OnDeck items after this period (0 = never expire)</div>
-                    </div>
                 </div>
 
                 <div class="form-group">
@@ -70,13 +54,41 @@
             <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
 
             <h3 style="font-size: 1rem; color: var(--plex-orange); margin-bottom: 1rem;">
-                <i data-lucide="hard-drive" style="width: 18px; height: 18px; vertical-align: middle;"></i>
-                Cache Management
+                <i data-lucide="clock" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                Retention
             </h3>
 
-            <div class="form-hint" style="margin-bottom: 1rem;">
-                Cache Limit and Eviction are based on <strong>total drive usage</strong> (all files on the cache drive), not just PlexCache-managed files. Other applications, downloads, and system files all count toward the limit.
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="cache_retention_hours">Cache Retention (hours)</label>
+                    <input type="number" id="cache_retention_hours" name="cache_retention_hours"
+                           value="{{ settings.cache_retention_hours | default(12) }}" min="0" max="720">
+                    <div class="form-hint">Keep files cached at least this long before moving back (0 = no minimum)</div>
+                </div>
+
+                <div class="form-group">
+                    <label for="watchlist_retention_days">Watchlist Retention (days)</label>
+                    <input type="number" id="watchlist_retention_days" name="watchlist_retention_days"
+                           value="{{ '%g' % (settings.watchlist_retention_days | default(14) | float) }}" min="0" max="365" step="0.5">
+                    <div class="form-hint">Auto-expire watchlist items after this period (0 = never expire)</div>
+                </div>
             </div>
+
+            <div class="grid grid-2">
+                <div class="form-group">
+                    <label for="ondeck_retention_days">OnDeck Retention (days)</label>
+                    <input type="number" id="ondeck_retention_days" name="ondeck_retention_days"
+                           value="{{ '%g' % (settings.ondeck_retention_days | default(0) | float) }}" min="0" max="365" step="0.5">
+                    <div class="form-hint">Auto-expire OnDeck items after this period (0 = never expire)</div>
+                </div>
+            </div>
+
+            <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
+
+            <h3 style="font-size: 1rem; color: var(--plex-orange); margin-bottom: 1rem;">
+                <i data-lucide="file-cog" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                File Handling
+            </h3>
 
             <div class="form-group">
                 <label class="switch">
@@ -142,36 +154,38 @@
                 </div>
             </div>
 
-            <div class="grid grid-2">
-                <div class="form-group">
-                    <label for="cache_retention_hours">Cache Retention (hours)</label>
-                    <input type="number" id="cache_retention_hours" name="cache_retention_hours"
-                           value="{{ settings.cache_retention_hours | default(12) }}" min="0" max="720">
-                    <div class="form-hint">Keep files cached at least this long (0 = no minimum)</div>
-                </div>
+            <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
 
-                <div class="form-group">
-                    <label for="cache_drive_size">Cache Drive Size {% if drive_info.is_zfs and not drive_info.is_manual_override %}(recommended for ZFS){% else %}(optional){% endif %}</label>
-                    <input type="text" id="cache_drive_size" name="cache_drive_size"
-                           value="{{ settings.cache_drive_size | default('') }}"
-                           placeholder="Auto-detect"
-                           oninput="updateCacheCalculations()">
-                    <div class="form-hint">Override auto-detected size (e.g., 3.7TB). For ZFS pools where dataset size differs from pool size.</div>
-                    {% if drive_info.is_zfs and not drive_info.is_manual_override %}
-                    <div class="form-hint" style="color: #e67e22; margin-top: 0.25rem;">
-                        <i data-lucide="alert-triangle" style="width: 14px; height: 14px; vertical-align: middle;"></i>
-                        ZFS detected: Auto-detected value ({{ drive_info.total_display | default('Unknown') }}) may not reflect true pool capacity. Enter your pool size above.
-                    </div>
+            <h3 style="font-size: 1rem; color: var(--plex-orange); margin-bottom: 1rem;">
+                <i data-lucide="hard-drive" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                Storage Limits
+            </h3>
+
+            <div class="form-hint" style="margin-bottom: 1rem;">
+                Cache Limit and Eviction are based on <strong>total drive usage</strong> (all files on the cache drive), not just PlexCache-managed files. Other applications, downloads, and system files all count toward the limit.
+            </div>
+
+            <div class="form-group">
+                <label for="cache_drive_size">Cache Drive Size {% if drive_info.is_zfs and not drive_info.is_manual_override %}(recommended for ZFS){% else %}(optional){% endif %}</label>
+                <input type="text" id="cache_drive_size" name="cache_drive_size"
+                       value="{{ settings.cache_drive_size | default('') }}"
+                       placeholder="Auto-detect"
+                       oninput="updateCacheCalculations()">
+                <div class="form-hint">Override auto-detected size (e.g., 3.7TB). For ZFS pools where dataset size differs from pool size.</div>
+                {% if drive_info.is_zfs and not drive_info.is_manual_override %}
+                <div class="form-hint" style="color: #e67e22; margin-top: 0.25rem;">
+                    <i data-lucide="alert-triangle" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+                    ZFS detected: Auto-detected value ({{ drive_info.total_display | default('Unknown') }}) may not reflect true pool capacity. Enter your pool size above.
+                </div>
+                {% else %}
+                <div id="drive_size_display" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;">
+                    {% if drive_info.is_manual_override %}
+                    Using manual size: {{ drive_info.total_display }}
                     {% else %}
-                    <div id="drive_size_display" class="form-hint" style="color: var(--plex-orange); margin-top: 0.25rem;">
-                        {% if drive_info.is_manual_override %}
-                        Using manual size: {{ drive_info.total_display }}
-                        {% else %}
-                        Auto-detected: {{ drive_info.total_display | default('Unknown') }}
-                        {% endif %}
-                    </div>
+                    Auto-detected: {{ drive_info.total_display | default('Unknown') }}
                     {% endif %}
                 </div>
+                {% endif %}
             </div>
 
             <div class="grid grid-2">
