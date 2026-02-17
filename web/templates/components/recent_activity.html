@@ -1,6 +1,6 @@
 <!-- Recent Activity component - HTMX partial (grouped by date) -->
 {% if activity %}
-{% for group in activity|groupby('date_key') %}
+{% for group in activity|groupby('date_key')|reverse %}
 <tr class="date-group-header" data-date-group="{{ group.grouper }}">
     <td colspan="5">
         <div class="date-group-inner">
