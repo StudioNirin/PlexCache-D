@@ -1,7 +1,7 @@
 <!-- Log content partial with structured data attributes -->
 {% if lines %}
-<pre class="log-output">{% for line in lines %}<span class="log-line log-{{ line.level|lower }}" data-level="{{ line.level }}" data-timestamp="{{ line.timestamp }}" data-phase="{{ line.phase }}">{{ line.raw }}</span>
-{% endfor %}</pre>
+<pre class="log-output">{% for line in lines %}<span class="log-line log-{{ line.level|lower }}" data-level="{{ line.level }}" data-timestamp="{{ line.timestamp }}" data-phase="{{ line.phase }}">{{ line.raw }}
+</span>{% endfor %}</pre>
 {% if capped %}
 <div class="log-capped-notice">
     Showing last {{ lines|length }} of total lines.
