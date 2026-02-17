@@ -17,7 +17,7 @@ import os
 from core import __version__
 from core.config import ConfigManager
 from core.logging_config import LoggingManager, reset_warning_error_flag
-from core.system_utils import SystemDetector, FileUtils, SingleInstanceLock, get_disk_usage, get_array_direct_path, detect_zfs, set_zfs_prefixes
+from core.system_utils import SystemDetector, FileUtils, SingleInstanceLock, get_disk_usage, get_array_direct_path, detect_zfs, set_zfs_prefixes, format_bytes
 from core.plex_api import PlexManager, OnDeckItem
 from core.file_operations import MultiPathModifier, SubtitleFinder, FileFilter, FileMover, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, OnDeckTracker, CachePriorityManager, PlexcachedMigration, get_media_identity, find_matching_plexcached
 
@@ -939,6 +939,8 @@ class PlexCacheApp:
         modified_paths_set = set()
 
         # Prepare OnDeck tracker for new run (preserves first_seen for retention tracking)
+        # Snapshot the rating_key index before update loop for upgrade detection
+        pre_run_rk_index = dict(getattr(self.ondeck_tracker, '_rating_key_index', {}))
         self.ondeck_tracker.prepare_for_run()
 
         # Fetch OnDeck Media - returns List[OnDeckItem] with file path, username, and episode metadata
@@ -975,7 +977,8 @@ class PlexCacheApp:
                 real_path,
                 item.username,
                 episode_info=item.episode_info,
-                is_current_ondeck=item.is_current_ondeck
+                is_current_ondeck=item.is_current_ondeck,
+                rating_key=item.rating_key
             )
             # Build media_info_map from OnDeck metadata
             ep = item.episode_info
@@ -984,6 +987,10 @@ class PlexCacheApp:
                 "episode_info": {"show": ep["show"], "season": ep["season"],
                                  "episode": ep["episode"]} if ep else None
             }
+
+        # Detect and transfer tracking for upgraded media files (Sonarr/Radarr swaps)
+        if self.config_manager.cache.auto_transfer_upgrades:
+            self._detect_and_transfer_upgrades(ondeck_items_list, plex_to_real, pre_run_rk_index)
 
         # Check OnDeck retention — expired items are no longer protected
         ondeck_retention_days = self.config_manager.cache.ondeck_retention_days
@@ -1244,6 +1251,183 @@ class PlexCacheApp:
             return name if name else filename
         except Exception:
             return os.path.basename(file_path)
+
+    def _detect_and_transfer_upgrades(self, ondeck_items_list: list,
+                                       plex_to_real: dict,
+                                       pre_run_rk_index: dict) -> None:
+        """Detect media file upgrades (Sonarr/Radarr swaps) and transfer tracking data.
+
+        Compares the pre-run rating_key→file_path index against current OnDeck items.
+        When the same rating_key maps to a different file path, a file upgrade is detected.
+
+        Args:
+            ondeck_items_list: Current OnDeck items from Plex API.
+            plex_to_real: Mapping from Plex paths to real filesystem paths.
+            pre_run_rk_index: Snapshot of rating_key→file_path index before this run.
+        """
+        if not pre_run_rk_index:
+            return
+
+        upgrades_detected = 0
+        for item in ondeck_items_list:
+            if not item.rating_key:
+                continue
+
+            real_path = plex_to_real.get(item.file_path, item.file_path)
+            old_path = pre_run_rk_index.get(item.rating_key)
+
+            if old_path and old_path != real_path:
+                upgrades_detected += 1
+                logging.info(f"[UPGRADE] Detected file upgrade for rating_key={item.rating_key}: "
+                             f"{os.path.basename(old_path)} → {os.path.basename(real_path)}")
+                self._transfer_upgrade_tracking(old_path, real_path, item)
+
+        if upgrades_detected:
+            logging.info(f"[UPGRADE] Processed {upgrades_detected} media file upgrade(s)")
+
+    def _transfer_upgrade_tracking(self, old_path: str, new_path: str, item) -> None:
+        """Transfer all tracking data from an old file path to a new one after an upgrade.
+
+        Updates exclude list, timestamp tracker, OnDeck tracker, watchlist tracker,
+        and handles .plexcached backup files.
+
+        Args:
+            old_path: The old real filesystem path (before upgrade).
+            new_path: The new real filesystem path (after upgrade).
+            item: The OnDeckItem with metadata for the new file.
+        """
+        rating_key = item.rating_key
+
+        if self.dry_run:
+            logging.info(f"[UPGRADE][DRY-RUN] Would transfer tracking from "
+                         f"{os.path.basename(old_path)} → {os.path.basename(new_path)} "
+                         f"(rating_key={rating_key})")
+            return
+
+        # Resolve cache paths for old and new files
+        old_cache_path = None
+        new_cache_path = None
+        if hasattr(self, 'file_path_modifier') and self.file_path_modifier:
+            old_cache_path, _ = self.file_path_modifier.convert_real_to_cache(old_path)
+            new_cache_path, _ = self.file_path_modifier.convert_real_to_cache(new_path)
+
+        # 1. Update exclude list: remove old, add new
+        if old_cache_path and new_cache_path:
+            self.file_filter.remove_files_from_exclude_list([old_cache_path])
+            self.file_filter._add_to_exclude_file(new_cache_path)
+            logging.info(f"[UPGRADE] Transferred exclude list entry (rating_key={rating_key})")
+
+        # 2. Update timestamp tracker: read old entry source, remove old, record new
+        if hasattr(self, 'timestamp_tracker') and self.timestamp_tracker:
+            old_ts_key = old_cache_path or old_path
+            new_ts_key = new_cache_path or new_path
+            old_ts_entry = self.timestamp_tracker.get_entry(old_ts_key)
+            old_source = "unknown"
+            if old_ts_entry and isinstance(old_ts_entry, dict):
+                old_source = old_ts_entry.get("source", "unknown")
+            self.timestamp_tracker.remove_entry(old_ts_key)
+            # Determine media info for the new entry
+            media_type = None
+            episode_info_ts = None
+            if item.episode_info:
+                media_type = "episode"
+                episode_info_ts = item.episode_info
+            else:
+                media_type = "movie"
+            self.timestamp_tracker.record_cache_time(
+                new_ts_key, source=old_source, media_type=media_type,
+                episode_info=episode_info_ts, rating_key=rating_key
+            )
+            logging.info(f"[UPGRADE] Transferred timestamp entry (rating_key={rating_key}, source={old_source})")
+
+        # 3. Remove old OnDeck entry (new one was already created by update_entry in the loop)
+        self.ondeck_tracker.remove_entry(old_path)
+        logging.debug(f"[UPGRADE] Removed old OnDeck entry: {os.path.basename(old_path)}")
+
+        # 4. Transfer watchlist entry if it exists
+        if hasattr(self, 'watchlist_tracker') and self.watchlist_tracker:
+            old_wl_entry = self.watchlist_tracker.get_entry(old_path)
+            if old_wl_entry:
+                users = old_wl_entry.get('users', [])
+                watchlisted_at_str = old_wl_entry.get('watchlisted_at')
+                self.watchlist_tracker.remove_entry(old_path)
+                # Re-create with new path, preserving original data
+                watchlisted_at = None
+                if watchlisted_at_str:
+                    try:
+                        watchlisted_at = datetime.fromisoformat(watchlisted_at_str)
+                    except ValueError:
+                        pass
+                for user in users:
+                    self.watchlist_tracker.update_entry(
+                        new_path, user, watchlisted_at, rating_key=rating_key
+                    )
+                logging.info(f"[UPGRADE] Transferred watchlist entry with {len(users)} user(s) (rating_key={rating_key})")
+
+        # 5. Handle .plexcached backup files
+        self._handle_upgrade_plexcached(old_path, new_path, rating_key, new_cache_path)
+
+        logging.info(f"[UPGRADE] Tracking transfer complete for rating_key={rating_key}")
+
+    def _handle_upgrade_plexcached(self, old_path: str, new_path: str,
+                                    rating_key: str,
+                                    new_cache_path: Optional[str] = None) -> None:
+        """Handle .plexcached backup files during a media upgrade.
+
+        Removes outdated old backup and optionally creates new backup.
+
+        Args:
+            old_path: The old real filesystem path (before upgrade).
+            new_path: The new real filesystem path (after upgrade).
+            rating_key: The Plex rating key.
+            new_cache_path: The new cache path (for copying backup).
+        """
+        if not self.config_manager.cache.create_plexcached_backups:
+            logging.debug(f"[UPGRADE] .plexcached backups disabled, skipping (rating_key={rating_key})")
+            return
+
+        # Find old .plexcached file on the array
+        old_array_path = get_array_direct_path(old_path)
+        old_array_dir = os.path.dirname(old_array_path)
+        old_identity = get_media_identity(old_path)
+        old_plexcached = find_matching_plexcached(old_array_dir, old_identity, old_path)
+
+        if old_plexcached and os.path.isfile(old_plexcached):
+            # Delete outdated backup (content has been superseded by upgrade)
+            try:
+                os.remove(old_plexcached)
+                logging.info(f"[UPGRADE] Deleted outdated array backup: {os.path.basename(old_plexcached)} "
+                             f"(superseded by upgrade, rating_key={rating_key})")
+            except OSError as e:
+                logging.warning(f"[UPGRADE] Failed to delete old backup {os.path.basename(old_plexcached)}: "
+                                f"{type(e).__name__}: {e}")
+                return
+
+            # Create new backup if setting enabled
+            if self.config_manager.cache.backup_upgraded_files and new_cache_path:
+                new_array_path = get_array_direct_path(new_path)
+                new_plexcached = new_array_path + '.plexcached'
+
+                if not os.path.isfile(new_plexcached) and os.path.isfile(new_cache_path):
+                    try:
+                        new_array_dir = os.path.dirname(new_array_path)
+                        os.makedirs(new_array_dir, exist_ok=True)
+                        shutil.copy2(new_cache_path, new_plexcached)
+                        # Verify size match
+                        src_size = os.path.getsize(new_cache_path)
+                        dst_size = os.path.getsize(new_plexcached)
+                        if src_size == dst_size:
+                            logging.info(f"[UPGRADE] Created new array backup: {os.path.basename(new_plexcached)} "
+                                         f"({format_bytes(src_size)}, rating_key={rating_key})")
+                        else:
+                            logging.warning(f"[UPGRADE] Backup size mismatch for {os.path.basename(new_plexcached)}: "
+                                            f"source={src_size}, dest={dst_size}")
+                            os.remove(new_plexcached)
+                    except OSError as e:
+                        logging.warning(f"[UPGRADE] Failed to create new backup: {type(e).__name__}: {e}")
+        else:
+            logging.debug(f"[UPGRADE] No existing .plexcached backup found for {os.path.basename(old_path)}, "
+                          f"skipping backup handling (rating_key={rating_key})")
 
     def _file_needs_caching(self, file_path: str) -> bool:
         """Check if a file actually needs to be moved to cache.

@@ -133,6 +133,24 @@
             </div>
 
             <div class="form-group">
+                <label class="switch">
+                    <input type="checkbox" name="auto_transfer_upgrades"
+                           {% if settings.auto_transfer_upgrades | default(true) %}checked{% endif %}>
+                    <span>Auto-Transfer Tracking on Media Upgrades</span>
+                </label>
+                <div class="form-hint">When Sonarr/Radarr upgrades a cached file, automatically transfer exclude list and tracker entries to the new file using Plex rating keys.</div>
+            </div>
+
+            <div class="form-group">
+                <label class="switch">
+                    <input type="checkbox" name="backup_upgraded_files"
+                           {% if settings.backup_upgraded_files | default(true) %}checked{% endif %}>
+                    <span>Backup Upgraded Files</span>
+                </label>
+                <div class="form-hint">When a cached file is upgraded, create a .plexcached backup of the new file on the array (only if the old file had a backup).</div>
+            </div>
+
+            <div class="form-group">
                 <label for="hardlinked_files">Hardlinked Files Handling</label>
                 <select id="hardlinked_files" name="hardlinked_files">
                     <option value="skip" {% if settings.hardlinked_files == 'skip' or not settings.hardlinked_files %}selected{% endif %}>Skip (preserve for seeders)</option>

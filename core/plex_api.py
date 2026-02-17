@@ -39,6 +39,7 @@ class OnDeckItem:
     username: str
     episode_info: Optional[Dict[str, any]] = None
     is_current_ondeck: bool = False
+    rating_key: Optional[str] = None
 
 
 # API delay between plex.tv calls (seconds)
@@ -711,13 +712,15 @@ class PlexManager:
             }
 
         # Add the current OnDeck episode
+        video_rating_key = str(getattr(video, 'ratingKey', '') or '')
         for media in video.media:
             for part in media.parts:
                 on_deck_files.append(OnDeckItem(
                     file_path=part.file,
                     username=username,
                     episode_info=episode_info,
-                    is_current_ondeck=True  # This is the actual OnDeck episode
+                    is_current_ondeck=True,  # This is the actual OnDeck episode
+                    rating_key=video_rating_key or None
                 ))
 
         # Skip fetching next episodes if current episode has missing index data
@@ -736,13 +739,15 @@ class PlexManager:
                 'season': episode.parentIndex,
                 'episode': episode.index
             }
+            ep_rating_key = str(getattr(episode, 'ratingKey', '') or '')
             for media in episode.media:
                 for part in media.parts:
                     on_deck_files.append(OnDeckItem(
                         file_path=part.file,
                         username=username,
                         episode_info=next_ep_info,
-                        is_current_ondeck=False  # This is a prefetched next episode
+                        is_current_ondeck=False,  # This is a prefetched next episode
+                        rating_key=ep_rating_key or None
                     ))
     
     def _process_movie_ondeck(self, video: Movie, on_deck_files: List[OnDeckItem], username: str = "unknown") -> None:
@@ -753,13 +758,15 @@ class PlexManager:
             on_deck_files: List to append OnDeckItem objects to.
             username: The user who has this OnDeck.
         """
+        movie_rating_key = str(getattr(video, 'ratingKey', '') or '')
         for media in video.media:
             for part in media.parts:
                 on_deck_files.append(OnDeckItem(
                     file_path=part.file,
                     username=username,
                     episode_info=None,  # Movies don't have episode info
-                    is_current_ondeck=True
+                    is_current_ondeck=True,
+                    rating_key=movie_rating_key or None
                 ))
     
     def _get_next_episodes(self, episodes: List[Episode], current_season: int,

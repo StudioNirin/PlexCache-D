@@ -429,7 +429,8 @@ class CacheTimestampTracker:
     def record_cache_time(self, cache_file_path: str, source: str = "unknown",
                           original_inode: Optional[int] = None,
                           media_type: Optional[str] = None,
-                          episode_info: Optional[Dict] = None) -> None:
+                          episode_info: Optional[Dict] = None,
+                          rating_key: Optional[str] = None) -> None:
         """Record the current time and source when a file was cached.
 
         Only records if no entry exists - never overwrites existing timestamps.
@@ -440,6 +441,7 @@ class CacheTimestampTracker:
             original_inode: For hard-linked files, the original inode number for restoration.
             media_type: Plex media type - "episode" or "movie" (None for legacy/unknown).
             episode_info: For episodes, dict with 'show', 'season', 'episode' keys.
+            rating_key: Plex rating key for upgrade tracking (None for legacy/unknown).
         """
         with self._lock:
             # Never overwrite existing timestamps - file was cached when it was first recorded
@@ -457,6 +459,8 @@ class CacheTimestampTracker:
                 entry["media_type"] = media_type
             if episode_info is not None:
                 entry["episode_info"] = episode_info
+            if rating_key is not None:
+                entry["rating_key"] = rating_key
             self._timestamps[cache_file_path] = entry
             self._save()
             logging.debug(f"Recorded cache timestamp for: {cache_file_path} (source: {source})")
@@ -493,6 +497,18 @@ class CacheTimestampTracker:
                         del parent_entry["subtitles"]
                 self._save()
                 logging.debug(f"Removed subtitle entry for: {cache_file_path}")
+
+    def get_entry(self, cache_file_path: str) -> Optional[Dict]:
+        """Get the timestamp entry for a cached file.
+
+        Args:
+            cache_file_path: The path to the cached file.
+
+        Returns:
+            The entry dict or None if not found.
+        """
+        with self._lock:
+            return self._timestamps.get(cache_file_path)
 
     def get_original_inode(self, cache_file_path: str) -> Optional[int]:
         """Get the original inode for a hard-linked file (for restoration).
@@ -914,7 +930,8 @@ class WatchlistTracker(JSONTracker):
         """
         super().__init__(tracker_file, "watchlist")
 
-    def update_entry(self, file_path: str, username: str, watchlisted_at: Optional[datetime]) -> None:
+    def update_entry(self, file_path: str, username: str, watchlisted_at: Optional[datetime],
+                     rating_key: Optional[str] = None) -> None:
         """Update or create an entry for a watchlist item.
 
         If the item already exists and the new watchlisted_at is more recent,
@@ -924,6 +941,7 @@ class WatchlistTracker(JSONTracker):
             file_path: The path to the media file.
             username: The user who has this on their watchlist.
             watchlisted_at: When the user added it to their watchlist (from Plex API).
+            rating_key: Plex rating key for upgrade tracking (None to leave unchanged).
         """
         with self._lock:
             now_iso = datetime.now().isoformat()
@@ -953,6 +971,10 @@ class WatchlistTracker(JSONTracker):
                     else:
                         entry['watchlisted_at'] = new_ts_iso
 
+                # Store rating_key if provided (never overwrite with None)
+                if rating_key is not None:
+                    entry['rating_key'] = rating_key
+
                 # Always update last_seen
                 entry['last_seen'] = now_iso
             else:
@@ -962,11 +984,14 @@ class WatchlistTracker(JSONTracker):
                     watchlisted_at_iso = watchlisted_at_naive.isoformat()
                 else:
                     watchlisted_at_iso = now_iso
-                self._data[file_path] = {
+                new_entry = {
                     'watchlisted_at': watchlisted_at_iso,
                     'users': [username],
                     'last_seen': now_iso
                 }
+                if rating_key is not None:
+                    new_entry['rating_key'] = rating_key
+                self._data[file_path] = new_entry
                 logging.debug(f"[USER:{username}] Added new watchlist entry: {file_path}")
 
             self._save()
@@ -1083,9 +1108,32 @@ class OnDeckTracker(JSONTracker):
         """
         super().__init__(tracker_file, "OnDeck")
 
+    def _post_load(self) -> None:
+        """Build the rating_key reverse index after loading data from disk."""
+        self._rating_key_index = {}
+        for file_path, entry in self._data.items():
+            rk = entry.get('rating_key')
+            if rk:
+                self._rating_key_index[rk] = file_path
+
+    def find_by_rating_key(self, rating_key: str) -> Optional[str]:
+        """Find a file path by its Plex rating key.
+
+        Args:
+            rating_key: The Plex rating key to look up.
+
+        Returns:
+            The file path associated with the rating key, or None.
+        """
+        with self._lock:
+            if not hasattr(self, '_rating_key_index'):
+                self._rating_key_index = {}
+            return self._rating_key_index.get(rating_key)
+
     def update_entry(self, file_path: str, username: str,
                      episode_info: Optional[Dict[str, any]] = None,
-                     is_current_ondeck: bool = False) -> None:
+                     is_current_ondeck: bool = False,
+                     rating_key: Optional[str] = None) -> None:
         """Update or create an entry for an OnDeck item.
 
         Args:
@@ -1093,6 +1141,7 @@ class OnDeckTracker(JSONTracker):
             username: The user who has this on their OnDeck.
             episode_info: For TV episodes, dict with 'show', 'season', 'episode' keys.
             is_current_ondeck: True if this is the actual OnDeck episode (not prefetched next).
+            rating_key: Plex rating key for upgrade tracking (None to leave unchanged).
         """
         with self._lock:
             now_iso = datetime.now().isoformat()
@@ -1100,6 +1149,10 @@ class OnDeckTracker(JSONTracker):
             # Track that this entry was seen this run (for cleanup_unseen)
             if hasattr(self, '_seen_this_run'):
                 self._seen_this_run.add(file_path)
+
+            # Ensure rating_key index exists
+            if not hasattr(self, '_rating_key_index'):
+                self._rating_key_index = {}
 
             if file_path in self._data:
                 entry = self._data[file_path]
@@ -1120,6 +1173,11 @@ class OnDeckTracker(JSONTracker):
                 if is_current_ondeck:
                     if username not in entry.get('ondeck_users', []):
                         entry.setdefault('ondeck_users', []).append(username)
+
+                # Store rating_key if provided (never overwrite with None)
+                if rating_key is not None:
+                    entry['rating_key'] = rating_key
+                    self._rating_key_index[rating_key] = file_path
 
                 # Update episode_info if provided and not already set, or update is_current_ondeck
                 if episode_info:
@@ -1143,6 +1201,9 @@ class OnDeckTracker(JSONTracker):
                 }
                 if is_current_ondeck:
                     new_entry['ondeck_users'] = [username]
+                if rating_key is not None:
+                    new_entry['rating_key'] = rating_key
+                    self._rating_key_index[rating_key] = file_path
                 if episode_info:
                     new_entry['episode_info'] = {
                         'show': episode_info.get('show'),
@@ -1230,6 +1291,23 @@ class OnDeckTracker(JSONTracker):
         positions.sort()
         return positions[0]
 
+    def remove_entry(self, file_path: str) -> None:
+        """Remove a file's tracker entry and clean up the rating_key index.
+
+        Args:
+            file_path: The path to the file.
+        """
+        with self._lock:
+            if file_path in self._data:
+                entry = self._data[file_path]
+                # Clean up rating_key index
+                rk = entry.get('rating_key')
+                if rk and hasattr(self, '_rating_key_index'):
+                    self._rating_key_index.pop(rk, None)
+                del self._data[file_path]
+                self._save()
+                logging.debug(f"Removed {self._tracker_name} entry for: {file_path}")
+
     def prepare_for_run(self) -> None:
         """Prepare tracker for a new run while preserving first_seen timestamps.
 
@@ -1277,6 +1355,10 @@ class OnDeckTracker(JSONTracker):
                     stale.append(path)
 
             for path in stale:
+                # Clean up rating_key index
+                rk = self._data[path].get('rating_key')
+                if rk and hasattr(self, '_rating_key_index'):
+                    self._rating_key_index.pop(rk, None)
                 del self._data[path]
 
             if stale:
@@ -1304,6 +1386,10 @@ class OnDeckTracker(JSONTracker):
 
             unseen = [path for path in self._data if path not in seen]
             for path in unseen:
+                # Clean up rating_key index
+                rk = self._data[path].get('rating_key')
+                if rk and hasattr(self, '_rating_key_index'):
+                    self._rating_key_index.pop(rk, None)
                 del self._data[path]
 
             # Trim user_first_seen on surviving entries to only include current users

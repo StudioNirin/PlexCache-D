@@ -203,6 +203,14 @@ class CacheConfig:
     # Symlinks let Plex still find files at their original paths via the cache copy.
     use_symlinks: bool = False
 
+    # Auto-transfer tracking when Sonarr/Radarr upgrades a cached file
+    # Detects file swaps via Plex rating_key and transfers exclude list + tracker entries
+    auto_transfer_upgrades: bool = True
+
+    # Create .plexcached backup for upgraded files (only if old backup existed)
+    # When a cached file is upgraded, copy the new file to array as .plexcached backup
+    backup_upgraded_files: bool = True
+
     # Excluded folders: skip these directories during cache scanning
     # Hidden directories (dot-prefixed like .Trash, .Recycle.Bin) are always skipped automatically
     # Use this for non-dot-prefixed folders like Synology @Recycle, #recycle, etc.
@@ -455,6 +463,10 @@ class ConfigManager:
 
         # Load symlink setting (default False - only needed for non-Unraid systems)
         self.cache.use_symlinks = self.settings_data.get('use_symlinks', False)
+
+        # Load auto-transfer upgrade tracking settings
+        self.cache.auto_transfer_upgrades = self.settings_data.get('auto_transfer_upgrades', True)
+        self.cache.backup_upgraded_files = self.settings_data.get('backup_upgraded_files', True)
 
         # Load excluded folders for directory scanning
         excluded_folders = self.settings_data.get('excluded_folders', [])
