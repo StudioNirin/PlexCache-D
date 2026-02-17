@@ -1,7 +1,20 @@
-<!-- Recent Activity component - HTMX partial (last 24 hours) -->
+<!-- Recent Activity component - HTMX partial (grouped by date) -->
 {% if activity %}
-{% for item in activity %}
-<tr data-action="{{ item.action }}">
+{% for group in activity|groupby('date_key') %}
+<tr class="date-group-header" data-date-group="{{ group.grouper }}">
+    <td colspan="5">
+        <div class="date-group-inner">
+            <span class="date-group-label">
+                <svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                {{ group.list[0].date_display }}
+            </span>
+            <span class="date-group-count">{{ group.list|length }} action{{ 's' if group.list|length != 1 else '' }}</span>
+            <span class="date-group-line"></span>
+        </div>
+    </td>
+</tr>
+{% for item in group.list %}
+<tr data-action="{{ item.action }}" data-date-group="{{ item.date_key }}">
     <td>{{ item.time_display }}</td>
     <td>
         {% if item.action in ('Cached', 'Protected', 'Fixed') %}
@@ -29,6 +42,7 @@
     </td>
     <td>{{ item.size }}</td>
 </tr>
+{% endfor %}
 {% endfor %}
 {% else %}
 <tr>

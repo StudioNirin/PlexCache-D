@@ -247,6 +247,67 @@ footer {
     z-index: 1;
 }
 
+/* Date group headers in activity feed */
+.date-group-header td {
+    padding: 0.55rem 0.75rem 0.35rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.date-group-header:hover td {
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.date-group-inner {
+    display: flex;
+    align-items: center;
+    width: 100%;
+}
+
+.date-group-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--plex-text-light, #aeaeb2);
+    letter-spacing: 0.02em;
+}
+
+.date-group-label svg {
+    width: 13px;
+    height: 13px;
+    stroke: var(--plex-text-muted, #8e8e93);
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.date-group-count {
+    font-size: 0.65rem;
+    font-weight: 500;
+    color: var(--plex-text-muted, #8e8e93);
+    margin-left: 0.3rem;
+}
+
+.date-group-line {
+    flex: 1;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.06);
+    margin-left: 0.75rem;
+}
+
+/* Light theme */
+[data-theme="light"] .date-group-header td {
+    background: rgba(0, 0, 0, 0.02);
+    border-bottom-color: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme="light"] .date-group-line {
+    background: rgba(0, 0, 0, 0.06);
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
     .grid {

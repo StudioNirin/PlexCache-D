@@ -79,9 +79,22 @@ class FileActivity:
             time_display = self.timestamp.strftime("%-I:%M:%S %p")
         else:
             time_display = self.timestamp.strftime("%H:%M:%S")
+
+        # Date grouping fields (computed at render time, not stored on disk)
+        today = datetime.now().date()
+        entry_date = self.timestamp.date()
+        if entry_date == today:
+            date_display = "Today"
+        elif entry_date == today - timedelta(days=1):
+            date_display = "Yesterday"
+        else:
+            date_display = self.timestamp.strftime("%a, %b ") + str(self.timestamp.day)
+
         return {
             "timestamp": self.timestamp.isoformat(),
             "time_display": time_display,
+            "date_key": entry_date.isoformat(),
+            "date_display": date_display,
             "action": self.action,
             "filename": self.filename,
             "size": self._format_size(self.size_bytes),

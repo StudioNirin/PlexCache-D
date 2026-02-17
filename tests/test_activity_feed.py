@@ -97,7 +97,7 @@ class TestFileActivity:
             )
             d = fa.to_dict()
 
-        required_keys = {'timestamp', 'time_display', 'action', 'filename', 'size', 'users'}
+        required_keys = {'timestamp', 'time_display', 'date_key', 'date_display', 'action', 'filename', 'size', 'users'}
         assert required_keys == set(d.keys())
 
 

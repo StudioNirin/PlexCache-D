@@ -52,7 +52,7 @@
     <div class="card-header">
         <i data-lucide="activity"></i>
         <h2>Recent Activity</h2>
-        <span class="text-muted" style="font-size: 0.75rem; margin-left: auto;">Last 24 hours</span>
+        <span class="text-muted" style="font-size: 0.75rem; margin-left: auto;">Last {{ retention_label }}</span>
     </div>
     <div class="activity-filter-bar" style="padding: 0.75rem 1.25rem;">
         <button class="activity-filter-pill active" data-filter="all">All</button>
@@ -127,6 +127,16 @@ function applyActivityFilter(filter) {
         } else {
             row.style.display = (action === filter) ? '' : 'none';
         }
+    });
+
+    // Show/hide date group headers based on visible rows in each group
+    document.querySelectorAll('#recent-activity tr.date-group-header').forEach(header => {
+        const dateKey = header.getAttribute('data-date-group');
+        const groupRows = document.querySelectorAll(
+            '#recent-activity tr[data-action][data-date-group="' + dateKey + '"]'
+        );
+        const anyVisible = Array.from(groupRows).some(r => r.style.display !== 'none');
+        header.style.display = anyVisible ? '' : 'none';
     });
 }
 
