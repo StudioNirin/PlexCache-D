@@ -142,7 +142,7 @@
         <div class="log-viewer-wrapper">
             <div id="log-content" class="log-viewer"
                  hx-get="/logs/content"
-                 hx-trigger="load"
+                 hx-trigger="logViewerReady"
                  hx-include="#log-file-select, #log-lines">Loading logs...</div>
             <div id="scrollbar-markers" class="scrollbar-markers"></div>
         </div>
@@ -777,8 +777,9 @@ var LogViewer = (function() {
         // Cleanup on navigate away
         window.addEventListener('beforeunload', disconnectWebSocket);
 
-        // Load saved preferences
+        // Load saved preferences, then trigger initial log fetch
         loadPreferences();
+        htmx.trigger('#log-content', 'logViewerReady');
     }
 
     // Public API
