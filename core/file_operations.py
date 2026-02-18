@@ -148,7 +148,7 @@ def find_matching_plexcached(array_path: str, media_identity: str, source_file: 
                 if entry_identity == media_identity:
                     return entry.path
     except (OSError, PermissionError) as e:
-        logging.debug(f"Error scanning for .plexcached files in {array_path}: {e}")
+        logging.warning(f"Error scanning for .plexcached files in {array_path}: {e}")
 
     return None
 
@@ -4895,14 +4895,14 @@ class FileMover:
                 try:
                     os.remove(array_direct_file)
                     logging.debug(f"Cleaned up partial array file: {array_direct_file}")
-                except OSError:
-                    pass
+                except OSError as e:
+                    logging.warning(f"Could not remove partial array file: {array_direct_file}: {e}")
             elif os.path.isfile(array_file):
                 try:
                     os.remove(array_file)
                     logging.debug(f"Cleaned up partial array file: {array_file}")
-                except OSError:
-                    pass
+                except OSError as e:
+                    logging.warning(f"Could not remove partial array file: {array_file}: {e}")
             return 4  # Stopped by user
         except Exception as e:
             logging.error(f"Error restoring to array: {type(e).__name__}: {e}")
