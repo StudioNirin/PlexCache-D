@@ -1645,29 +1645,17 @@ class CacheService:
         if not ondeck_data:
             return result
 
-        # Build rating_key → (plex_path, entry) index from ondeck tracker
-        rk_index: Dict[str, Tuple[str, Dict]] = {}
-        for plex_path, entry in ondeck_data.items():
-            rk = entry.get('rating_key')
-            if rk:
-                rk_index[rk] = (plex_path, entry)
-
-        if not rk_index:
-            return result
-
         # For each stale entry, check if it maps to an ondeck entry with a rating_key
-        candidates: List[Tuple[str, str, str, str]] = []  # (cache_path, plex_path, rating_key, real_path)
+        # Note: OnDeck tracker keys are REAL paths (/mnt/user/...), not Plex paths
+        candidates: List[Tuple[str, str, str]] = []  # (cache_path, rating_key, real_path)
         for cache_path in stale_exclude_entries:
             real_path = self._cache_to_real(cache_path, path_mappings)
             if not real_path:
                 continue
-            plex_path = self._real_to_plex(real_path, path_mappings)
-            if not plex_path:
-                continue
-            # Check if this plex path is in the ondeck tracker
-            entry = ondeck_data.get(plex_path)
+            # Look up by real path (OnDeck tracker key format)
+            entry = ondeck_data.get(real_path)
             if entry and entry.get('rating_key'):
-                candidates.append((cache_path, plex_path, entry['rating_key'], real_path))
+                candidates.append((cache_path, entry['rating_key'], real_path))
 
         if not candidates:
             return result
@@ -1687,29 +1675,31 @@ class CacheService:
             return result
 
         # Check each candidate against Plex
-        for cache_path, old_plex_path, rating_key, old_real_path in candidates:
+        for cache_path, rating_key, old_real_path in candidates:
             try:
                 item = plex.fetchItem(int(rating_key))
             except Exception as e:
                 logger.debug(f"Upgrade check: fetchItem({rating_key}) failed: {e}")
                 continue
 
-            # Get current file path from Plex
+            # Get current file path from Plex (returns plex-internal path)
             try:
                 new_plex_path = item.media[0].parts[0].file
             except (IndexError, AttributeError):
                 logger.debug(f"Upgrade check: no file path for rating_key={rating_key}")
                 continue
 
-            if new_plex_path == old_plex_path:
+            # Convert Plex path to real path for comparison with tracker key
+            new_real_path = self._plex_to_real(new_plex_path, path_mappings)
+            if not new_real_path:
+                logger.debug(f"Upgrade check: cannot convert plex path for rk={rating_key}: {new_plex_path}")
+                continue
+
+            if new_real_path == old_real_path:
                 continue  # Same path, not an upgrade
 
             # Upgrade detected
             result["upgrades_found"] += 1
-            new_real_path = self._plex_to_real(new_plex_path, path_mappings)
-            if not new_real_path:
-                logger.warning(f"Upgrade detected (rk={rating_key}) but cannot convert new plex path: {new_plex_path}")
-                continue
 
             new_cache_path = self._real_to_cache(new_real_path, path_mappings)
             if not new_cache_path:
@@ -1720,6 +1710,9 @@ class CacheService:
             if not os.path.exists(new_cache_path):
                 logger.debug(f"Upgrade detected (rk={rating_key}) but new file not yet on cache: {new_cache_path}")
                 continue
+
+            # Derive plex paths for watchlist tracker (uses plex path keys)
+            old_plex_path = self._real_to_plex(old_real_path, path_mappings)
 
             logger.info(f"[UPGRADE] Detected file upgrade (rk={rating_key}): "
                         f"{os.path.basename(cache_path)} -> {os.path.basename(new_cache_path)}")
@@ -1797,15 +1790,17 @@ class CacheService:
                 json.dump(ts_data, f, indent=2)
 
             # 3. OnDeck tracker: remove old entry (new entry created on next operation run)
+            # OnDeck tracker keys are real paths (/mnt/user/...)
             ondeck_data = self.get_ondeck_tracker()
-            if old_plex_path in ondeck_data:
-                del ondeck_data[old_plex_path]
+            if old_real_path in ondeck_data:
+                del ondeck_data[old_real_path]
                 with open(self.ondeck_file, 'w', encoding='utf-8') as f:
                     json.dump(ondeck_data, f, indent=2)
 
             # 4. Watchlist tracker: transfer entry if exists
+            # Watchlist tracker keys are plex paths (/data/...)
             watchlist_data = self.get_watchlist_tracker()
-            if old_plex_path in watchlist_data:
+            if old_plex_path and old_plex_path in watchlist_data:
                 watchlist_data[new_plex_path] = watchlist_data.pop(old_plex_path)
                 with open(self.watchlist_file, 'w', encoding='utf-8') as f:
                     json.dump(watchlist_data, f, indent=2)
