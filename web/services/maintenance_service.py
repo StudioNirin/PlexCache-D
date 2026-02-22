@@ -814,7 +814,7 @@ class MaintenanceService:
             affected_paths=affected_paths
         )
 
-    def restore_all_plexcached(self, dry_run: bool = True, orphaned_only: bool = False) -> ActionResult:
+    def restore_all_plexcached(self, dry_run: bool = True, orphaned_only: bool = False, **kwargs) -> ActionResult:
         """Restore all orphaned .plexcached files
 
         Args:
@@ -828,7 +828,7 @@ class MaintenanceService:
             backups = [b for b in backups if b.backup_type == "orphaned"]
 
         paths = [b.plexcached_path for b in backups]
-        return self.restore_plexcached(paths, dry_run)
+        return self.restore_plexcached(paths, dry_run, **kwargs)
 
     def delete_plexcached(self, paths: List[str], dry_run: bool = True,
                           stop_check: Optional[Callable[[], bool]] = None,
@@ -903,11 +903,11 @@ class MaintenanceService:
             affected_paths=affected_paths
         )
 
-    def delete_all_plexcached(self, dry_run: bool = True) -> ActionResult:
+    def delete_all_plexcached(self, dry_run: bool = True, **kwargs) -> ActionResult:
         """Delete all orphaned .plexcached files"""
         orphaned = self._get_orphaned_plexcached()
         paths = [o.plexcached_path for o in orphaned]
-        return self.delete_plexcached(paths, dry_run)
+        return self.delete_plexcached(paths, dry_run, **kwargs)
 
     def fix_with_backup(self, paths: List[str], dry_run: bool = True,
                         stop_check: Optional[Callable[[], bool]] = None,
