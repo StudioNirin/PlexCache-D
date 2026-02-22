@@ -374,3 +374,92 @@ class TestMergePattern:
                 # Reload — should still be capped
                 final = load_activity()
                 assert len(final) == MAX_RECENT_ACTIVITY
+
+
+# ============================================================================
+# Atomic activity save — _save_activity() holds lock for full sequence
+# ============================================================================
+
+class TestSaveActivityAtomicity:
+    """Verify OperationRunner._save_activity() uses unlocked helpers under a single lock
+    acquisition to prevent race conditions with MaintenanceRunner."""
+
+    def test_save_activity_uses_unlocked_helpers(self, tmp_path):
+        """_save_activity(new_entry) must call _load_activity_unlocked and
+        _save_activity_unlocked (not the locking versions)."""
+        from web.services.operation_runner import OperationRunner
+
+        activity_file = tmp_path / "recent_activity.json"
+        activity_file.write_text("[]", encoding="utf-8")
+
+        entry = FileActivity(
+            timestamp=datetime.now(),
+            action="Cached",
+            filename="test.mkv",
+            size_bytes=100,
+        )
+
+        with patch('web.services.operation_runner.ACTIVITY_FILE', activity_file), \
+             patch('web.services.operation_runner._load_activity_unlocked', return_value=[]) as mock_load, \
+             patch('web.services.operation_runner._save_activity_unlocked') as mock_save, \
+             patch('web.services.operation_runner.load_activity', return_value=[]):
+            runner = OperationRunner()
+            runner._save_activity(new_entry=entry)
+
+        # Must use unlocked helpers (caller holds the lock)
+        mock_load.assert_called_once()
+        mock_save.assert_called_once()
+        # Verify the entry was inserted
+        saved_activities = mock_save.call_args[0][0]
+        assert saved_activities[0] is entry
+
+    def test_save_activity_without_entry_uses_public_save(self, tmp_path):
+        """_save_activity() without new_entry uses the public save_activity()."""
+        from web.services.operation_runner import OperationRunner
+
+        with patch('web.services.operation_runner.save_activity') as mock_pub_save, \
+             patch('web.services.operation_runner.load_activity', return_value=[]):
+            runner = OperationRunner()
+            runner._recent_activity = []
+            runner._save_activity(new_entry=None)
+
+        mock_pub_save.assert_called_once()
+
+
+# ============================================================================
+# Atomic last-run summary write
+# ============================================================================
+
+class TestLastRunSummaryAtomicWrite:
+    """Verify _save_last_run_summary() uses save_json_atomically()."""
+
+    def test_summary_written_atomically(self, tmp_path):
+        """Last run summary must use save_json_atomically(), not direct json.dump()."""
+        from web.services.operation_runner import (
+            OperationRunner, OperationResult, OperationState,
+        )
+
+        summary_file = tmp_path / "last_run_summary.json"
+
+        with patch('web.services.operation_runner.load_activity', return_value=[]), \
+             patch('web.services.operation_runner.LAST_RUN_SUMMARY_FILE', summary_file), \
+             patch('web.services.operation_runner.save_json_atomically') as mock_atomic:
+            runner = OperationRunner()
+            runner._current_result = OperationResult(
+                state=OperationState.COMPLETED,
+                started_at=datetime.now(),
+                files_cached=3,
+                files_restored=1,
+                bytes_cached=1000,
+                bytes_restored=500,
+                duration_seconds=10.5,
+            )
+            runner._save_last_run_summary()
+
+        assert mock_atomic.called, "save_json_atomically was not called for last run summary"
+        call_args = mock_atomic.call_args
+        # Check positional or keyword label arg
+        positional = call_args[0]
+        keyword = call_args[1]
+        label = keyword.get("label") if "label" in keyword else (positional[2] if len(positional) > 2 else None)
+        assert label == "last run summary", f"Expected label 'last run summary', got {label!r}"

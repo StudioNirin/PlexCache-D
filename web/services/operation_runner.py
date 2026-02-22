@@ -112,14 +112,16 @@ class FileActivity:
 MAX_RECENT_ACTIVITY = 500
 
 
-def load_activity() -> List[FileActivity]:
-    """Load activity from disk, filtering out entries older than retention period."""
+def _load_activity_unlocked() -> List[FileActivity]:
+    """Load activity from disk without acquiring _activity_file_lock.
+
+    Caller MUST hold _activity_file_lock.
+    """
     try:
-        with _activity_file_lock:
-            if not ACTIVITY_FILE.exists():
-                return []
-            with open(ACTIVITY_FILE, 'r') as f:
-                data = json.load(f)
+        if not ACTIVITY_FILE.exists():
+            return []
+        with open(ACTIVITY_FILE, 'r') as f:
+            data = json.load(f)
 
         cutoff = datetime.now() - timedelta(hours=_get_activity_retention_hours())
         activities = []
@@ -138,7 +140,6 @@ def load_activity() -> List[FileActivity]:
             except (KeyError, ValueError):
                 continue  # Skip malformed entries
 
-        # Sort by timestamp descending (newest first) and limit
         activities.sort(key=lambda x: x.timestamp, reverse=True)
         return activities[:MAX_RECENT_ACTIVITY]
 
@@ -147,15 +148,16 @@ def load_activity() -> List[FileActivity]:
         return []
 
 
-def save_activity(activities: List[FileActivity]) -> None:
-    """Save activity to disk, filtering out old entries."""
+def _save_activity_unlocked(activities: List[FileActivity]) -> None:
+    """Save activity to disk without acquiring _activity_file_lock.
+
+    Caller MUST hold _activity_file_lock.
+    """
     try:
-        # Ensure data directory exists
         ACTIVITY_FILE.parent.mkdir(parents=True, exist_ok=True)
 
         cutoff = datetime.now() - timedelta(hours=_get_activity_retention_hours())
 
-        # Filter to only entries within retention period
         data = []
         for activity in activities:
             if activity.timestamp > cutoff:
@@ -167,11 +169,22 @@ def save_activity(activities: List[FileActivity]) -> None:
                     'users': activity.users
                 })
 
-        with _activity_file_lock:
-            save_json_atomically(str(ACTIVITY_FILE), data, label="activity")
+        save_json_atomically(str(ACTIVITY_FILE), data, label="activity")
 
     except Exception as e:
         logging.debug(f"Could not save activity history: {e}")
+
+
+def load_activity() -> List[FileActivity]:
+    """Load activity from disk, filtering out entries older than retention period."""
+    with _activity_file_lock:
+        return _load_activity_unlocked()
+
+
+def save_activity(activities: List[FileActivity]) -> None:
+    """Save activity to disk, filtering out old entries."""
+    with _activity_file_lock:
+        _save_activity_unlocked(activities)
 
 
 @dataclass
@@ -335,12 +348,14 @@ class OperationRunner:
 
         If new_entry is provided, loads existing entries from disk first
         to avoid overwriting entries added by MaintenanceRunner.
+        Full load-insert-save runs under a single lock acquisition.
         """
         if new_entry:
-            activities = load_activity()
-            activities.insert(0, new_entry)
-            activities = activities[:MAX_RECENT_ACTIVITY]
-            save_activity(activities)
+            with _activity_file_lock:
+                activities = _load_activity_unlocked()
+                activities.insert(0, new_entry)
+                activities = activities[:MAX_RECENT_ACTIVITY]
+                _save_activity_unlocked(activities)
         else:
             save_activity(self._recent_activity)
 
@@ -362,8 +377,7 @@ class OperationRunner:
                 "error_count": result.error_count,
                 "dry_run": result.dry_run,
             }
-            with open(LAST_RUN_SUMMARY_FILE, 'w', encoding='utf-8') as f:
-                json.dump(summary, f, indent=2)
+            save_json_atomically(str(LAST_RUN_SUMMARY_FILE), summary, label="last run summary")
         except IOError:
             pass
 

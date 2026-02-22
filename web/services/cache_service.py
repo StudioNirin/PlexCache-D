@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from web.config import PROJECT_ROOT, DATA_DIR, CONFIG_DIR, SETTINGS_FILE
 from core.system_utils import get_disk_usage, detect_zfs, get_array_direct_path, parse_size_bytes, format_bytes, translate_container_to_host_path, translate_host_to_container_path, remove_from_exclude_file, remove_from_timestamps_file
-from core.file_operations import get_media_identity, find_matching_plexcached
+from core.file_operations import get_media_identity, find_matching_plexcached, save_json_atomically
 
 
 # Subtitle file extensions (case-insensitive)
@@ -1786,24 +1786,21 @@ class CacheService:
                 "cached_at": datetime.now().isoformat(),
                 "source": old_source,
             }
-            with open(self.timestamps_file, 'w', encoding='utf-8') as f:
-                json.dump(ts_data, f, indent=2)
+            save_json_atomically(str(self.timestamps_file), ts_data, label="timestamps")
 
             # 3. OnDeck tracker: remove old entry (new entry created on next operation run)
             # OnDeck tracker keys are real paths (/mnt/user/...)
             ondeck_data = self.get_ondeck_tracker()
             if old_real_path in ondeck_data:
                 del ondeck_data[old_real_path]
-                with open(self.ondeck_file, 'w', encoding='utf-8') as f:
-                    json.dump(ondeck_data, f, indent=2)
+                save_json_atomically(str(self.ondeck_file), ondeck_data, label="ondeck tracker")
 
             # 4. Watchlist tracker: transfer entry if exists
             # Watchlist tracker keys are plex paths (/data/...)
             watchlist_data = self.get_watchlist_tracker()
             if old_plex_path and old_plex_path in watchlist_data:
                 watchlist_data[new_plex_path] = watchlist_data.pop(old_plex_path)
-                with open(self.watchlist_file, 'w', encoding='utf-8') as f:
-                    json.dump(watchlist_data, f, indent=2)
+                save_json_atomically(str(self.watchlist_file), watchlist_data, label="watchlist tracker")
 
             # 5. Handle .plexcached backups
             self._handle_upgrade_plexcached(
@@ -1827,7 +1824,8 @@ class CacheService:
     ) -> None:
         """Handle .plexcached backup files during a media upgrade.
 
-        Removes outdated old backup and optionally creates new backup.
+        Creates new backup first, verifies it, then deletes old backup.
+        If new backup fails, old backup is preserved.
         """
         logger = logging.getLogger(__name__)
 
@@ -1842,14 +1840,8 @@ class CacheService:
         old_plexcached = find_matching_plexcached(old_array_dir, old_identity, old_real_path)
 
         if old_plexcached and os.path.isfile(old_plexcached):
-            try:
-                os.remove(old_plexcached)
-                logger.info(f"[UPGRADE] Deleted outdated backup: {os.path.basename(old_plexcached)} (rk={rating_key})")
-            except OSError as e:
-                logger.warning(f"[UPGRADE] Failed to delete old backup: {e}")
-                return
-
-            # Create new backup if setting enabled
+            # Create new backup FIRST if setting enabled (before deleting old)
+            new_backup_ok = False
             if settings.get('backup_upgraded_files', True) and os.path.isfile(new_cache_path):
                 new_array_path = get_array_direct_path(new_real_path)
                 new_plexcached = new_array_path + '.plexcached'
@@ -1864,11 +1856,28 @@ class CacheService:
                         if src_size == dst_size:
                             logger.info(f"[UPGRADE] Created new backup: {os.path.basename(new_plexcached)} "
                                         f"({format_bytes(src_size)}, rk={rating_key})")
+                            new_backup_ok = True
                         else:
                             logger.warning(f"[UPGRADE] Backup size mismatch for {os.path.basename(new_plexcached)}")
                             os.remove(new_plexcached)
                     except OSError as e:
                         logger.warning(f"[UPGRADE] Failed to create new backup: {e}")
+                else:
+                    # New backup already exists
+                    new_backup_ok = True
+            else:
+                # No new backup needed — safe to delete old
+                new_backup_ok = True
+
+            # Only delete old backup after new one is confirmed (or not needed)
+            if new_backup_ok:
+                try:
+                    os.remove(old_plexcached)
+                    logger.info(f"[UPGRADE] Deleted outdated backup: {os.path.basename(old_plexcached)} (rk={rating_key})")
+                except OSError as e:
+                    logger.warning(f"[UPGRADE] Failed to delete old backup: {e}")
+            else:
+                logger.warning(f"[UPGRADE] Keeping old backup (new backup failed): {os.path.basename(old_plexcached)} (rk={rating_key})")
 
     def _remove_from_exclude_file(self, cache_path: str):
         """Remove a path from the exclude file"""
