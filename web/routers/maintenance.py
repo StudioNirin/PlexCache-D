@@ -730,10 +730,10 @@ def get_duplicates(request: Request):
 
     # Check if arr is configured
     from web.services.settings_service import get_settings_service
-    arr_settings = get_settings_service().get_arr_settings()
-    arr_configured = bool(
-        (arr_settings.get("sonarr_enabled") and arr_settings.get("sonarr_url") and arr_settings.get("sonarr_api_key"))
-        or (arr_settings.get("radarr_enabled") and arr_settings.get("radarr_url") and arr_settings.get("radarr_api_key"))
+    arr_instances = get_settings_service().get_arr_instances()
+    arr_configured = any(
+        i.get("enabled") and i.get("url") and i.get("api_key")
+        for i in arr_instances
     )
 
     return templates.TemplateResponse(

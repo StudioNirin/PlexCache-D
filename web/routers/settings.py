@@ -804,7 +804,7 @@ def save_logging_settings(
 def settings_integrations(request: Request):
     """Integrations settings tab"""
     settings_service = get_settings_service()
-    settings = settings_service.get_arr_settings()
+    instances = settings_service.get_arr_instances()
 
     return templates.TemplateResponse(
         "settings/integrations.html",
@@ -812,101 +812,122 @@ def settings_integrations(request: Request):
             "request": request,
             "page_title": "Integration Settings",
             "active_tab": "integrations",
-            "settings": settings,
+            "instances": instances,
         }
     )
 
 
-@router.put("/integrations", response_class=HTMLResponse)
-async def save_integrations_settings(request: Request):
-    """Save Sonarr/Radarr integration settings"""
+@router.post("/integrations/instances", response_class=HTMLResponse)
+def add_arr_instance(
+    request: Request,
+    name: str = Form(...),
+    arr_type: str = Form(...),
+    url: str = Form(""),
+    api_key: str = Form(""),
+    enabled: str = Form(None),
+):
+    """Add a new Sonarr/Radarr instance"""
     settings_service = get_settings_service()
-    form = await request.form()
 
-    # Checkboxes: unchecked = absent from form
-    settings = {
-        "sonarr_enabled": "sonarr_enabled" in form,
-        "sonarr_url": form.get("sonarr_url", "").strip(),
-        "sonarr_api_key": form.get("sonarr_api_key", "").strip(),
-        "radarr_enabled": "radarr_enabled" in form,
-        "radarr_url": form.get("radarr_url", "").strip(),
-        "radarr_api_key": form.get("radarr_api_key", "").strip(),
+    instance = {
+        "name": name,
+        "type": arr_type,
+        "url": url,
+        "api_key": api_key,
+        "enabled": enabled == "on",
     }
 
-    success = settings_service.save_arr_settings(settings)
+    success = settings_service.add_arr_instance(instance)
+
+    if success:
+        instances = settings_service.get_arr_instances()
+        index = len(instances) - 1
+        return templates.TemplateResponse(
+            "settings/partials/arr_instance_card.html",
+            {"request": request, "instance": instances[index], "index": index}
+        )
+    else:
+        return HTMLResponse("<div class='alert alert-error'>Failed to add instance</div>")
+
+
+@router.put("/integrations/instances/{index}", response_class=HTMLResponse)
+def update_arr_instance(
+    request: Request,
+    index: int,
+    name: str = Form(...),
+    arr_type: str = Form(...),
+    url: str = Form(""),
+    api_key: str = Form(""),
+    enabled: str = Form(None),
+):
+    """Update an existing Sonarr/Radarr instance"""
+    settings_service = get_settings_service()
+
+    instance = {
+        "name": name,
+        "type": arr_type,
+        "url": url,
+        "api_key": api_key,
+        "enabled": enabled == "on",
+    }
+
+    success = settings_service.update_arr_instance(index, instance)
 
     if success:
         return templates.TemplateResponse(
-            "partials/alert.html",
-            {"request": request, "type": "success", "message": "Integration settings saved successfully"}
+            "settings/partials/arr_instance_card.html",
+            {"request": request, "instance": instance, "index": index}
         )
     else:
+        return HTMLResponse("<div class='alert alert-error'>Failed to update instance</div>")
+
+
+@router.delete("/integrations/instances/{index}", response_class=HTMLResponse)
+def delete_arr_instance(request: Request, index: int):
+    """Delete a Sonarr/Radarr instance and return the updated list"""
+    settings_service = get_settings_service()
+
+    success = settings_service.delete_arr_instance(index)
+
+    if success:
+        instances = settings_service.get_arr_instances()
         return templates.TemplateResponse(
-            "partials/alert.html",
-            {"request": request, "type": "error", "message": "Failed to save settings"}
+            "settings/partials/arr_instances_list.html",
+            {"request": request, "instances": instances}
         )
+    else:
+        return HTMLResponse("<div class='alert alert-error'>Failed to delete instance</div>")
 
 
-@router.post("/integrations/test-sonarr")
-def test_sonarr_connection():
-    """Test Sonarr connection"""
-    settings_service = get_settings_service()
-    arr_settings = settings_service.get_arr_settings()
+@router.post("/integrations/test")
+def test_arr_connection(
+    url: str = Form(""),
+    api_key: str = Form(""),
+    arr_type: str = Form("sonarr"),
+):
+    """Test Sonarr/Radarr connection using form values (no save required)"""
+    url = url.strip()
+    api_key = api_key.strip()
 
-    sonarr_url = arr_settings.get("sonarr_url", "").strip()
-    sonarr_key = arr_settings.get("sonarr_api_key", "").strip()
+    if not url or not api_key:
+        return JSONResponse({"success": False, "message": "URL and API key are required"})
 
-    if not sonarr_url or not sonarr_key:
-        return JSONResponse({"success": False, "message": "Sonarr URL or API key not configured. Save settings first."})
+    type_label = arr_type.title()  # "Sonarr" or "Radarr"
 
     try:
         resp = requests.get(
-            f'{sonarr_url.rstrip("/")}/api/v3/system/status',
-            headers={'X-Api-Key': sonarr_key},
+            f'{url.rstrip("/")}/api/v3/system/status',
+            headers={'X-Api-Key': api_key},
             timeout=10,
         )
         resp.raise_for_status()
         data = resp.json()
         version = data.get("version", "unknown")
-        return JSONResponse({"success": True, "message": f"Connected to Sonarr v{version}"})
+        return JSONResponse({"success": True, "message": f"Connected to {type_label} v{version}"})
     except requests.Timeout:
         return JSONResponse({"success": False, "message": "Connection timed out"})
     except requests.ConnectionError:
-        return JSONResponse({"success": False, "message": "Cannot connect. Is Sonarr running?"})
-    except requests.HTTPError as e:
-        if e.response is not None and e.response.status_code == 401:
-            return JSONResponse({"success": False, "message": "Invalid API key (401 Unauthorized)"})
-        return JSONResponse({"success": False, "message": f"HTTP error: {e}"})
-    except Exception as e:
-        return JSONResponse({"success": False, "message": f"Error: {str(e)[:150]}"})
-
-
-@router.post("/integrations/test-radarr")
-def test_radarr_connection():
-    """Test Radarr connection"""
-    settings_service = get_settings_service()
-    arr_settings = settings_service.get_arr_settings()
-
-    radarr_url = arr_settings.get("radarr_url", "").strip()
-    radarr_key = arr_settings.get("radarr_api_key", "").strip()
-
-    if not radarr_url or not radarr_key:
-        return JSONResponse({"success": False, "message": "Radarr URL or API key not configured. Save settings first."})
-
-    try:
-        resp = requests.get(
-            f'{radarr_url.rstrip("/")}/api/v3/system/status',
-            headers={'X-Api-Key': radarr_key},
-            timeout=10,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        version = data.get("version", "unknown")
-        return JSONResponse({"success": True, "message": f"Connected to Radarr v{version}"})
-    except requests.Timeout:
-        return JSONResponse({"success": False, "message": "Connection timed out"})
-    except requests.ConnectionError:
-        return JSONResponse({"success": False, "message": "Cannot connect. Is Radarr running?"})
+        return JSONResponse({"success": False, "message": f"Cannot connect. Is {type_label} running?"})
     except requests.HTTPError as e:
         if e.response is not None and e.response.status_code == 401:
             return JSONResponse({"success": False, "message": "Invalid API key (401 Unauthorized)"})

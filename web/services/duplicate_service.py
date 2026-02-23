@@ -258,28 +258,39 @@ class DuplicateService:
 
             # Phase 3: Classify orphans if arr configured
             arr_enabled = False
-            sonarr_url = settings.get("sonarr_url", "").strip()
-            sonarr_key = settings.get("sonarr_api_key", "").strip()
-            radarr_url = settings.get("radarr_url", "").strip()
-            radarr_key = settings.get("radarr_api_key", "").strip()
+            tracked_files: Dict[str, str] = {}
 
-            has_sonarr = bool(settings.get("sonarr_enabled") and sonarr_url and sonarr_key)
-            has_radarr = bool(settings.get("radarr_enabled") and radarr_url and radarr_key)
+            arr_instances = settings.get("arr_instances", [])
+            for inst in arr_instances:
+                if stop_check and stop_check():
+                    break
+                if not inst.get("enabled"):
+                    continue
+                inst_url = inst.get("url", "").strip()
+                inst_key = inst.get("api_key", "").strip()
+                if not inst_url or not inst_key:
+                    continue
 
-            if has_sonarr or has_radarr:
-                arr_enabled = True
+                inst_name = inst.get("name", inst.get("type", "?"))
                 if progress_callback:
-                    progress_callback(0, 0, "Querying Sonarr/Radarr APIs...")
+                    progress_callback(0, 0, f"Querying {inst_name}...")
 
-                tracked_files = self._get_arr_tracked_files(
-                    sonarr_url if has_sonarr else None,
-                    sonarr_key if has_sonarr else None,
-                    radarr_url if has_radarr else None,
-                    radarr_key if has_radarr else None,
-                    stop_check,
-                )
-                if tracked_files:
-                    self._classify_orphans(duplicates, tracked_files)
+                try:
+                    if inst["type"] == "sonarr":
+                        inst_tracked = self._get_sonarr_tracked(inst_url, inst_key, stop_check)
+                    elif inst["type"] == "radarr":
+                        inst_tracked = self._get_radarr_tracked(inst_url, inst_key)
+                    else:
+                        continue
+                    logger.info(f"{inst_name}: {len(inst_tracked)} tracked files")
+                    tracked_files.update(inst_tracked)
+                except Exception as e:
+                    logger.error(f"{inst_name} query failed: {e}")
+
+            arr_enabled = bool(tracked_files)
+
+            if tracked_files:
+                self._classify_orphans(duplicates, tracked_files)
 
             # Compute stats
             orphan_count = sum(len(item.orphan_files) for item in duplicates)
@@ -580,38 +591,6 @@ class DuplicateService:
     # ------------------------------------------------------------------
     # Private: Arr integration
     # ------------------------------------------------------------------
-
-    def _get_arr_tracked_files(
-        self,
-        sonarr_url: Optional[str],
-        sonarr_key: Optional[str],
-        radarr_url: Optional[str],
-        radarr_key: Optional[str],
-        stop_check: Optional[Callable] = None,
-    ) -> Dict[str, str]:
-        """Query Sonarr/Radarr APIs for tracked file basenames.
-
-        Returns {basename: full_arr_path}.
-        """
-        tracked: Dict[str, str] = {}
-
-        if sonarr_url and sonarr_key:
-            try:
-                sonarr_tracked = self._get_sonarr_tracked(sonarr_url, sonarr_key, stop_check)
-                tracked.update(sonarr_tracked)
-                logger.info(f"Sonarr: {len(sonarr_tracked)} tracked files")
-            except Exception as e:
-                logger.error(f"Sonarr query failed: {e}")
-
-        if radarr_url and radarr_key:
-            try:
-                radarr_tracked = self._get_radarr_tracked(radarr_url, radarr_key)
-                tracked.update(radarr_tracked)
-                logger.info(f"Radarr: {len(radarr_tracked)} tracked files")
-            except Exception as e:
-                logger.error(f"Radarr query failed: {e}")
-
-        return tracked
 
     def _get_sonarr_tracked(
         self,

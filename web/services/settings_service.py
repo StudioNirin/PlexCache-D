@@ -357,39 +357,86 @@ class SettingsService:
         raw["webhook_level"] = settings.get("webhook_level", raw.get("webhook_level", "summary"))
         return self._save_raw(raw)
 
-    def get_arr_settings(self) -> Dict[str, Any]:
-        """Get Sonarr/Radarr integration settings"""
-        raw = self._load_raw()
-        return {
-            "sonarr_enabled": raw.get("sonarr_enabled", False),
-            "sonarr_url": raw.get("sonarr_url", ""),
-            "sonarr_api_key": raw.get("sonarr_api_key", ""),
-            "radarr_enabled": raw.get("radarr_enabled", False),
-            "radarr_url": raw.get("radarr_url", ""),
-            "radarr_api_key": raw.get("radarr_api_key", ""),
-        }
+    def get_arr_instances(self) -> List[Dict[str, Any]]:
+        """Get Sonarr/Radarr integration instances.
 
-    def save_arr_settings(self, settings: Dict[str, Any]) -> bool:
-        """Save Sonarr/Radarr integration settings"""
+        Auto-migrates old flat keys (sonarr_url, radarr_url, etc.) on first access.
+        """
         raw = self._load_raw()
 
-        field_mapping = {
-            "sonarr_enabled": ("sonarr_enabled", lambda x: x == "on" or x is True),
-            "sonarr_url": ("sonarr_url", str),
-            "sonarr_api_key": ("sonarr_api_key", str),
-            "radarr_enabled": ("radarr_enabled", lambda x: x == "on" or x is True),
-            "radarr_url": ("radarr_url", str),
-            "radarr_api_key": ("radarr_api_key", str),
-        }
+        # Auto-migrate old flat keys → arr_instances list
+        if "arr_instances" not in raw:
+            instances = []
+            sonarr_url = raw.get("sonarr_url", "").strip()
+            sonarr_key = raw.get("sonarr_api_key", "").strip()
+            if sonarr_url or sonarr_key:
+                instances.append({
+                    "name": "Sonarr",
+                    "type": "sonarr",
+                    "url": sonarr_url,
+                    "api_key": sonarr_key,
+                    "enabled": bool(raw.get("sonarr_enabled", False)),
+                })
+            radarr_url = raw.get("radarr_url", "").strip()
+            radarr_key = raw.get("radarr_api_key", "").strip()
+            if radarr_url or radarr_key:
+                instances.append({
+                    "name": "Radarr",
+                    "type": "radarr",
+                    "url": radarr_url,
+                    "api_key": radarr_key,
+                    "enabled": bool(raw.get("radarr_enabled", False)),
+                })
+            if instances:
+                raw["arr_instances"] = instances
+                # Remove old flat keys
+                for key in ("sonarr_enabled", "sonarr_url", "sonarr_api_key",
+                            "radarr_enabled", "radarr_url", "radarr_api_key"):
+                    raw.pop(key, None)
+                self._save_raw(raw)
+            return instances
 
-        for form_field, (setting_key, converter) in field_mapping.items():
-            if form_field in settings:
-                try:
-                    raw[setting_key] = converter(settings[form_field])
-                except (ValueError, TypeError):
-                    pass
+        return raw.get("arr_instances", [])
 
+    def add_arr_instance(self, instance: Dict[str, Any]) -> bool:
+        """Add a new Sonarr/Radarr instance"""
+        raw = self._load_raw()
+        instances = raw.get("arr_instances", [])
+        instances.append({
+            "name": instance.get("name", "").strip(),
+            "type": instance.get("type", "sonarr"),
+            "url": instance.get("url", "").strip(),
+            "api_key": instance.get("api_key", "").strip(),
+            "enabled": instance.get("enabled", True),
+        })
+        raw["arr_instances"] = instances
         return self._save_raw(raw)
+
+    def update_arr_instance(self, index: int, instance: Dict[str, Any]) -> bool:
+        """Update an existing Sonarr/Radarr instance by index"""
+        raw = self._load_raw()
+        instances = raw.get("arr_instances", [])
+        if 0 <= index < len(instances):
+            instances[index] = {
+                "name": instance.get("name", "").strip(),
+                "type": instance.get("type", "sonarr"),
+                "url": instance.get("url", "").strip(),
+                "api_key": instance.get("api_key", "").strip(),
+                "enabled": instance.get("enabled", True),
+            }
+            raw["arr_instances"] = instances
+            return self._save_raw(raw)
+        return False
+
+    def delete_arr_instance(self, index: int) -> bool:
+        """Delete a Sonarr/Radarr instance by index"""
+        raw = self._load_raw()
+        instances = raw.get("arr_instances", [])
+        if 0 <= index < len(instances):
+            instances.pop(index)
+            raw["arr_instances"] = instances
+            return self._save_raw(raw)
+        return False
 
     def get_logging_settings(self) -> Dict[str, Any]:
         """Get logging settings"""
@@ -986,6 +1033,10 @@ class SettingsService:
             if "webhook_url" in settings:
                 settings["webhook_url"] = ""
 
+            # Redact arr instance API keys
+            for inst in settings.get("arr_instances", []):
+                inst["api_key"] = ""
+
             # Anonymize users in both _cached_users and users arrays
             for i, user in enumerate(settings.get("_cached_users", []), 1):
                 if "username" in user:
@@ -1074,7 +1125,9 @@ class SettingsService:
             "excluded_folders",
             # Advanced settings
             "max_concurrent_moves_array", "max_concurrent_moves_cache", "exit_if_active_session",
-            # Integrations (Sonarr/Radarr)
+            # Integrations (Sonarr/Radarr) - multi-instance list
+            "arr_instances",
+            # Legacy flat keys (auto-migrated to arr_instances)
             "sonarr_enabled", "sonarr_url", "sonarr_api_key",
             "radarr_enabled", "radarr_url", "radarr_api_key",
             # Legacy keys that may exist
