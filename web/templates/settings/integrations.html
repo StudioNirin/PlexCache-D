@@ -1,0 +1,170 @@
+{% extends "settings/index.html" %}
+
+{% block settings_content %}
+<form hx-put="/settings/integrations" hx-target="#settings-alert-container" hx-swap="innerHTML">
+
+<!-- Sonarr -->
+<div class="card">
+    <div class="card-header">
+        <i data-lucide="tv"></i>
+        <h2>Sonarr</h2>
+        <div style="margin-left: auto;">
+            <label class="toggle-switch" style="margin: 0;">
+                <input type="checkbox" name="sonarr_enabled" id="sonarr_enabled"
+                       {% if settings.sonarr_enabled %}checked{% endif %}
+                       onchange="toggleArrSection('sonarr', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+    <div class="card-body" id="sonarr-section" style="{% if not settings.sonarr_enabled %}opacity: 0.5; pointer-events: none;{% endif %}">
+        <div class="grid grid-2">
+            <div class="form-group">
+                <label for="sonarr_url">Sonarr URL</label>
+                <input type="url" id="sonarr_url" name="sonarr_url"
+                       value="{{ settings.sonarr_url | default('') }}"
+                       placeholder="http://localhost:8989">
+            </div>
+            <div class="form-group mb-0">
+                <label for="sonarr_api_key">API Key</label>
+                <div class="flex gap-1">
+                    <input type="password" id="sonarr_api_key" name="sonarr_api_key"
+                           value="{{ settings.sonarr_api_key | default('') }}"
+                           placeholder="Your Sonarr API key" style="flex: 1;">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="togglePasswordVisibility('sonarr_api_key', this)" title="Show/hide">
+                        <i data-lucide="eye"></i>
+                    </button>
+                </div>
+                <div class="form-hint">Found in Sonarr under Settings &gt; General &gt; API Key</div>
+            </div>
+        </div>
+        <div style="margin-top: 1rem;">
+            <button type="button" class="btn btn-sm btn-secondary"
+                    onclick="testArrConnection('sonarr')"
+                    id="sonarr-test-btn">
+                <i data-lucide="plug"></i> Test Connection
+            </button>
+            <span id="sonarr-test-result" style="margin-left: 0.75rem;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Radarr -->
+<div class="card">
+    <div class="card-header">
+        <i data-lucide="film"></i>
+        <h2>Radarr</h2>
+        <div style="margin-left: auto;">
+            <label class="toggle-switch" style="margin: 0;">
+                <input type="checkbox" name="radarr_enabled" id="radarr_enabled"
+                       {% if settings.radarr_enabled %}checked{% endif %}
+                       onchange="toggleArrSection('radarr', this.checked)">
+                <span class="toggle-slider"></span>
+            </label>
+        </div>
+    </div>
+    <div class="card-body" id="radarr-section" style="{% if not settings.radarr_enabled %}opacity: 0.5; pointer-events: none;{% endif %}">
+        <div class="grid grid-2">
+            <div class="form-group">
+                <label for="radarr_url">Radarr URL</label>
+                <input type="url" id="radarr_url" name="radarr_url"
+                       value="{{ settings.radarr_url | default('') }}"
+                       placeholder="http://localhost:7878">
+            </div>
+            <div class="form-group mb-0">
+                <label for="radarr_api_key">API Key</label>
+                <div class="flex gap-1">
+                    <input type="password" id="radarr_api_key" name="radarr_api_key"
+                           value="{{ settings.radarr_api_key | default('') }}"
+                           placeholder="Your Radarr API key" style="flex: 1;">
+                    <button type="button" class="btn btn-sm btn-secondary" onclick="togglePasswordVisibility('radarr_api_key', this)" title="Show/hide">
+                        <i data-lucide="eye"></i>
+                    </button>
+                </div>
+                <div class="form-hint">Found in Radarr under Settings &gt; General &gt; API Key</div>
+            </div>
+        </div>
+        <div style="margin-top: 1rem;">
+            <button type="button" class="btn btn-sm btn-secondary"
+                    onclick="testArrConnection('radarr')"
+                    id="radarr-test-btn">
+                <i data-lucide="plug"></i> Test Connection
+            </button>
+            <span id="radarr-test-result" style="margin-left: 0.75rem;"></span>
+        </div>
+    </div>
+</div>
+
+<!-- Info Card -->
+<div class="card">
+    <div class="card-body" style="padding: 1rem 1.25rem; display: flex; align-items: center; gap: 0.75rem;">
+        <i data-lucide="info" style="width: 18px; height: 18px; color: var(--plex-text-muted); flex-shrink: 0;"></i>
+        <span class="text-muted" style="font-size: 0.9rem;">
+            When configured, the Duplicate Scanner on the Maintenance page can automatically identify which files are tracked by your download clients and which are orphans safe to delete.
+        </span>
+    </div>
+</div>
+
+<!-- Save Button -->
+<div class="card">
+    <div class="card-body" style="padding: 1rem 1.25rem;">
+        <button type="submit" class="btn btn-primary">
+            <i data-lucide="save"></i>
+            Save Settings
+        </button>
+    </div>
+</div>
+</form>
+
+<script>
+function toggleArrSection(service, enabled) {
+    var section = document.getElementById(service + '-section');
+    if (section) {
+        section.style.opacity = enabled ? '1' : '0.5';
+        section.style.pointerEvents = enabled ? 'auto' : 'none';
+    }
+}
+
+function togglePasswordVisibility(inputId, btn) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.type === 'password') {
+        input.type = 'text';
+        btn.innerHTML = '<i data-lucide="eye-off"></i>';
+    } else {
+        input.type = 'password';
+        btn.innerHTML = '<i data-lucide="eye"></i>';
+    }
+    lucide.createIcons();
+}
+
+function testArrConnection(service) {
+    var btn = document.getElementById(service + '-test-btn');
+    var result = document.getElementById(service + '-test-result');
+    var originalHtml = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner" style="width: 14px; height: 14px;"></span> Testing...';
+    result.innerHTML = '';
+
+    fetch('/settings/integrations/test-' + service, { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success) {
+                result.innerHTML = '<span style="color: var(--success);"><i data-lucide="check-circle" style="width: 14px; height: 14px; vertical-align: middle;"></i> ' + data.message + '</span>';
+            } else {
+                result.innerHTML = '<span style="color: var(--danger);"><i data-lucide="alert-circle" style="width: 14px; height: 14px; vertical-align: middle;"></i> ' + data.message + '</span>';
+            }
+            lucide.createIcons();
+        })
+        .catch(function(err) {
+            result.innerHTML = '<span style="color: var(--danger);">Connection failed: ' + err.message + '</span>';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+            lucide.createIcons();
+        });
+}
+</script>
+{% endblock %}

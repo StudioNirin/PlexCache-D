@@ -12,6 +12,7 @@ from web.services.maintenance_runner import (
     get_maintenance_runner, ASYNC_ACTIONS, ACTION_HISTORY_LABELS,
     MaintenanceHistoryEntry, get_maintenance_history,
 )
+from web.services.duplicate_service import get_duplicate_service
 from core.system_utils import format_duration, format_cache_age
 from web.services.operation_runner import get_operation_runner
 from web.services.web_cache import get_web_cache_service, CACHE_KEY_MAINTENANCE_AUDIT, CACHE_KEY_MAINTENANCE_HEALTH, CACHE_KEY_DASHBOARD_STATS
@@ -704,6 +705,89 @@ def start_next_now():
     """Cancel countdown and immediately start the next queued action."""
     get_maintenance_runner().start_next_now()
     return JSONResponse({"ok": True})
+
+
+# === Duplicate Scanner Routes ===
+
+@router.post("/scan-duplicates", response_class=HTMLResponse)
+def scan_duplicates(request: Request):
+    """Trigger a background Plex duplicate scan"""
+    service = get_duplicate_service()
+    response = _start_async_action(
+        "scan-duplicates",
+        service.scan_plex_libraries,
+        file_count=0,
+        max_workers=1,
+    )
+    return HTMLResponse(response)
+
+
+@router.get("/duplicates", response_class=HTMLResponse)
+def get_duplicates(request: Request):
+    """Get duplicate scan results card (HTMX partial)"""
+    service = get_duplicate_service()
+    results = service.load_scan_results()
+
+    # Check if arr is configured
+    from web.services.settings_service import get_settings_service
+    arr_settings = get_settings_service().get_arr_settings()
+    arr_configured = bool(
+        (arr_settings.get("sonarr_enabled") and arr_settings.get("sonarr_url") and arr_settings.get("sonarr_api_key"))
+        or (arr_settings.get("radarr_enabled") and arr_settings.get("radarr_url") and arr_settings.get("radarr_api_key"))
+    )
+
+    return templates.TemplateResponse(
+        "maintenance/partials/duplicate_card.html",
+        {
+            "request": request,
+            "scan_results": results,
+            "arr_configured": arr_configured,
+        }
+    )
+
+
+@router.post("/delete-duplicates", response_class=HTMLResponse)
+def delete_duplicates(
+    request: Request,
+    paths: List[str] = Form(default=[]),
+    all_orphans: bool = Form(default=False),
+    dry_run: bool = Form(default=True),
+):
+    """Delete selected duplicate files or all orphans"""
+    service = get_duplicate_service()
+
+    if dry_run:
+        # Synchronous dry-run
+        if all_orphans:
+            result = service.delete_all_orphans(dry_run=True)
+        else:
+            result = service.delete_files(paths=paths, dry_run=True)
+        return templates.TemplateResponse(
+            "maintenance/partials/action_result.html",
+            {
+                "request": request,
+                "action_result": result,
+                "results": _get_cached_audit_results()[0],
+                "dry_run": True,
+            }
+        )
+
+    # Async path
+    if all_orphans:
+        response = _start_async_action(
+            "delete-duplicates",
+            service.delete_all_orphans,
+            method_kwargs={"dry_run": False},
+        )
+    else:
+        response = _start_async_action(
+            "delete-duplicates",
+            service.delete_files,
+            method_args=(paths,),
+            method_kwargs={"dry_run": False},
+            file_count=len(paths),
+        )
+    return HTMLResponse(response)
 
 
 # === Preview Routes (always dry_run) ===

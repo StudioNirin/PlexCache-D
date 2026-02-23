@@ -357,6 +357,40 @@ class SettingsService:
         raw["webhook_level"] = settings.get("webhook_level", raw.get("webhook_level", "summary"))
         return self._save_raw(raw)
 
+    def get_arr_settings(self) -> Dict[str, Any]:
+        """Get Sonarr/Radarr integration settings"""
+        raw = self._load_raw()
+        return {
+            "sonarr_enabled": raw.get("sonarr_enabled", False),
+            "sonarr_url": raw.get("sonarr_url", ""),
+            "sonarr_api_key": raw.get("sonarr_api_key", ""),
+            "radarr_enabled": raw.get("radarr_enabled", False),
+            "radarr_url": raw.get("radarr_url", ""),
+            "radarr_api_key": raw.get("radarr_api_key", ""),
+        }
+
+    def save_arr_settings(self, settings: Dict[str, Any]) -> bool:
+        """Save Sonarr/Radarr integration settings"""
+        raw = self._load_raw()
+
+        field_mapping = {
+            "sonarr_enabled": ("sonarr_enabled", lambda x: x == "on" or x is True),
+            "sonarr_url": ("sonarr_url", str),
+            "sonarr_api_key": ("sonarr_api_key", str),
+            "radarr_enabled": ("radarr_enabled", lambda x: x == "on" or x is True),
+            "radarr_url": ("radarr_url", str),
+            "radarr_api_key": ("radarr_api_key", str),
+        }
+
+        for form_field, (setting_key, converter) in field_mapping.items():
+            if form_field in settings:
+                try:
+                    raw[setting_key] = converter(settings[form_field])
+                except (ValueError, TypeError):
+                    pass
+
+        return self._save_raw(raw)
+
     def get_logging_settings(self) -> Dict[str, Any]:
         """Get logging settings"""
         raw = self._load_raw()
@@ -1040,6 +1074,9 @@ class SettingsService:
             "excluded_folders",
             # Advanced settings
             "max_concurrent_moves_array", "max_concurrent_moves_cache", "exit_if_active_session",
+            # Integrations (Sonarr/Radarr)
+            "sonarr_enabled", "sonarr_url", "sonarr_api_key",
+            "radarr_enabled", "radarr_url", "radarr_api_key",
             # Legacy keys that may exist
             "plex_source", "real_source", "nas_library_folders", "plex_library_folders"
         }

@@ -796,6 +796,125 @@ def save_logging_settings(
         )
 
 
+# =============================================================================
+# Integrations tab endpoints (Sonarr/Radarr)
+# =============================================================================
+
+@router.get("/integrations", response_class=HTMLResponse)
+def settings_integrations(request: Request):
+    """Integrations settings tab"""
+    settings_service = get_settings_service()
+    settings = settings_service.get_arr_settings()
+
+    return templates.TemplateResponse(
+        "settings/integrations.html",
+        {
+            "request": request,
+            "page_title": "Integration Settings",
+            "active_tab": "integrations",
+            "settings": settings,
+        }
+    )
+
+
+@router.put("/integrations", response_class=HTMLResponse)
+async def save_integrations_settings(request: Request):
+    """Save Sonarr/Radarr integration settings"""
+    settings_service = get_settings_service()
+    form = await request.form()
+
+    # Checkboxes: unchecked = absent from form
+    settings = {
+        "sonarr_enabled": "sonarr_enabled" in form,
+        "sonarr_url": form.get("sonarr_url", "").strip(),
+        "sonarr_api_key": form.get("sonarr_api_key", "").strip(),
+        "radarr_enabled": "radarr_enabled" in form,
+        "radarr_url": form.get("radarr_url", "").strip(),
+        "radarr_api_key": form.get("radarr_api_key", "").strip(),
+    }
+
+    success = settings_service.save_arr_settings(settings)
+
+    if success:
+        return templates.TemplateResponse(
+            "partials/alert.html",
+            {"request": request, "type": "success", "message": "Integration settings saved successfully"}
+        )
+    else:
+        return templates.TemplateResponse(
+            "partials/alert.html",
+            {"request": request, "type": "error", "message": "Failed to save settings"}
+        )
+
+
+@router.post("/integrations/test-sonarr")
+def test_sonarr_connection():
+    """Test Sonarr connection"""
+    settings_service = get_settings_service()
+    arr_settings = settings_service.get_arr_settings()
+
+    sonarr_url = arr_settings.get("sonarr_url", "").strip()
+    sonarr_key = arr_settings.get("sonarr_api_key", "").strip()
+
+    if not sonarr_url or not sonarr_key:
+        return JSONResponse({"success": False, "message": "Sonarr URL or API key not configured. Save settings first."})
+
+    try:
+        resp = requests.get(
+            f'{sonarr_url.rstrip("/")}/api/v3/system/status',
+            headers={'X-Api-Key': sonarr_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        version = data.get("version", "unknown")
+        return JSONResponse({"success": True, "message": f"Connected to Sonarr v{version}"})
+    except requests.Timeout:
+        return JSONResponse({"success": False, "message": "Connection timed out"})
+    except requests.ConnectionError:
+        return JSONResponse({"success": False, "message": "Cannot connect. Is Sonarr running?"})
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 401:
+            return JSONResponse({"success": False, "message": "Invalid API key (401 Unauthorized)"})
+        return JSONResponse({"success": False, "message": f"HTTP error: {e}"})
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Error: {str(e)[:150]}"})
+
+
+@router.post("/integrations/test-radarr")
+def test_radarr_connection():
+    """Test Radarr connection"""
+    settings_service = get_settings_service()
+    arr_settings = settings_service.get_arr_settings()
+
+    radarr_url = arr_settings.get("radarr_url", "").strip()
+    radarr_key = arr_settings.get("radarr_api_key", "").strip()
+
+    if not radarr_url or not radarr_key:
+        return JSONResponse({"success": False, "message": "Radarr URL or API key not configured. Save settings first."})
+
+    try:
+        resp = requests.get(
+            f'{radarr_url.rstrip("/")}/api/v3/system/status',
+            headers={'X-Api-Key': radarr_key},
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        version = data.get("version", "unknown")
+        return JSONResponse({"success": True, "message": f"Connected to Radarr v{version}"})
+    except requests.Timeout:
+        return JSONResponse({"success": False, "message": "Connection timed out"})
+    except requests.ConnectionError:
+        return JSONResponse({"success": False, "message": "Cannot connect. Is Radarr running?"})
+    except requests.HTTPError as e:
+        if e.response is not None and e.response.status_code == 401:
+            return JSONResponse({"success": False, "message": "Invalid API key (401 Unauthorized)"})
+        return JSONResponse({"success": False, "message": f"HTTP error: {e}"})
+    except Exception as e:
+        return JSONResponse({"success": False, "message": f"Error: {str(e)[:150]}"})
+
+
 @router.get("/schedule", response_class=HTMLResponse)
 def settings_schedule(request: Request):
     """Schedule settings tab"""

@@ -29,6 +29,8 @@ ASYNC_ACTIONS = {
     "fix-with-backup",
     "restore-plexcached",
     "delete-plexcached",
+    "scan-duplicates",
+    "delete-duplicates",
 }
 
 # Human-readable display names for actions (progress messages)
@@ -38,6 +40,8 @@ ACTION_DISPLAY = {
     "fix-with-backup": "Fixing {count} file(s) with backup...",
     "restore-plexcached": "Restoring {count} backup(s)...",
     "delete-plexcached": "Deleting {count} backup(s)...",
+    "scan-duplicates": "Scanning Plex libraries...",
+    "delete-duplicates": "Deleting {count} duplicate(s)...",
 }
 
 # Outcome-oriented labels for history entries
@@ -52,6 +56,8 @@ ACTION_HISTORY_LABELS = {
     "clean-timestamps": "Clean Timestamps",
     "fix-timestamps": "Fix Timestamps",
     "resolve-duplicate": "Resolve Duplicate",
+    "scan-duplicates": "Duplicate Scan",
+    "delete-duplicates": "Delete Duplicates",
 }
 
 
