@@ -525,10 +525,12 @@ document.addEventListener('htmx:afterSwap', function(evt) {
         }, { once: true });
     }
 
-    // Auto-refresh audit content if on maintenance page
-    var auditContent = document.getElementById('audit-content');
-    if (auditContent) {
-        htmx.ajax('GET', '/maintenance/audit?refresh=true', {target: '#audit-content', swap: 'innerHTML'});
+    // Auto-refresh audit content if on maintenance page (only on first completion, not re-polls)
+    if (!isRepoll) {
+        var auditContent = document.getElementById('audit-content');
+        if (auditContent) {
+            htmx.ajax('GET', '/maintenance/audit?refresh=true', {target: '#audit-content', swap: 'innerHTML'});
+        }
     }
 
 })();

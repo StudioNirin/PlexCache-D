@@ -665,7 +665,13 @@ class DuplicateService:
 
         Mutates items in place. If exactly one file basename matches tracked dict,
         it's the keeper; rest are orphans. If 0 or 2+ match, unresolved.
+
+        Uses case-insensitive basename matching as a fallback when exact match
+        fails, since Sonarr/Radarr may use different casing than the filesystem.
         """
+        # Build case-insensitive lookup for fallback matching
+        tracked_lower = {k.lower(): k for k in tracked_files}
+
         for item in items:
             tracked_in_set = []
             untracked_in_set = []
@@ -673,6 +679,9 @@ class DuplicateService:
             for f in item.files:
                 basename = os.path.basename(f.fs_path)
                 if basename in tracked_files:
+                    tracked_in_set.append(f)
+                elif basename.lower() in tracked_lower:
+                    # Case-insensitive fallback match
                     tracked_in_set.append(f)
                 else:
                     untracked_in_set.append(f)
@@ -688,7 +697,19 @@ class DuplicateService:
                     f.is_keeper = False
                     item.orphan_files.append(f.fs_path)
                     item.orphan_bytes += f.size
-            # else: unresolved — leave is_keeper as None
+            else:
+                # Log unresolved items for debugging
+                basenames = [os.path.basename(f.fs_path) for f in item.files]
+                if len(tracked_in_set) == 0:
+                    logger.debug(
+                        f"Duplicate unresolved (no arr match): {item.title} — "
+                        f"files: {basenames}"
+                    )
+                elif len(tracked_in_set) >= 2:
+                    logger.debug(
+                        f"Duplicate unresolved (multiple arr matches): {item.title} — "
+                        f"files: {basenames}"
+                    )
 
     # ------------------------------------------------------------------
     # Private: Post-delete cleanup
