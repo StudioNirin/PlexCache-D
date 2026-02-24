@@ -465,6 +465,14 @@ class MaintenanceService:
                 return cache_file.replace(cache_dir, array_dirs[i], 1)
         return None
 
+    def _array_to_cache_path(self, array_file: str) -> Optional[str]:
+        """Convert an array file path to its corresponding cache path"""
+        cache_dirs, array_dirs = self._get_paths()
+        for i, array_dir in enumerate(array_dirs):
+            if array_file.startswith(array_dir):
+                return array_file.replace(array_dir, cache_dirs[i], 1)
+        return None
+
     def _check_plexcached_backup(self, cache_file: str) -> tuple:
         """Check if a .plexcached backup exists on array for a cache file"""
         array_file = self._cache_to_array_path(cache_file)
@@ -640,10 +648,23 @@ class MaintenanceService:
                             # Malformed .plexcached (no media extension)
                             # Check if a media sibling exists — if so, we can repair the backup
                             # by renaming e.g. "Name.plexcached" → "Name.mkv.plexcached"
+                            #
+                            # The sibling .mkv may be on the array (file_set) OR on the cache
+                            # (cache_files). After Sonarr/Radarr renames, the .mkv typically
+                            # lives on cache while the malformed .plexcached is on the array.
                             stem = f[:-len(PLEXCACHED_EXTENSION)]  # strip .plexcached
                             repair_ext = None
                             for ext in _MEDIA_EXTENSIONS:
+                                # Check array sibling first
                                 if (stem + ext) in file_set:
+                                    repair_ext = ext
+                                    break
+                                # Check corresponding cache path
+                                relative = os.path.relpath(
+                                    os.path.join(root, stem + ext), array_dir
+                                )
+                                cache_candidate = os.path.join(cache_dir, relative)
+                                if cache_candidate in cache_files:
                                     repair_ext = ext
                                     break
 
@@ -1075,11 +1096,12 @@ class MaintenanceService:
                 errors.append(f"{os.path.basename(plexcached_path)}: No repair target found")
                 continue
 
-            # Infer the media sibling path from the repair target
+            # Verify the media sibling still exists (on array or cache)
             # repair_target = "Name.mkv.plexcached", sibling = "Name.mkv"
-            sibling_path = repair_target[:-len(PLEXCACHED_EXTENSION)]
+            array_sibling = repair_target[:-len(PLEXCACHED_EXTENSION)]
+            cache_sibling = self._array_to_cache_path(array_sibling)
 
-            if not os.path.exists(sibling_path):
+            if not os.path.exists(array_sibling) and not (cache_sibling and os.path.exists(cache_sibling)):
                 errors.append(f"{os.path.basename(plexcached_path)}: Media sibling no longer exists")
                 continue
 
