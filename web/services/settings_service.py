@@ -313,12 +313,21 @@ class SettingsService:
             "exit_if_active_session": ("exit_if_active_session", lambda x: x == "on" or x is True)
         }
 
+        # Boolean fields that come from checkboxes (absent = unchecked = False)
+        boolean_fields = {
+            "watchlist_toggle", "watched_move", "create_plexcached_backups",
+            "cleanup_empty_folders", "use_symlinks", "auto_transfer_upgrades",
+            "backup_upgraded_files", "remote_watchlist_toggle", "exit_if_active_session"
+        }
+
         for form_field, (setting_key, converter) in field_mapping.items():
             if form_field in settings:
                 try:
                     raw[setting_key] = converter(settings[form_field])
                 except (ValueError, TypeError):
                     pass  # Keep existing value on conversion error
+            elif form_field in boolean_fields:
+                raw[setting_key] = False
 
         # Handle list fields separately (not through field_mapping)
         if "excluded_folders" in settings:
