@@ -195,6 +195,9 @@ function showConfirmModal(title, message, action, formData, isDryRun = false) {
     } else if (action === 'restore-plexcached') {
         btnClass = 'btn btn-primary';
         btnText = 'Restore';
+    } else if (action === 'repair-plexcached') {
+        btnClass = 'btn btn-primary';
+        btnText = 'Repair';
     } else if (action === 'delete-plexcached' || action === 'delete-duplicates' || action === 'delete-extensionless') {
         btnClass = 'btn btn-danger';
         btnText = 'Delete';
@@ -434,6 +437,32 @@ function deleteAllOrphaned(isDryRun = false) {
     `;
 
     showConfirmModal(`${action} All Backups`, message, 'delete-plexcached', formData, isDryRun);
+}
+
+function repairAllRepairable(isDryRun = false) {
+    const formData = new FormData();
+    formData.append('repair_all', 'true');
+
+    const action = isDryRun ? 'Preview' : 'Repair';
+    const message = `
+        <div class="confirm-section">
+            <h4 style="margin: 0 0 0.5rem 0; color: var(--plex-orange);">
+                <i data-lucide="wrench" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+                ${action} All Repairable Backups
+            </h4>
+            <p style="margin: 0 0 1rem 0;">Sonarr/Radarr renamed these backup files and dropped the <code>.mkv</code> extension.</p>
+        </div>
+        <div class="confirm-section" style="background: var(--plex-surface); padding: 1rem; border-radius: 6px; margin-bottom: 1rem;">
+            <strong>What will happen:</strong>
+            <ol style="margin: 0.5rem 0 0 1.5rem; padding: 0;">
+                <li>Detect the media extension from the sibling file</li>
+                <li>Rename e.g. <code>Name.plexcached</code> → <code>Name.mkv.plexcached</code></li>
+            </ol>
+        </div>
+        <p class="text-muted"><em>This is a safe rename operation — no files are deleted or moved.</em></p>
+    `;
+
+    showConfirmModal(`${action} Backups`, message, 'repair-plexcached', formData, isDryRun);
 }
 
 function deleteAllExtensionless(isDryRun = false) {

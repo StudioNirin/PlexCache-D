@@ -429,6 +429,49 @@ def delete_plexcached(
     return HTMLResponse(response)
 
 
+@router.post("/repair-plexcached", response_class=HTMLResponse)
+def repair_plexcached(
+    request: Request,
+    paths: List[str] = Form(default=[]),
+    repair_all: bool = Form(default=False),
+    dry_run: bool = Form(default=True)
+):
+    """Repair malformed .plexcached backups by adding missing media extension"""
+    service = get_maintenance_service()
+
+    if dry_run:
+        if repair_all:
+            result = service.repair_all_plexcached(dry_run=True)
+        else:
+            result = service.repair_plexcached(paths, dry_run=True)
+
+        audit_results = service.run_full_audit()
+        return templates.TemplateResponse(
+            "maintenance/partials/action_result.html",
+            {"request": request, "action_result": result, "results": audit_results, "dry_run": True}
+        )
+
+    # Async path
+    max_workers = _get_max_workers()
+    if repair_all:
+        response = _start_async_action(
+            "repair-plexcached",
+            service.repair_all_plexcached,
+            method_kwargs={"dry_run": False},
+            max_workers=max_workers,
+        )
+    else:
+        response = _start_async_action(
+            "repair-plexcached",
+            service.repair_plexcached,
+            method_args=(paths,),
+            method_kwargs={"dry_run": False},
+            file_count=len(paths),
+            max_workers=max_workers,
+        )
+    return HTMLResponse(response)
+
+
 @router.post("/delete-extensionless", response_class=HTMLResponse)
 def delete_extensionless(
     request: Request,

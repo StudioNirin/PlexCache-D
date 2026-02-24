@@ -66,12 +66,14 @@ class OrphanedBackup:
     size: int
     size_display: str
     restore_path: str
-    backup_type: str = "orphaned"  # "orphaned", "redundant", "superseded", or "malformed"
+    backup_type: str = "orphaned"  # "orphaned", "redundant", "superseded", "malformed", or "repairable"
     # "orphaned" = no cache file AND no original on array (needs restore or delete)
     # "redundant" = no cache file BUT original exists on array (safe to delete)
     # "superseded" = old backup replaced by upgraded version on cache (safe to delete after review)
     # "malformed" = .plexcached without valid media extension (delete only — cannot restore)
+    # "repairable" = malformed .plexcached with a media sibling (can be auto-repaired by adding extension)
     replacement_file: Optional[str] = None  # Path to the replacement file (for superseded backups)
+    repair_path: Optional[str] = None  # Target path after repair (for repairable backups)
 
 
 @dataclass
@@ -635,20 +637,46 @@ class MaintenanceService:
                         try:
                             original_name = _strip_plexcached(f)
                         except ValueError:
-                            # Malformed .plexcached (no media extension) — show in UI for deletion
-                            logging.warning(f"Malformed .plexcached file (no media extension): {f}")
+                            # Malformed .plexcached (no media extension)
+                            # Check if a media sibling exists — if so, we can repair the backup
+                            # by renaming e.g. "Name.plexcached" → "Name.mkv.plexcached"
+                            stem = f[:-len(PLEXCACHED_EXTENSION)]  # strip .plexcached
+                            repair_ext = None
+                            for ext in _MEDIA_EXTENSIONS:
+                                if (stem + ext) in file_set:
+                                    repair_ext = ext
+                                    break
+
                             try:
                                 size = os.path.getsize(plexcached_path)
                             except OSError:
                                 size = 0
-                            backups_to_cleanup.append(OrphanedBackup(
-                                plexcached_path=plexcached_path,
-                                original_filename=f,
-                                size=size,
-                                size_display=format_bytes(size),
-                                restore_path="",
-                                backup_type="malformed"
-                            ))
+
+                            if repair_ext:
+                                # Repairable: media sibling found — can auto-fix by adding extension
+                                repaired_name = stem + repair_ext + PLEXCACHED_EXTENSION
+                                repair_target = os.path.join(root, repaired_name)
+                                logging.info(f"Repairable .plexcached file: {f} → {repaired_name}")
+                                backups_to_cleanup.append(OrphanedBackup(
+                                    plexcached_path=plexcached_path,
+                                    original_filename=f,
+                                    size=size,
+                                    size_display=format_bytes(size),
+                                    restore_path="",
+                                    backup_type="repairable",
+                                    repair_path=repair_target,
+                                ))
+                            else:
+                                # Truly malformed — no sibling to infer extension from
+                                logging.warning(f"Malformed .plexcached file (no media extension): {f}")
+                                backups_to_cleanup.append(OrphanedBackup(
+                                    plexcached_path=plexcached_path,
+                                    original_filename=f,
+                                    size=size,
+                                    size_display=format_bytes(size),
+                                    restore_path="",
+                                    backup_type="malformed",
+                                ))
                             continue
                         original_array_path = os.path.join(root, original_name)
 
@@ -1003,6 +1031,87 @@ class MaintenanceService:
         orphaned, _ = self._get_orphaned_plexcached()
         paths = [o.plexcached_path for o in orphaned]
         return self.delete_plexcached(paths, dry_run, **kwargs)
+
+    def repair_plexcached(self, paths: List[str], dry_run: bool = True,
+                          stop_check: Optional[Callable[[], bool]] = None,
+                          progress_callback: Optional[Callable] = None,
+                          bytes_progress_callback: Optional[Callable] = None,
+                          max_workers: int = 1,
+                          active_callback: Optional[Callable] = None) -> ActionResult:
+        """Repair malformed .plexcached files by adding the missing media extension.
+
+        Sonarr/Radarr renames treat .plexcached as the file extension, turning
+        e.g. OldName.mkv.plexcached into NewName.plexcached (dropping .mkv).
+        When a media sibling exists (NewName.mkv), we can repair the backup by
+        renaming NewName.plexcached → NewName.mkv.plexcached.
+        """
+        if not paths:
+            return ActionResult(success=False, message="No paths provided")
+
+        # Build a lookup from current path → repair target
+        backups, _ = self._get_orphaned_plexcached()
+        repair_map = {
+            b.plexcached_path: b.repair_path
+            for b in backups
+            if b.backup_type == "repairable" and b.repair_path
+        }
+
+        affected = 0
+        errors = []
+        affected_paths = []
+
+        for i, plexcached_path in enumerate(paths):
+            if stop_check and stop_check():
+                break
+            if progress_callback:
+                progress_callback(i + 1, len(paths), os.path.basename(plexcached_path))
+
+            if not plexcached_path.endswith('.plexcached'):
+                errors.append(f"Not a .plexcached file: {os.path.basename(plexcached_path)}")
+                continue
+
+            repair_target = repair_map.get(plexcached_path)
+            if not repair_target:
+                errors.append(f"{os.path.basename(plexcached_path)}: No repair target found")
+                continue
+
+            # Infer the media sibling path from the repair target
+            # repair_target = "Name.mkv.plexcached", sibling = "Name.mkv"
+            sibling_path = repair_target[:-len(PLEXCACHED_EXTENSION)]
+
+            if not os.path.exists(sibling_path):
+                errors.append(f"{os.path.basename(plexcached_path)}: Media sibling no longer exists")
+                continue
+
+            if dry_run:
+                affected += 1
+            else:
+                try:
+                    if os.path.exists(plexcached_path):
+                        os.rename(plexcached_path, repair_target)
+                        affected += 1
+                        affected_paths.append(plexcached_path)
+                        logging.info(f"Repaired: {os.path.basename(plexcached_path)} → {os.path.basename(repair_target)}")
+                    else:
+                        errors.append(f"{os.path.basename(plexcached_path)}: File not found")
+                except OSError as e:
+                    errors.append(f"{os.path.basename(plexcached_path)}: {str(e)}")
+
+        action = "Would repair" if dry_run else "Repaired"
+        return ActionResult(
+            success=len(errors) == 0,
+            message=f"{action} {affected} backup file(s)",
+            affected_count=affected,
+            errors=errors,
+            affected_paths=affected_paths
+        )
+
+    def repair_all_plexcached(self, dry_run: bool = True, **kwargs) -> ActionResult:
+        """Repair all repairable .plexcached files"""
+        backups, _ = self._get_orphaned_plexcached()
+        repairable = [b for b in backups if b.backup_type == "repairable"]
+        paths = [b.plexcached_path for b in repairable]
+        return self.repair_plexcached(paths, dry_run, **kwargs)
 
     def delete_extensionless_files(self, paths: List[str], dry_run: bool = True,
                                    stop_check: Optional[Callable[[], bool]] = None,
