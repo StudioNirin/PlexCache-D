@@ -445,7 +445,8 @@ footer {
     /* No entrance animation — HTMX replaces innerHTML every 2s and would
        replay it each time, causing a visible bounce.  Entrance animation
        is applied once via .di-pill--entrance in JS on state changes. */
-    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 /* One-shot entrance animation — added by JS only on real state changes */
 .di-pill--entrance { animation: diSlideDown 0.3s ease-out; }
@@ -527,7 +528,7 @@ footer {
 
 /* Running pills use a fixed width in compact mode to prevent jumpiness
    as content changes (phase labels, counts, durations) every 2s poll */
-.di-glow { width: 360px; min-width: 360px; }
+.di-glow { width: 360px; min-width: 360px; border: 1.5px solid var(--accent-dim, rgba(255,255,255,0.12)); }
 
 /* Subtle animated glow behind running pills — compact state only */
 .di-glow::after {
@@ -557,6 +558,22 @@ footer {
     justify-content: space-between;
     gap: 0.75rem;
     width: 100%;
+}
+
+/* Subtle expand-hint chevron on compact pill */
+.di-pill__compact::after {
+    content: '';
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid rgba(255,255,255,0.2);
+    border-bottom: 1.5px solid rgba(255,255,255,0.2);
+    transform: rotate(45deg);
+    flex-shrink: 0;
+    margin-top: -2px;
+    transition: opacity 0.2s ease;
+}
+.di-pill:hover .di-pill__compact::after {
+    border-color: rgba(255,255,255,0.45);
 }
 
 /* Pill layout sections */
@@ -603,6 +620,10 @@ footer {
     color: rgba(255,255,255,0.5);
     font-weight: 400;
     font-size: 0.78rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 220px;
 }
 
 /* Accent-colored spinner */

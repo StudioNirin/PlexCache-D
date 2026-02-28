@@ -214,6 +214,7 @@ function _diDoFlip(outer, pill, fromState, toState, isExpanding) {
         pill.style.overflow = '';
         pill.style.transition = '';
         pill.style.willChange = '';
+        pill.style.opacity = '';
         if (progressBar) {
             if (isExpanding) {
                 progressBar.style.transition = '';
@@ -225,7 +226,7 @@ function _diDoFlip(outer, pill, fromState, toState, isExpanding) {
         var c = pill.querySelector('.di-pill__compact');
         if (c) c.classList.remove('di-content-settle');
         var e = pill.querySelector('.di-pill__expanded');
-        if (e) e.classList.remove('di-content-enter');
+        if (e) { e.classList.remove('di-content-enter'); e.classList.remove('di-content-exit'); }
         outer._flipCleanup = null;
         pill.removeEventListener('transitionend', onEnd);
     }
@@ -259,6 +260,50 @@ function diPillClick() {
     else if (state === 'tier2') diSmoothSetState('tier3');
     else diSmoothSetState('false');  /* tier3 → collapse back to compact */
 }
+
+// Skip the swap if the banner state hasn't meaningfully changed.
+// Prevents the pill from flashing on every idle/completed poll cycle.
+// innerHTML comparison doesn't work because script tags differ between
+// server response and post-execution DOM.  Instead, parse the response
+// into a temporary fragment, compare data-state, and patch text in-place.
+// Running/maintenance polls always swap (they show live progress).
+document.addEventListener('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target && evt.detail.target.id === 'global-operation-banner') {
+        var banner = evt.detail.target;
+        var oldPill = banner.querySelector('.di-pill');
+        if (!oldPill) return;  // No pill yet — allow first swap
+
+        var oldState = oldPill.getAttribute('data-state') || '';
+
+        // Only skip for static states — running states need live updates
+        if (oldState.indexOf('idle') !== 0 && oldState.indexOf('completed') !== 0
+            && oldState.indexOf('maint-completed') !== 0) return;
+
+        // Parse response into a temporary DOM to read new state
+        var tmp = document.createElement('div');
+        tmp.innerHTML = evt.detail.serverResponse || '';
+        var newPill = tmp.querySelector('.di-pill');
+        if (!newPill) return;  // No pill in response — allow swap
+
+        var newState = newPill.getAttribute('data-state') || '';
+        if (oldState !== newState) return;  // State changed — allow swap
+
+        // If pill is invisible (stale animation state), allow the swap to reset it
+        var cs = getComputedStyle(oldPill);
+        if (cs.opacity === '0' || oldPill.offsetHeight === 0) return;
+
+        // Same state — patch countdown text in-place without full DOM swap
+        var newMetric = newPill.querySelector('.di-metric');
+        var oldMetric = oldPill.querySelector('.di-metric');
+        if (newMetric && oldMetric) oldMetric.textContent = newMetric.textContent;
+
+        var newLabel = newPill.querySelector('.di-pill__expanded .di-label');
+        var oldLabel = oldPill.querySelector('.di-pill__expanded .di-label');
+        if (newLabel && oldLabel) oldLabel.textContent = newLabel.textContent;
+
+        evt.detail.shouldSwap = false;
+    }
+});
 
 // After every HTMX swap: re-render icons, sync animations, one-shot entrance
 document.addEventListener('htmx:afterSwap', function(evt) {
@@ -416,6 +461,21 @@ document.addEventListener('htmx:afterSwap', function(evt) {
 {# ═══════════════════════════════════════════════════════════
    MAINTENANCE COMPLETED — Green or orange pill
    ═══════════════════════════════════════════════════════════ #}
+{# Placeholder pill prevents empty flash while JS builds the real one #}
+{% set maint_comp_color = 'completed-errors' if maint_status.errors is defined and maint_status.errors|length > 0 else 'completed' %}
+<div class="di-pill di-pill--{{ maint_comp_color }}" data-state="maint-completed"
+     hx-get="/api/operation-banner" hx-trigger="every 10s" hx-swap="innerHTML" hx-target="#global-operation-banner">
+    <div class="di-pill__compact">
+        <div class="di-pill__left">
+            <div class="di-icon"><i data-lucide="{{ 'alert-triangle' if maint_comp_color == 'completed-errors' else 'check' }}" style="width: 14px; height: 14px;"></i></div>
+            <span class="di-label">Maintenance Complete</span>
+        </div>
+        <div class="di-pill__right">
+            <span class="di-metric--muted">{{ maint_status.result_message|default('Action completed')|truncate(35, True, '...') }}</span>
+            <span class="di-metric" style="font-size: 0.78rem;">{{ maint_status.elapsed_display|default('') }}</span>
+        </div>
+    </div>
+</div>
 <script>
 (function() {
     var completionKey = 'plexcache_last_maint_completion_shown';
@@ -537,17 +597,17 @@ document.addEventListener('htmx:afterSwap', function(evt) {
 
 function dismissMaintCompletionBanner() {
     var pill = document.querySelector('#global-operation-banner .di-pill');
-    diSetExpandState('false');  /* Reset so idle pill doesn't inherit expanded layout */
-    sessionStorage.removeItem('plexcache_nextrun_dismissed');
-    if (pill && pill.style.opacity !== '0') {
+    // Guard: only dismiss if this is still a maintenance completion pill (auto-dismiss timer may fire late)
+    if (!pill || (pill.getAttribute('data-state') || '').indexOf('maint-completed') !== 0) return;
+    diSetExpandState('false');
+    if (pill.style.opacity !== '0') {
         pill.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
         pill.style.opacity = '0';
         pill.style.transform = 'translateY(-20px)';
         setTimeout(function() {
-            fetch('/maintenance/dismiss-action', { method: 'POST' });
-            document.getElementById('global-operation-banner').innerHTML =
-                '<div hx-get="/api/operation-banner" hx-trigger="every 10s" hx-swap="innerHTML" hx-target="#global-operation-banner"></div>';
-            htmx.process(document.getElementById('global-operation-banner'));
+            fetch('/maintenance/dismiss-action', { method: 'POST' }).then(function() {
+                htmx.ajax('GET', '/api/operation-banner', {target: '#global-operation-banner', swap: 'innerHTML'});
+            });
         }, 400);
     }
 }
@@ -569,7 +629,7 @@ function dismissMaintCompletionBanner() {
             <span class="di-metric--muted" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis;">{{ maint_status.error_message|truncate(30, True, '...') }}</span>
             {% endif %}
             <button class="di-dismiss" title="Dismiss"
-                    onclick="event.stopPropagation(); fetch('/maintenance/dismiss-action',{method:'POST'}); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
+                    onclick="event.stopPropagation(); fetch('/maintenance/dismiss-action',{method:'POST'}).then(function(){htmx.ajax('GET','/api/operation-banner',{target:'#global-operation-banner',swap:'innerHTML'});});">&times;</button>
         </div>
     </div>
     <div class="di-pill__expanded">
@@ -580,7 +640,7 @@ function dismissMaintCompletionBanner() {
             </div>
             <div class="di-expanded__header-right">
                 <button class="di-dismiss" title="Dismiss"
-                        onclick="event.stopPropagation(); fetch('/maintenance/dismiss-action',{method:'POST'}); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
+                        onclick="event.stopPropagation(); fetch('/maintenance/dismiss-action',{method:'POST'}).then(function(){htmx.ajax('GET','/api/operation-banner',{target:'#global-operation-banner',swap:'innerHTML'});});">&times;</button>
             </div>
         </div>
         {% if maint_status.error_message %}
@@ -745,7 +805,7 @@ function dismissMaintCompletionBanner() {
 </div>
 <script>
     lucide.createIcons();
-    sessionStorage.removeItem('plexcache_nextrun_dismissed');
+
     if (window.BannerLogStream) BannerLogStream.connect();
     {% if blocked_message is defined and blocked_message %}showBannerWarning('{{ blocked_message }}');{% endif %}
 </script>
@@ -754,6 +814,21 @@ function dismissMaintCompletionBanner() {
 {# ═══════════════════════════════════════════════════════════
    OPERATION COMPLETED — Green pill (or orange if errors)
    ═══════════════════════════════════════════════════════════ #}
+{# Placeholder pill prevents empty flash while JS builds the real one #}
+{% set op_was_stopped = status.was_stopped|default(false) %}
+{% set op_comp_color = 'completed-errors' if (status.error_count is defined and status.error_count > 0) or op_was_stopped else 'completed' %}
+<div class="di-pill di-pill--{{ op_comp_color }}" data-state="op-completed"
+     hx-get="/api/operation-banner" hx-trigger="every 10s" hx-swap="innerHTML" hx-target="#global-operation-banner">
+    <div class="di-pill__compact">
+        <div class="di-pill__left">
+            <div class="di-icon"><i data-lucide="{{ 'square' if op_was_stopped else ('alert-triangle' if op_comp_color == 'completed-errors' else 'check') }}" style="width: 14px; height: 14px;"></i></div>
+            <span class="di-label">{{ 'Stopped' if op_was_stopped else ('Dry Run Complete' if status.dry_run else 'Completed') }}</span>
+        </div>
+        <div class="di-pill__right">
+            <span class="di-metric" style="font-size: 0.78rem;">{{ status.duration_display|default('') }}</span>
+        </div>
+    </div>
+</div>
 <script>
 (function() {
     if (window.BannerLogStream) BannerLogStream.disconnect();
@@ -769,17 +844,19 @@ function dismissMaintCompletionBanner() {
     var durationDisplay = '{{ status.duration_display|default(status.duration_seconds ~ "s") }}';
     var errorCount = {{ status.error_count|default(0) }};
     var isDryRun = {{ 'true' if status.dry_run else 'false' }};
+    var wasStopped = {{ 'true' if status.was_stopped else 'false' }};
 
     // Compact summary
     var summaryParts = [];
+    if (wasStopped) summaryParts.push('Stopped by user');
     if (filesCached > 0) summaryParts.push(filesCached + ' cached');
     if (filesRestored > 0) summaryParts.push(filesRestored + ' restored');
-    if (filesCached === 0 && filesRestored === 0) summaryParts.push('No files processed');
+    if (!wasStopped && filesCached === 0 && filesRestored === 0) summaryParts.push('No files processed');
     var compactSummary = summaryParts.join(' · ');
 
-    var colorMod = errorCount > 0 ? 'completed-errors' : 'completed';
-    var iconName = errorCount > 0 ? 'alert-triangle' : 'check';
-    var labelText = isDryRun ? 'Dry Run Complete' : 'Completed';
+    var colorMod = (errorCount > 0 || wasStopped) ? 'completed-errors' : 'completed';
+    var iconName = wasStopped ? 'square' : (errorCount > 0 ? 'alert-triangle' : 'check');
+    var labelText = wasStopped ? 'Stopped' : (isDryRun ? 'Dry Run Complete' : 'Completed');
     var errorBadge = errorCount > 0 ? '<span class="di-error-badge">' + errorCount + ' error' + (errorCount !== 1 ? 's' : '') + '</span>' : '';
 
     // Expanded summary stats
@@ -844,7 +921,7 @@ function dismissMaintCompletionBanner() {
                 <div class="di-expanded__header">
                     <div class="di-expanded__header-left">
                         <div class="di-icon"><i data-lucide="${iconName}" style="width: 14px; height: 14px;"></i></div>
-                        <span class="di-label">${isDryRun ? 'Dry Run' : 'Operation'} Completed</span>
+                        <span class="di-label">${wasStopped ? 'Operation Stopped' : (isDryRun ? 'Dry Run' : 'Operation') + ' Completed'}</span>
                         ${errorBadge}
                         <span class="di-metric--muted">${durationDisplay}</span>
                     </div>
@@ -900,17 +977,17 @@ function dismissMaintCompletionBanner() {
 
 function dismissCompletionBanner() {
     var pill = document.querySelector('#global-operation-banner .di-pill');
-    diSetExpandState('false');  /* Reset so idle pill doesn't inherit expanded layout */
-    sessionStorage.removeItem('plexcache_nextrun_dismissed');
-    if (pill && pill.style.opacity !== '0') {
+    // Guard: only dismiss if this is still a completion pill (auto-dismiss timer may fire late)
+    if (!pill || (pill.getAttribute('data-state') || '').indexOf('op-completed') !== 0) return;
+    diSetExpandState('false');
+    if (pill.style.opacity !== '0') {
         pill.style.transition = 'opacity 0.4s ease-out, transform 0.4s ease-out';
         pill.style.opacity = '0';
         pill.style.transform = 'translateY(-20px)';
         setTimeout(function() {
-            fetch('/api/dismiss-operation', { method: 'POST' });
-            document.getElementById('global-operation-banner').innerHTML =
-                '<div hx-get="/api/operation-banner" hx-trigger="every 10s" hx-swap="innerHTML" hx-target="#global-operation-banner"></div>';
-            htmx.process(document.getElementById('global-operation-banner'));
+            fetch('/api/dismiss-operation', { method: 'POST' }).then(function() {
+                htmx.ajax('GET', '/api/operation-banner', {target: '#global-operation-banner', swap: 'innerHTML'});
+            });
         }, 400);
     }
 }
@@ -932,7 +1009,7 @@ function dismissCompletionBanner() {
             <span class="di-metric--muted" style="max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ status.error_message|truncate(30, True, '...') }}</span>
             {% endif %}
             <button class="di-dismiss" title="Dismiss"
-                    onclick="event.stopPropagation(); fetch('/api/dismiss-operation',{method:'POST'}); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
+                    onclick="event.stopPropagation(); fetch('/api/dismiss-operation',{method:'POST'}).then(function(){htmx.ajax('GET','/api/operation-banner',{target:'#global-operation-banner',swap:'innerHTML'});});">&times;</button>
         </div>
     </div>
     <div class="di-pill__expanded">
@@ -943,7 +1020,7 @@ function dismissCompletionBanner() {
             </div>
             <div class="di-expanded__header-right">
                 <button class="di-dismiss" title="Dismiss"
-                        onclick="event.stopPropagation(); fetch('/api/dismiss-operation',{method:'POST'}); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\ 10s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
+                        onclick="event.stopPropagation(); fetch('/api/dismiss-operation',{method:'POST'}).then(function(){htmx.ajax('GET','/api/operation-banner',{target:'#global-operation-banner',swap:'innerHTML'});});">&times;</button>
             </div>
         </div>
         {% if status.error_message %}
@@ -1106,7 +1183,7 @@ function dismissCompletionBanner() {
 
 {% else %}
 {# ═══════════════════════════════════════════════════════════
-   IDLE — Dim gold countdown pill or silent poller
+   IDLE — Countdown pill (scheduled) or "Ready" pill (no schedule)
    ═══════════════════════════════════════════════════════════ #}
 {% if scheduler_status is defined and scheduler_status and scheduler_status.next_run_relative %}
 <div class="di-pill di-pill--idle" id="idle-countdown-pill" data-state="idle"
@@ -1121,8 +1198,6 @@ function dismissCompletionBanner() {
         </div>
         <div class="di-pill__right">
             <span class="di-metric" style="color: rgba(229,160,13,0.7); font-weight: 400; font-size: 0.8rem;">{{ scheduler_status.next_run_relative }}</span>
-            <button class="di-dismiss" style="width: 22px; height: 22px; font-size: 0.8rem;" title="Dismiss"
-                    onclick="event.stopPropagation(); sessionStorage.setItem('plexcache_nextrun_dismissed','1'); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\\ 30s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
         </div>
     </div>
 
@@ -1132,10 +1207,6 @@ function dismissCompletionBanner() {
             <div class="di-expanded__header-left">
                 <div class="di-icon" style="background: rgba(229,160,13,0.15); color: #e5a00d;"><i data-lucide="clock" style="width: 14px; height: 14px;"></i></div>
                 <span class="di-label">Next run in {{ scheduler_status.next_run_relative }}</span>
-            </div>
-            <div class="di-expanded__header-right">
-                <button class="di-dismiss" style="width: 22px; height: 22px; font-size: 0.8rem;" title="Dismiss"
-                        onclick="event.stopPropagation(); sessionStorage.setItem('plexcache_nextrun_dismissed','1'); diSetExpandState('false'); document.getElementById('global-operation-banner').innerHTML='<div hx-get=/api/operation-banner hx-trigger=every\\ 30s hx-swap=innerHTML hx-target=#global-operation-banner></div>'; htmx.process(document.getElementById('global-operation-banner'));">&times;</button>
             </div>
         </div>
         <div class="di-idle-actions">
@@ -1160,14 +1231,6 @@ function dismissCompletionBanner() {
 <script>
 (function() {
     if (window.BannerLogStream) BannerLogStream.disconnect();
-    // If user dismissed the countdown this session, remove the pill and fall back to silent polling
-    if (sessionStorage.getItem('plexcache_nextrun_dismissed')) {
-        diSetExpandState('false');
-        document.getElementById('global-operation-banner').innerHTML =
-            '<div hx-get="/api/operation-banner" hx-trigger="every 30s" hx-swap="innerHTML" hx-target="#global-operation-banner"></div>';
-        htmx.process(document.getElementById('global-operation-banner'));
-        return;
-    }
     // Restore verbose preference
     var vcb = document.getElementById('di-verbose-cb');
     if (vcb && localStorage.getItem('verbose_mode') === 'true') vcb.checked = true;
@@ -1179,8 +1242,6 @@ function diTriggerRun(dryRun) {
     var formData = new FormData();
     if (verbose && verbose.checked) formData.append('verbose', 'true');
     if (dryRun) formData.append('dry_run', 'true');
-    // Clear dismissed state so running pill shows
-    sessionStorage.removeItem('plexcache_nextrun_dismissed');
     diSetExpandState('false');
     fetch('/operations/run', { method: 'POST', body: formData })
         .then(function(resp) { return resp.text(); })
@@ -1192,6 +1253,70 @@ function diTriggerRun(dryRun) {
 }
 </script>
 {% else %}
-<div hx-get="/api/operation-banner" hx-trigger="every 10s" hx-swap="innerHTML" hx-target="#global-operation-banner"></div>
+{# ── No schedule configured — persistent "Ready" pill with quick actions ── #}
+<div class="di-pill di-pill--idle" id="idle-ready-pill" data-state="idle-ready"
+     hx-get="/api/operation-banner" hx-trigger="every 30s" hx-swap="innerHTML" hx-target="#global-operation-banner"
+     onmouseenter="diHoverIn()" onmouseleave="diHoverOut()" onclick="diPillClick()">
+
+    <!-- Compact view -->
+    <div class="di-pill__compact">
+        <div class="di-pill__left">
+            <i data-lucide="play" style="width: 13px; height: 13px; color: #e5a00d; opacity: 0.6;"></i>
+            <span style="font-size: 0.78rem; color: rgba(255,255,255,0.5);">PlexCache</span>
+        </div>
+    </div>
+
+    <!-- Expanded view — quick actions -->
+    <div class="di-pill__expanded">
+        <div class="di-expanded__header">
+            <div class="di-expanded__header-left">
+                <div class="di-icon" style="background: rgba(229,160,13,0.15); color: #e5a00d;"><i data-lucide="play" style="width: 14px; height: 14px;"></i></div>
+                <span class="di-label">PlexCache Ready</span>
+            </div>
+        </div>
+        <div class="di-idle-actions">
+            <label class="di-verbose-toggle" onclick="event.stopPropagation();">
+                <input type="checkbox" id="di-verbose-cb"
+                       onchange="localStorage.setItem('verbose_mode', this.checked);">
+                <span>Verbose</span>
+            </label>
+            <button class="di-btn di-btn--primary" title="Run Now"
+                    onclick="event.stopPropagation(); diTriggerRun(false);">
+                <i data-lucide="play" style="width: 14px; height: 14px;"></i>
+                Run Now
+            </button>
+            <button class="di-btn di-btn--secondary" title="Dry Run"
+                    onclick="event.stopPropagation(); diTriggerRun(true);">
+                <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
+                Dry Run
+            </button>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    if (window.BannerLogStream) BannerLogStream.disconnect();
+    // Restore verbose preference
+    var vcb = document.getElementById('di-verbose-cb');
+    if (vcb && localStorage.getItem('verbose_mode') === 'true') vcb.checked = true;
+    lucide.createIcons();
+})();
+
+function diTriggerRun(dryRun) {
+    var verbose = document.getElementById('di-verbose-cb');
+    var formData = new FormData();
+    if (verbose && verbose.checked) formData.append('verbose', 'true');
+    if (dryRun) formData.append('dry_run', 'true');
+
+    diSetExpandState('false');
+    fetch('/operations/run', { method: 'POST', body: formData })
+        .then(function(resp) { return resp.text(); })
+        .then(function(html) {
+            document.getElementById('global-operation-banner').innerHTML = html;
+            htmx.process(document.getElementById('global-operation-banner'));
+            if (typeof lucide !== 'undefined') lucide.createIcons();
+        });
+}
+</script>
 {% endif %}
 {% endif %}

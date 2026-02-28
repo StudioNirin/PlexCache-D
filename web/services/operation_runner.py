@@ -934,12 +934,15 @@ class OperationRunner:
             status["bytes_cached_display"] = self._format_bytes(result.bytes_cached) if result.bytes_cached > 0 else ""
             status["bytes_restored_display"] = self._format_bytes(result.bytes_restored) if result.bytes_restored > 0 else ""
             status["error_count"] = result.error_count
+            status["was_stopped"] = self._stop_requested
 
             # Files processed in this run for hover detail
             with self._lock:
                 status["recent_files"] = list(self._current_run_files[:8])
 
-            if result.dry_run:
+            if self._stop_requested:
+                status["message"] = f"Stopped by user after {self._format_duration(result.duration_seconds)}"
+            elif result.dry_run:
                 status["message"] = f"Dry run completed in {self._format_duration(result.duration_seconds)}"
             else:
                 status["message"] = f"Completed: {result.files_cached} cached, {result.files_restored} restored ({self._format_duration(result.duration_seconds)})"
