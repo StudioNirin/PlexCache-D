@@ -3,9 +3,10 @@ name: Build and Publish Docker Image
 on:
   push:
     branches: [dev, v3.0, main]
-    tags: ['v*']
   pull_request:
     branches: [dev, v3.0, main]
+  release:
+    types: [published]
 
 jobs:
   test:
@@ -43,7 +44,7 @@ jobs:
 
   build-and-push:
     needs: test
-    if: github.event_name == 'push'
+    if: github.event_name == 'release' || (github.event_name == 'push' && github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -77,23 +78,23 @@ jobs:
             ${{ vars.DOCKERHUB_ENABLED == 'true' && format('{0}/plexcache-d', secrets.DOCKERHUB_USERNAME) || '' }}
             ghcr.io/${{ github.repository_owner }}/plexcache-d
           tags: |
-            # dev tag for dev branch
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
-            # latest tag for v3.0 and main branches
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/v3.0' || github.ref == 'refs/heads/main' }}
-            # semver tags for version tags (v3.0.1 -> latest, v3.0.1, v3.0, v3)
+            # dev tag for dev branch pushes (rolling test channel)
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == 'refs/heads/dev' }}
+            # semver tags from the published release's tag (v3.2.0 -> 3.2.0, 3.2, 3)
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && !contains(github.ref, '-') }}
+            # latest only for full (non-prerelease) releases
+            type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
       - name: Compute IMAGE_TAG build arg
         id: image_tag
         run: |
           if [[ "$GITHUB_REF" == refs/heads/dev ]]; then
             echo "value=dev" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            tag="${GITHUB_REF#refs/tags/}"
+            echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
           else
             echo "value=latest" >> "$GITHUB_OUTPUT"
           fi
