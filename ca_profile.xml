@@ -7,11 +7,12 @@
   <Icon>https://raw.githubusercontent.com/StudioNirin/PlexCache-D/main/docker/icon.png</Icon>
   <!-- Optional web page -->
   <WebPage>https://github.com/StudioNirin/PlexCache-D</WebPage>
-  <!-- Optional support and donation links (uncomment and fill in to enable) -->
+  <!-- Optional support links (uncomment and fill in to enable) -->
   <!-- <Forum>https://forums.unraid.net/topic/YOUR_SUPPORT_TOPIC</Forum> -->
   <!-- <Discord>https://discord.gg/YOUR_INVITE_CODE</Discord> -->
-  <!-- <DonateLink>https://github.com/sponsors/StudioNirin</DonateLink> -->
-  <!-- <DonateText>Support this project</DonateText> -->
+  <!-- Donation links -->
+  <DonateLink>https://github.com/sponsors/StudioNirin</DonateLink>
+  <DonateText>Support Development</DonateText>
   <!-- Optional photos and videos (add multiple tags as needed; YouTube URLs recommended for video) -->
   <!-- <Photo>URL to any photo</Photo> -->
   <!-- <Video>URL to any video</Video> -->
