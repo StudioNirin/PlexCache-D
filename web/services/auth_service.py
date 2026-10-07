@@ -138,6 +138,10 @@ class AuthService:
         """Check if authentication is enabled. Reads from disk each time."""
         return bool(self._load_settings().get("auth_enabled", False))
 
+    def get_api_key(self) -> str:
+        """The API key for the run/status/stop API routes ("" when none is set). Reads from disk each time."""
+        return str(self._load_settings().get("api_key", "") or "")
+
     def get_admin_plex_id(self) -> str:
         """Get the stored admin Plex account ID."""
         return str(self._load_settings().get("auth_admin_plex_id", ""))

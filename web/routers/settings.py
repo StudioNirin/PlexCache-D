@@ -1302,8 +1302,47 @@ def settings_security(request: Request):
             "active_tab": "security",
             "settings": settings,
             "active_sessions": auth_service.active_session_count(),
+            "api_base_url": _api_base_url(request),
         }
     )
+
+
+def _api_base_url(request: Request) -> str:
+    """Address shown in the API examples, honouring a reverse proxy's forwarded host."""
+    host = request.headers.get("x-forwarded-host", "").split(",")[0].strip() or request.headers.get("host", "")
+    scheme = request.headers.get("x-forwarded-proto", "").split(",")[0].strip() or request.url.scheme
+    return f"{scheme}://{host}" if host else str(request.base_url).rstrip("/")
+
+
+def _api_access_partial(request: Request, message: str = ""):
+    settings = get_settings_service().get_security_settings()
+    return templates.TemplateResponse(
+        request,
+        "settings/partials/api_access.html",
+        {"settings": settings, "api_base_url": _api_base_url(request), "api_message": message},
+    )
+
+
+@router.post("/security/api-key", response_class=HTMLResponse)
+def generate_api_key(request: Request):
+    """Generate (or replace) the API key. The old key stops working immediately."""
+    from web.api_access import generate_api_key as _new_key
+    settings_service = get_settings_service()
+    replacing = bool(settings_service.get_security_settings().get("api_key"))
+    if not settings_service.save_security_settings({"api_key": _new_key()}):
+        return _api_access_partial(request, "Failed to save the API key")
+    logger.info("[API] API key %s", "regenerated" if replacing else "generated")
+    return _api_access_partial(request, "New key generated. The previous key no longer works." if replacing
+                               else "API key generated")
+
+
+@router.delete("/security/api-key", response_class=HTMLResponse)
+def remove_api_key(request: Request):
+    """Remove the API key. API calls then need a login session (when login is on)."""
+    if not get_settings_service().save_security_settings({"api_key": ""}):
+        return _api_access_partial(request, "Failed to remove the API key")
+    logger.info("[API] API key removed")
+    return _api_access_partial(request, "API key removed")
 
 
 @router.put("/security", response_class=HTMLResponse)
@@ -1314,6 +1353,7 @@ def save_security_settings(
     auth_password_enabled: str = Form(None),
     auth_password_username: str = Form(""),
     auth_password: str = Form(""),
+    api_run_cooldown_seconds: str = Form(None),
 ):
     """Save security settings"""
     from web.services.auth_service import get_auth_service
@@ -1330,6 +1370,8 @@ def save_security_settings(
         "auth_session_hours": auth_session_hours,
         "auth_password_enabled": password_enabled,
     }
+    if api_run_cooldown_seconds is not None:
+        save_data["api_run_cooldown_seconds"] = api_run_cooldown_seconds
 
     if password_enabled:
         if auth_password_username:

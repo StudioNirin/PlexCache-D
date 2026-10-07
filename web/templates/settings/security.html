@@ -40,6 +40,22 @@
     .security-info-box + .security-info-box {
         margin-top: 0.75rem;
     }
+    .api-examples summary {
+        cursor: pointer;
+        color: var(--plex-text-muted);
+        font-size: 0.85rem;
+    }
+    .api-example {
+        margin: 0;
+        padding: 0.75rem 1rem;
+        background: var(--plex-bg-input);
+        border: 1px solid var(--plex-border);
+        border-radius: var(--plex-radius-sm);
+        font-size: 0.78rem;
+        line-height: 1.5;
+        overflow-x: auto;
+        white-space: pre;
+    }
     .security-sessions-row {
         display: flex;
         align-items: center;
@@ -175,6 +191,9 @@
                 </div>
             </div>
 
+            <!-- API Access (key + cooldown); the key buttons swap just this section -->
+            {% include "settings/partials/api_access.html" %}
+
             <!-- Recovery + Save -->
             <div class="security-section">
                 <div class="security-info-box">
@@ -199,6 +218,35 @@ function toggleAuthSections() {
     document.getElementById('auth-details').style.display = enabled ? '' : 'none';
     document.getElementById('password-fallback-section').style.display = enabled ? '' : 'none';
     document.getElementById('sessions-section').style.display = enabled ? '' : 'none';
+}
+
+function apiKeyToggle(btn) {
+    var input = document.getElementById('api_key_value');
+    if (!input) return;
+    var show = input.type === 'password';
+    input.type = show ? 'text' : 'password';
+    btn.querySelector('span').textContent = show ? 'Hide' : 'Show';
+}
+
+function apiKeyCopy(btn) {
+    var input = document.getElementById('api_key_value');
+    if (!input) return;
+    var label = btn.querySelector('span');
+    var done = function () {
+        label.textContent = 'Copied';
+        setTimeout(function () { label.textContent = 'Copy'; }, 1500);
+    };
+    // navigator.clipboard needs HTTPS or localhost; most installs are plain HTTP on the LAN.
+    if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(input.value).then(done);
+        return;
+    }
+    var wasPassword = input.type === 'password';
+    input.type = 'text';
+    input.select();
+    try { document.execCommand('copy'); done(); } catch (e) { label.textContent = 'Select and copy'; }
+    if (wasPassword) input.type = 'password';
+    window.getSelection().removeAllRanges();
 }
 
 function togglePasswordSection() {

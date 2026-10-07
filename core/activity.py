@@ -66,7 +66,7 @@ MAX_RECENT_ACTIVITY = 500
 
 # Run sources excluded from load_last_run_summary() so the dashboard's
 # "PlexCache last run" widget reflects caching runs, not maintenance.
-_LAST_RUN_DEFAULT_SOURCES = ("cli", "web", "scheduled")
+_LAST_RUN_DEFAULT_SOURCES = ("cli", "web", "scheduled", "api")
 
 # Thread locks
 _activity_file_lock = threading.Lock()
@@ -122,7 +122,7 @@ class FileActivity:
     # Pre-existing entries on disk lack these fields; loader defaults run_id=None
     # (treated as legacy, bucketed by 15-min time windows by activity_grouping).
     run_id: Optional[str] = None
-    run_source: str = "legacy"  # "scheduled" | "web" | "cli" | "maintenance" | "legacy"
+    run_source: str = "legacy"  # "scheduled" | "web" | "api" | "cli" | "maintenance" | "legacy"
     # True when this row is a header gathering a title's associated files and the
     # video itself did not move. Without it the action badge sits beside a .mkv
     # name and reads as though the video was copied.

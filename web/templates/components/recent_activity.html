@@ -57,6 +57,7 @@
 {% macro source_icon(source) -%}
 {%- if source == 'scheduled' -%}<i data-lucide="clock" class="run-source-ic"></i>
 {%- elif source == 'web' -%}<i data-lucide="monitor" class="run-source-ic"></i>
+{%- elif source == 'api' -%}<i data-lucide="webhook" class="run-source-ic"></i>
 {%- elif source == 'cli' -%}<i data-lucide="terminal" class="run-source-ic"></i>
 {%- elif source == 'maintenance' -%}<i data-lucide="wrench" class="run-source-ic"></i>
 {%- else -%}<i data-lucide="history" class="run-source-ic"></i>

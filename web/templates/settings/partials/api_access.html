@@ -1,0 +1,103 @@
+{# API Access section of Settings → Security. Rendered inside the security form;
+   the key buttons swap just this section (hx-target="#api-access-section"). #}
+{% set has_key = settings.api_key %}
+<div id="api-access-section" class="security-section">
+    <div class="security-section-header">
+        <i data-lucide="webhook"></i>
+        API Access
+    </div>
+
+    <div class="form-hint" style="margin-bottom: 1rem;">
+        Lets Tautulli, Home Assistant or a script start a cache run, check its status or stop it.
+        The key works for those three calls only; everything else still needs a login.
+    </div>
+
+    {% if api_message %}
+    <div class="security-info-box" style="margin-bottom: 0.75rem;">{{ api_message }}</div>
+    {% endif %}
+
+    {% if not settings.auth_enabled %}
+    <div class="security-info-box" style="margin-bottom: 0.75rem;">
+        <i data-lucide="info" style="width: 14px; height: 14px; vertical-align: middle;"></i>
+        Login is off, so these calls work without a key. The key is only checked once
+        <strong>Require Login</strong> is on.
+    </div>
+    {% endif %}
+
+    <div class="form-group" data-setting-id="api_key">
+        <label for="api_key_value">API Key</label>
+        {% if has_key %}
+        <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+            <input type="password" id="api_key_value" value="{{ settings.api_key }}" readonly
+                   autocomplete="off" spellcheck="false"
+                   style="flex: 1 1 18rem; min-width: 0; font-family: monospace;">
+            <button type="button" class="btn btn-sm btn-secondary" onclick="apiKeyToggle(this)" title="Show or hide the key">
+                <i data-lucide="eye"></i> <span>Show</span>
+            </button>
+            <button type="button" class="btn btn-sm btn-secondary" onclick="apiKeyCopy(this)" title="Copy the key">
+                <i data-lucide="copy"></i> <span>Copy</span>
+            </button>
+        </div>
+        <div style="display: flex; gap: 0.5rem; margin-top: 0.6rem; flex-wrap: wrap;">
+            <button type="button" class="btn btn-sm btn-secondary"
+                    hx-post="/settings/security/api-key" hx-target="#api-access-section" hx-swap="outerHTML"
+                    data-confirm-title="Regenerate API key" data-confirm-label="Regenerate"
+                    hx-confirm="Generate a new key? The current key stops working immediately, so update Tautulli / Home Assistant afterwards.">
+                <i data-lucide="refresh-cw"></i> Regenerate
+            </button>
+            <button type="button" class="btn btn-sm btn-danger"
+                    hx-delete="/settings/security/api-key" hx-target="#api-access-section" hx-swap="outerHTML"
+                    data-confirm-title="Remove API key" data-confirm-label="Remove"
+                    hx-confirm="Remove the API key? Automations using it will stop working while login is on.">
+                <i data-lucide="trash-2"></i> Remove
+            </button>
+        </div>
+        <div class="form-hint">Send it as an <code>X-Api-Key</code> header. Stored in <code>plexcache_settings.json</code> alongside your other settings.</div>
+        {% else %}
+        <div>
+            <button type="button" class="btn btn-sm btn-primary"
+                    hx-post="/settings/security/api-key" hx-target="#api-access-section" hx-swap="outerHTML">
+                <i data-lucide="key-round"></i> Generate API Key
+            </button>
+        </div>
+        <div class="form-hint">No key yet.{% if settings.auth_enabled %} API calls currently need a login session.{% endif %}</div>
+        {% endif %}
+    </div>
+
+    <div class="form-group" data-setting-id="api_run_cooldown_seconds" style="max-width: 20rem;">
+        <label for="api_run_cooldown_seconds">API Run Cooldown (seconds)</label>
+        <input type="number" id="api_run_cooldown_seconds" name="api_run_cooldown_seconds"
+               min="0" max="3600" step="1" value="{{ settings.api_run_cooldown_seconds }}">
+        <div class="form-hint">
+            Minimum gap between runs started through the API. Calls inside the gap, or while a run is going,
+            are merged into one follow-up run rather than dropped. 0 turns the gap off.
+        </div>
+    </div>
+
+    <details class="api-examples">
+        <summary>Examples: curl, Tautulli, Home Assistant</summary>
+        <div class="form-hint" style="margin: 0.75rem 0 0.4rem;">Replace <code>YOUR_API_KEY</code> with the key above.
+            If you reach PlexCache through a different address, adjust the URL.</div>
+        <pre class="api-example"><code># Start a run (202: started or queued; 409: maintenance or a CLI run is in progress)
+curl -X POST -H "X-Api-Key: YOUR_API_KEY" {{ api_base_url }}/api/run
+
+# Status, including any queued run
+curl -H "X-Api-Key: YOUR_API_KEY" {{ api_base_url }}/api/status
+
+# Stop the current run after the file in progress, and drop a queued run
+curl -X POST -H "X-Api-Key: YOUR_API_KEY" {{ api_base_url }}/api/stop</code></pre>
+
+        <div class="form-hint" style="margin: 0.75rem 0 0.4rem;"><strong>Tautulli</strong>: Settings → Notification Agents → Add → Webhook.
+            Webhook URL <code>{{ api_base_url }}/api/run</code>, method <code>POST</code>.
+            Under Triggers tick <em>Playback Stop</em>. Under Data → Playback Stop → JSON Headers:</div>
+        <pre class="api-example"><code>{"X-Api-Key": "YOUR_API_KEY"}</code></pre>
+
+        <div class="form-hint" style="margin: 0.75rem 0 0.4rem;"><strong>Home Assistant</strong>: in <code>configuration.yaml</code>, then call <code>rest_command.plexcache_run</code> from an automation:</div>
+        <pre class="api-example"><code>rest_command:
+  plexcache_run:
+    url: "{{ api_base_url }}/api/run"
+    method: POST
+    headers:
+      X-Api-Key: "YOUR_API_KEY"</code></pre>
+    </details>
+</div>
