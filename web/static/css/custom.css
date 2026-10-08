@@ -1450,6 +1450,28 @@ footer {
     .di-pill__detail {
         max-height: 150px;
     }
+
+    /* Collapsed idle pill ("Next run" countdown / "PlexCache" ready): keep the
+       info on the left and the actions on the right. The compact row has three
+       flex items (label group, time + Run group, ::after chevron), so with
+       space-between the time and the Run button floated in the middle once the
+       pill stretched to full width. Scoped to the two idle pills; the expanded
+       view hides .di-pill__compact entirely and is not affected. */
+    #idle-countdown-pill .di-pill__compact,
+    #idle-ready-pill .di-pill__compact {
+        justify-content: flex-start;
+        gap: 0.5rem;
+    }
+
+    #idle-countdown-pill .di-pill__right,
+    #idle-ready-pill .di-pill__right {
+        display: contents;
+    }
+
+    #idle-countdown-pill .di-btn--run,
+    #idle-ready-pill .di-btn--run {
+        margin-left: auto;
+    }
 }
 
 /* ── Activity Filter Pills ────────────────────────────── */
