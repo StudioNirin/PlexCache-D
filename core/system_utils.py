@@ -6,6 +6,7 @@ Handles OS detection, system-specific operations, and path conversions.
 import os
 import platform
 import posixpath
+import re
 import shutil
 import subprocess
 import atexit
@@ -319,27 +320,52 @@ def parse_size_bytes(size_str: str) -> int:
     if not size_str or size_str.strip() == "0":
         return 0
     size_str = size_str.strip().upper()
+    units = (('TB', 1024**4), ('GB', 1024**3), ('MB', 1024**2),
+             ('T', 1024**4), ('G', 1024**3), ('M', 1024**2))
+    number, multiplier = size_str, 1024**3  # Bare numbers default to GB
+    for suffix, factor in units:
+        if size_str.endswith(suffix):
+            number, multiplier = size_str[:-len(suffix)], factor
+            break
     try:
-        if size_str.endswith('TB'):
-            return int(float(size_str[:-2]) * 1024**4)
-        elif size_str.endswith('GB'):
-            return int(float(size_str[:-2]) * 1024**3)
-        elif size_str.endswith('MB'):
-            return int(float(size_str[:-2]) * 1024**2)
-        elif size_str.endswith('T'):
-            return int(float(size_str[:-1]) * 1024**4)
-        elif size_str.endswith('G'):
-            return int(float(size_str[:-1]) * 1024**3)
-        elif size_str.endswith('M'):
-            return int(float(size_str[:-1]) * 1024**2)
-        else:
-            return int(float(size_str) * 1024**3)  # Default to GB
+        value = int(float(number) * multiplier)
     except ValueError:
+        value = None
+    # Callers treat a negative result as a percentage (see
+    # ConfigManager._parse_cache_limit), so a negative size must never get through.
+    if value is None or value < 0:
         # 0 means "no limit" to every caller, so an unparseable value silently
         # removes the cap the user thought they set. Say so; callers that can
         # name the setting add their own message on top.
         logging.warning(f"Could not read '{size_str}' as a size. Expected e.g. 500GB, 1.5T or 250. Treating as unset.")
         return 0
+    return value
+
+
+def size_setting_error(value: str, allow_percent: bool = True) -> Optional[str]:
+    """Why a size setting (cache_limit, min_free_space, ...) can't be read, or None.
+
+    Accepts the same formats as parse_size_bytes() and, when allow_percent,
+    a percentage from just above 0 to 100. Empty or "0" means unset and is valid.
+    Used by the Settings page to refuse a value the engine would ignore.
+    """
+    text = (value or "").strip()
+    if not text or text == "0":
+        return None
+    hint = "Use a size like 500GB or 1.5T" + (", or a percentage like 75%" if allow_percent else "")
+    if text.endswith("%"):
+        if not allow_percent:
+            return f"'{text}' is a percentage; this needs a size. {hint}."
+        try:
+            percent = float(text[:-1])
+        except ValueError:
+            return f"'{text}' isn't a percentage. {hint}."
+        if not 0 < percent <= 100:
+            return f"'{text}' must be more than 0% and at most 100%."
+        return None
+    if not re.fullmatch(r"\d+(\.\d+)?\s*(TB|GB|MB|T|G|M)?", text, re.IGNORECASE):
+        return f"'{text}' isn't a size. {hint}."
+    return None
 
 
 def format_bytes(bytes_value: int) -> str:

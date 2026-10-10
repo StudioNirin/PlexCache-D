@@ -20,7 +20,8 @@
             <div class="form-hint">
                 <i data-lucide="alert-triangle" style="width: 14px; height: 14px; color: var(--plex-orange); vertical-align: middle;"></i>
                 Only include sensitive data if you're backing up for yourself. Uncheck to share settings safely.
-                When unchecked, redacts: tokens, Plex URL, RSS URL, webhook URL, client ID, usernames, and user IDs.
+                When unchecked, redacts: tokens, Plex URL, RSS URL, webhook URL, client ID, usernames, user IDs, login details and the API key.
+                Importing a redacted file keeps the existing values for these.
             </div>
         </div>
 
@@ -343,9 +344,11 @@ async function importSettings() {
         // If success, prompt to reload
         if (html.includes('alert-success')) {
             setTimeout(() => {
-                if (confirm('Settings imported successfully. Reload page to see changes?')) {
-                    window.location.reload();
-                }
+                pcConfirm({
+                    title: 'Settings imported',
+                    message: 'Settings imported successfully. Reload the page to see the changes?',
+                    confirmLabel: 'Reload'
+                }).then(ok => { if (ok) window.location.reload(); });
             }, 500);
         }
     } catch (error) {

@@ -36,7 +36,7 @@
 <form hx-post="/api/pinned/toggle"
       hx-target="this"
       hx-swap="outerHTML"
-      {% if confirm %}hx-confirm="{{ confirm }}"{% endif %}
+      {% if confirm %}hx-confirm="{{ confirm }}" data-confirm-title="Unpin"{% endif %}
       class="pinned-toggle-form"
       data-rating-key="{{ rating_key }}"
       data-is-pinned="{{ 'true' if is_pinned else 'false' }}"

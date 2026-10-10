@@ -4,6 +4,7 @@ import json
 import logging
 import time
 import uuid
+from html import escape as html_escape
 import threading
 from pathlib import Path
 from typing import Dict, Any, List
@@ -17,7 +18,7 @@ from starlette.datastructures import ImmutableMultiDict
 from web.config import templates, CONFIG_DIR, PLEXCACHE_PRODUCT_VERSION
 from web.dependencies import parse_form
 from web.services import get_settings_service, get_scheduler_service
-from core.system_utils import get_disk_usage, detect_zfs, parse_size_bytes
+from core.system_utils import get_disk_usage, detect_zfs, parse_size_bytes, size_setting_error
 from core.file_operations import (
     PRIORITY_RANGE_ONDECK_MIN,
     PRIORITY_RANGE_ONDECK_MAX,
@@ -292,12 +293,16 @@ def sync_users(request: Request):
             }
         )
     else:
+        # Keep the current table under the error; it replaces the container.
+        user_settings = settings_service.get_user_settings()
         return templates.TemplateResponse(
             request,
-            "partials/alert.html",
+            "settings/partials/users_sync_result.html",
             {
-                "type": "error",
-                "message": f"Sync failed: {result['error']}"
+                "success": False,
+                "message": f"Sync failed: {result['error']}",
+                "users": user_settings.get("users", []),
+                "settings": user_settings
             }
         )
 
@@ -316,9 +321,11 @@ def save_user_settings(request: Request, form_data: ImmutableMultiDict = Depends
     # Checkbox ON = include (not skip), OFF = skip
     for user in users:
         title = user.get("title", "")
-        # Checkboxes: "on" if checked, absent if unchecked
-        include_ondeck = form_data.get(f"include_ondeck_{title}") == "on"
-        include_watchlist = form_data.get(f"include_watchlist_{title}") == "on"
+        # Checkboxes: "on" if checked, absent if unchecked. The admin's toggles
+        # are rendered disabled (always included), and a disabled checkbox is
+        # never submitted, so it would read as "off" here.
+        include_ondeck = user.get("is_admin") or form_data.get(f"include_ondeck_{title}") == "on"
+        include_watchlist = user.get("is_admin") or form_data.get(f"include_watchlist_{title}") == "on"
 
         # skip = NOT include (checkbox off means skip)
         user["skip_ondeck"] = not include_ondeck
@@ -425,6 +432,48 @@ def test_user_token(request: Request, form_data: ImmutableMultiDict = Depends(pa
         return HTMLResponse(f'<span class="badge badge-error">Failed: {error}</span>')
 
 
+def _custom_mappings(mappings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Mappings not linked to a Plex library, each tagged with its list index."""
+    custom = []
+    for i, m in enumerate(mappings):
+        if m.get("section_id") is None:
+            m_copy = dict(m)
+            m_copy["_index"] = i
+            custom.append(m_copy)
+    return custom
+
+
+def _render_custom_mappings(request: Request, mappings: List[Dict[str, Any]], oob: bool = False) -> str:
+    return templates.get_template("settings/partials/custom_mappings.html").render(
+        {"request": request, "orphan_mappings": _custom_mappings(mappings), "oob": oob})
+
+
+def _page_alert(level: str, message: str) -> HTMLResponse:
+    """Show a problem in the page alert area instead of the swap target."""
+    return HTMLResponse(
+        f"<div class='alert alert-{level}'>{html_escape(message)}</div>",
+        headers={"HX-Retarget": "#settings-alert-container", "HX-Reswap": "innerHTML"},
+    )
+
+
+_STALE_MAPPING_MESSAGE = ("The path mappings changed since this page loaded. "
+                          "Reload the page and try again.")
+
+
+def _is_stale_mapping(mappings: List[Dict[str, Any]], index: int,
+                      expected_plex_path, expected_real_path) -> bool:
+    """Cards address a mapping by list index, which shifts when another mapping
+    is deleted. The card also sends the paths it was rendered with, so a stale
+    card is refused instead of acting on whichever mapping now sits at that index."""
+    if expected_plex_path is None and expected_real_path is None:
+        return False
+    if not 0 <= index < len(mappings):
+        return True
+    current = mappings[index]
+    return ((expected_plex_path is not None and current.get("plex_path") != expected_plex_path)
+            or (expected_real_path is not None and current.get("real_path") != expected_real_path))
+
+
 @router.get("/paths", response_class=HTMLResponse)
 def settings_paths(request: Request):
     """Path mappings tab — redirects to Libraries tab"""
@@ -469,19 +518,10 @@ def add_path_mapping(
     success = settings_service.add_path_mapping(mapping)
 
     if success:
-        # Return the new mapping card with its index
-        mappings = settings_service.get_path_mappings()
-        index = len(mappings) - 1
-        return templates.TemplateResponse(
-            request,
-            "settings/partials/path_mapping_card.html",
-            {
-                "mapping": mapping,
-                "index": index,
-            }
-        )
+        # Re-render the whole Custom Mappings section (it may not exist yet)
+        return HTMLResponse(_render_custom_mappings(request, settings_service.get_path_mappings()))
     else:
-        return HTMLResponse("<div class='alert alert-error'>Failed to add mapping</div>")
+        return _page_alert("error", "Failed to add mapping")
 
 
 @router.put("/paths/{index}", response_class=HTMLResponse)
@@ -494,10 +534,16 @@ def update_path_mapping(
     cache_path: str = Form(""),
     host_cache_path: str = Form(""),
     cacheable: str = Form(None),
-    enabled: str = Form(None)
+    enabled: str = Form(None),
+    expected_plex_path: str = Form(None),
+    expected_real_path: str = Form(None),
 ):
     """Update an existing path mapping"""
     settings_service = get_settings_service()
+
+    if _is_stale_mapping(settings_service.get_path_mappings(), index,
+                         expected_plex_path, expected_real_path):
+        return _page_alert("warning", _STALE_MAPPING_MESSAGE)
 
     # Non-blocking: log a warning if the cache_path looks risky (issue #136).
     cache_path_warning = settings_service.warn_cache_path(cache_path)
@@ -529,26 +575,30 @@ def update_path_mapping(
             }
         )
     else:
-        return HTMLResponse("<div class='alert alert-error'>Failed to update mapping</div>")
+        return _page_alert("error", "Failed to update mapping")
 
 
 @router.delete("/paths/{index}", response_class=HTMLResponse)
-def delete_path_mapping(request: Request, index: int):
-    """Delete a path mapping and return the updated list"""
+def delete_path_mapping(
+    request: Request,
+    index: int,
+    expected_plex_path: str = Query(None),
+    expected_real_path: str = Query(None),
+):
+    """Delete a custom path mapping and return the Custom Mappings section"""
     settings_service = get_settings_service()
+
+    if _is_stale_mapping(settings_service.get_path_mappings(), index,
+                         expected_plex_path, expected_real_path):
+        return _page_alert("warning", _STALE_MAPPING_MESSAGE)
 
     success = settings_service.delete_path_mapping(index)
 
     if success:
-        # Return the full updated list with fresh indices
-        mappings = settings_service.get_path_mappings()
-        return templates.TemplateResponse(
-            request,
-            "settings/partials/path_mappings_list.html",
-            {"mappings": mappings}
-        )
+        # Fresh indices for every remaining card
+        return HTMLResponse(_render_custom_mappings(request, settings_service.get_path_mappings()))
     else:
-        return HTMLResponse("<div class='alert alert-error'>Failed to delete mapping</div>")
+        return _page_alert("error", "Failed to delete mapping")
 
 
 # =============================================================================
@@ -573,15 +623,13 @@ def settings_libraries(request: Request):
 
     # Group mappings by section_id
     library_mappings = {}  # section_id -> list of mappings (with _index)
-    orphan_mappings = []   # mappings without section_id
     for i, m in enumerate(mappings):
-        m_copy = dict(m)
-        m_copy["_index"] = i
         sid = m.get("section_id")
         if sid is not None:
+            m_copy = dict(m)
+            m_copy["_index"] = i
             library_mappings.setdefault(sid, []).append(m_copy)
-        else:
-            orphan_mappings.append(m_copy)
+    orphan_mappings = _custom_mappings(mappings)
 
     # Build library cards
     library_cards = []
@@ -760,11 +808,15 @@ async def update_library_paths(request: Request, section_id: int):
     settings_service._rebuild_valid_sections(raw)
     settings_service._save_raw(raw)
 
+    # Deleting shifted the list indices the Custom Mappings cards address,
+    # so refresh that section too (out-of-band).
+    custom_refresh = _render_custom_mappings(request, all_mappings, oob=True) if indices_to_delete else ""
+
     # Re-render the full library card
     libraries = settings_service.get_plex_libraries()
     library = next((lib for lib in libraries if lib["id"] == section_id), None)
     if not library:
-        return HTMLResponse("<div class='alert alert-success alert-auto-dismiss'>Saved</div>")
+        return HTMLResponse("<div class='alert alert-success alert-auto-dismiss'>Saved</div>" + custom_refresh)
 
     lib_maps = []
     for i, m in enumerate(all_mappings):
@@ -780,11 +832,9 @@ async def update_library_paths(request: Request, section_id: int):
         "has_mappings": bool(lib_maps),
     }
 
-    return templates.TemplateResponse(
-        request,
-        "settings/partials/library_card.html",
-        {"card": card}
-    )
+    card_html = templates.get_template("settings/partials/library_card.html").render(
+        {"request": request, "card": card})
+    return HTMLResponse(card_html + custom_refresh)
 
 
 @router.put("/libraries/paths/{index}", response_class=HTMLResponse)
@@ -946,6 +996,25 @@ def save_cache_settings(request: Request, form_data: ImmutableMultiDict = Depend
     # Handle list fields that need getlist() instead of single value
     excluded_folders = form_data.getlist("excluded_folders")
     settings_dict["excluded_folders"] = [f for f in excluded_folders if f and f.strip()]
+
+    # The engine reads an unparseable size as "no limit", so refuse it here
+    # rather than save a cap that silently does nothing.
+    size_fields = (("cache_drive_size", "Cache Drive Size", False),
+                   ("cache_limit", "Cache Limit", True),
+                   ("min_free_space", "Min Free Space", True),
+                   ("plexcache_quota", "PlexCache Quota", True))
+    problems = []
+    for key, label, allow_percent in size_fields:
+        if key in settings_dict:
+            error = size_setting_error(str(settings_dict[key]), allow_percent=allow_percent)
+            if error:
+                problems.append(f"{label}: {error}")
+    if problems:
+        return templates.TemplateResponse(
+            request,
+            "partials/alert.html",
+            {"type": "error", "message": "Not saved. " + " ".join(problems)}
+        )
 
     success = settings_service.save_cache_settings(settings_dict)
 
@@ -1383,15 +1452,14 @@ def add_arr_instance(
     success = settings_service.add_arr_instance(instance)
 
     if success:
-        instances = settings_service.get_arr_instances()
-        index = len(instances) - 1
+        # Re-render the whole list so the "none configured" placeholder goes
         return templates.TemplateResponse(
             request,
-            "settings/partials/arr_instance_card.html",
-            {"instance": instances[index], "index": index}
+            "settings/partials/arr_instances_list.html",
+            {"instances": settings_service.get_arr_instances()}
         )
     else:
-        return HTMLResponse("<div class='alert alert-error'>Failed to add instance</div>")
+        return _page_alert("error", "Failed to add instance")
 
 
 @router.put("/integrations/instances/{index}", response_class=HTMLResponse)
@@ -1694,13 +1762,16 @@ def import_settings_file(request: Request, form_data: ImmutableMultiDict = Depen
     result = settings_service.import_settings(settings_data, merge=merge_mode)
 
     if result["success"]:
-        mode_text = "merged with" if merge_mode else "replaced"
+        mode_text = "merged" if merge_mode else "replaced"
         return templates.TemplateResponse(
             request,
             "partials/alert.html",
             {
                 "type": "success",
-                "message": f"Settings {mode_text} successfully. Refresh the page to see changes."
+                "message": (f"Settings {mode_text} successfully. "
+                            + ("It was exported without sensitive data, so this installation's Plex connection, "
+                               "login, keys and users were kept. " if result.get("redacted") else "")
+                            + "Refresh the page to see changes.")
             }
         )
     else:

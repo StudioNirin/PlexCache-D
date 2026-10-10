@@ -183,6 +183,20 @@ def save_schedule_settings(request: Request, form_data: ImmutableMultiDict = Dep
         verbose=form_data.get("verbose") == "on",
     )
 
+    # An expression APScheduler can't parse would be saved, then fail when the
+    # job is created, leaving a schedule that shows Enabled but never runs.
+    if config.schedule_type == "cron":
+        check = scheduler_service.validate_cron(config.cron_expression)
+        if not check["valid"]:
+            return templates.TemplateResponse(
+                request,
+                "partials/alert.html",
+                {
+                    "type": "error",
+                    "message": f"Not saved. Cron expression '{config.cron_expression}' is not valid: {check['message']}"
+                }
+            )
+
     result = scheduler_service.update_config(config)
 
     if result["success"]:

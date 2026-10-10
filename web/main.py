@@ -229,6 +229,11 @@ async def setup_redirect_middleware(request: Request, call_next):
         # During setup, also allow path browsing for the wizard
         if path.startswith("/api/browse") or path.startswith("/api/validate-path"):
             return await call_next(request)
+        # HTMX requests (e.g. the banner poll): a plain redirect would be
+        # followed and the whole Setup page swapped into the element. Make
+        # htmx navigate the page instead, as auth_middleware does for login.
+        if request.headers.get("HX-Request") == "true":
+            return Response(status_code=200, headers={"HX-Redirect": "/setup"})
         return RedirectResponse(url="/setup", status_code=307)
 
     return await call_next(request)

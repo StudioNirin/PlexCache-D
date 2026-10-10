@@ -828,11 +828,16 @@ body {
     border-radius: 6px;
     font-size: 0.8rem;
     font-weight: 500;
+    /* Badges with and without an icon sit side by side (status + OnDeck);
+       baseline alignment dropped the text-only one to the icon's bottom edge. */
+    vertical-align: middle;
 }
 
-.badge i {
+/* Lucide replaces <i data-lucide> with <svg>, so size the svg */
+.badge svg {
     width: 12px;
     height: 12px;
+    flex-shrink: 0;
 }
 
 .badge-success {
@@ -1680,6 +1685,40 @@ textarea {
     padding: 1rem 1.25rem;
     border-top: 1px solid var(--plex-border);
     background: inherit;
+}
+
+.modal-close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.25rem;
+    background: none;
+    border: none;
+    border-radius: var(--plex-radius-sm);
+    color: var(--plex-text-muted);
+    cursor: pointer;
+}
+
+.modal-close:hover {
+    color: var(--plex-text);
+    background: var(--plex-bg-hover);
+}
+
+.modal-close svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Shared confirm dialog (pcConfirm / hx-confirm in app.js) */
+.pc-confirm .modal-content {
+    max-width: 440px;
+    width: calc(100% - 2rem);
+}
+
+.pc-confirm-message {
+    margin: 0;
+    line-height: 1.5;
+    white-space: pre-line;
 }
 
 .text-center {

@@ -1,0 +1,21 @@
+{# Custom path mappings (not linked to a Plex library) on the Libraries tab.
+   Always rendered, even when empty, so Add has a target. Add and Delete
+   re-render the whole section, so every card's index stays current. #}
+<div id="custom-mappings"{% if oob %} hx-swap-oob="true"{% endif %}>
+    {% if orphan_mappings %}
+    <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
+    <h3 style="font-size: 1rem; color: var(--plex-text-muted); margin-bottom: 1rem;">
+        <i data-lucide="folder" style="width: 18px; height: 18px; vertical-align: middle;"></i>
+        Custom Mappings
+    </h3>
+    <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 0.75rem;">
+        These path mappings are not linked to a Plex library. They may have been created manually or before library linking was available.
+    </p>
+    <div id="orphan-mappings">
+        {% for mapping in orphan_mappings %}
+        {% set index = mapping._index %}
+        {% include "settings/partials/path_mapping_card.html" %}
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

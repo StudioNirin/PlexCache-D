@@ -17,9 +17,10 @@
                             <i data-lucide="pencil"></i>
                         </button>
                         <button type="button" class="btn btn-sm btn-danger"
-                                hx-delete="/settings/paths/{{ index }}"
-                                hx-target="#path-mappings"
-                                hx-swap="innerHTML"
+                                hx-delete="/settings/paths/{{ index }}?expected_plex_path={{ mapping.plex_path | urlencode }}&expected_real_path={{ mapping.real_path | urlencode }}"
+                                hx-target="#custom-mappings"
+                                hx-swap="outerHTML"
+                                data-confirm-title="Delete path mapping" data-confirm-label="Delete"
                                 hx-confirm="Delete path mapping '{{ mapping.name }}'?">
                             <i data-lucide="trash-2"></i>
                         </button>
@@ -56,6 +57,9 @@
         <div class="card mb-2" style="background: var(--plex-bg-darker); border-color: var(--plex-orange);">
             <div class="card-body">
                 <form hx-put="/settings/paths/{{ index }}" hx-target="#mapping-{{ index }}" hx-swap="outerHTML">
+                    {# Lets the server refuse the save if the list changed since this card rendered #}
+                    <input type="hidden" name="expected_plex_path" value="{{ mapping.plex_path }}">
+                    <input type="hidden" name="expected_real_path" value="{{ mapping.real_path }}">
                     <div class="flex items-center justify-between mb-2">
                         <strong style="color: var(--plex-orange-text);">Editing: {{ mapping.name }}</strong>
                         <button type="button" class="btn btn-sm btn-secondary" onclick="toggleEditMode({{ index }})">

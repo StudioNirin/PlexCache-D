@@ -13,12 +13,100 @@ from web.config import DATA_DIR, SETTINGS_FILE, IS_DOCKER
 # Defaults come from core's dataclass rather than repeated literals: the engine
 # reads CacheConfig, so anything hardcoded here can disagree with what runs.
 from core.config import CacheConfig
+from core.system_utils import size_setting_error
 from web.dependencies import get_system_detector
 
 logger = logging.getLogger(__name__)
 
 # File cache for Plex data (web UI) - use DATA_DIR for Docker compatibility
 WEB_PLEX_CACHE_FILE = DATA_DIR / "web_plex_cache.json"
+
+# Top-level keys a settings import recognises; anything else is reported as
+# "unknown" (and kept). tests/test_settings_import_validation.py checks every
+# key the engine reads and the app writes is listed here.
+KNOWN_SETTINGS_KEYS = frozenset({
+    # Plex connection and libraries
+    "PLEX_URL", "PLEX_TOKEN", "valid_sections", "path_mappings", "plexcache_client_id",
+    "cache_dir", "plex_db_path",
+    # Users
+    "users", "users_toggle", "skip_ondeck", "skip_watchlist",
+    "remote_watchlist_toggle", "remote_watchlist_rss_url", "auth_link_enabled",
+    # Cache behaviour
+    "watchlist_toggle", "watchlist_episodes", "watchlist_retention_days", "ondeck_retention_days",
+    "watched_move", "prefetch_minimum_minutes", "create_plexcached_backups", "cleanup_empty_folders",
+    "hardlinked_files", "check_hardlinks_on_restore", "use_symlinks", "cache_retention_hours",
+    "cache_associated_files", "auto_transfer_upgrades", "backup_upgraded_files",
+    "days_to_monitor", "number_episodes", "excluded_folders",
+    "recently_added_days", "recently_added_max_items",
+    # Cache limits and eviction
+    "cache_drive_size", "cache_limit", "min_free_space", "plexcache_quota",
+    "cache_eviction_mode", "cache_eviction_threshold_percent", "eviction_min_priority",
+    # Pinned media
+    "pinned_preferred_resolution", "pinned_media",
+    # Notifications and logging
+    "notification_type", "unraid_level", "unraid_levels", "webhook_url",
+    "webhook_level", "webhook_levels", "max_log_files", "keep_error_logs_days",
+    "activity_retention_hours", "time_format",
+    # Schedule
+    "schedule",
+    # Security and API access
+    "auth_enabled", "auth_session_hours", "auth_admin_plex_id", "auth_admin_username",
+    "auth_password_enabled", "auth_password_username", "auth_password_hash", "auth_password_salt",
+    "api_key", "api_run_cooldown_seconds",
+    # Advanced settings
+    "max_concurrent_moves_array", "max_concurrent_moves_cache", "exit_if_active_session",
+    # Integrations (Sonarr/Radarr) - multi-instance list
+    "arr_instances",
+    # Legacy keys (migrated or ignored on load)
+    "sonarr_enabled", "sonarr_url", "sonarr_api_key",
+    "radarr_enabled", "radarr_url", "radarr_api_key",
+    "plex_source", "real_source", "nas_library_folders", "plex_library_folders",
+    "skip_users", "skip", "firststart", "debug",
+    # Set by export_settings(include_sensitive=False)
+    "_redacted_export",
+})
+
+REDACTED = "[REDACTED]"
+REDACTED_EXPORT_MARKER = "_redacted_export"
+
+# What export_settings(include_sensitive=False) blanks, masks or anonymises.
+# Importing such a file keeps the current installation's values for these.
+REDACTED_EXPORT_KEYS = (
+    "PLEX_URL", "PLEX_TOKEN", "plexcache_client_id", "remote_watchlist_rss_url", "webhook_url",
+    "auth_password_hash", "auth_password_salt", "auth_password_username",
+    "auth_admin_plex_id", "auth_admin_username", "api_key", "users", "_cached_users",
+)
+
+
+def is_redacted_export(settings_data: Dict[str, Any]) -> bool:
+    """True for a file exported without sensitive data. Older exports have no
+    marker, so the placeholder text identifies them."""
+    if settings_data.get(REDACTED_EXPORT_MARKER):
+        return True
+    return REDACTED in json.dumps({k: v for k, v in settings_data.items() if k != "pinned_media"})
+
+
+def _keep_current_secrets(imported: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge a redacted export onto the current settings without writing its
+    placeholders: "[REDACTED]" URLs, blank tokens and anonymised users would
+    otherwise replace the real values and break the Plex connection and login."""
+    import copy
+    result = {k: v for k, v in imported.items() if k != REDACTED_EXPORT_MARKER}
+    for key in REDACTED_EXPORT_KEYS:
+        if key in current:
+            result[key] = copy.deepcopy(current[key])
+        else:
+            result.pop(key, None)
+    # Sonarr/Radarr keys were blanked; take each one from the matching current instance
+    current_keys = {(i.get("type"), i.get("url")): i.get("api_key", "")
+                    for i in current.get("arr_instances", []) if isinstance(i, dict)}
+    if isinstance(result.get("arr_instances"), list):
+        result["arr_instances"] = [
+            dict(i, api_key=i.get("api_key") or current_keys.get((i.get("type"), i.get("url")), ""))
+            if isinstance(i, dict) else i
+            for i in result["arr_instances"]
+        ]
+    return result
 
 
 @dataclass
@@ -1528,6 +1616,9 @@ class SettingsService:
             for inst in settings.get("arr_instances", []):
                 inst["api_key"] = ""
 
+            # The API key starts cache runs; an import without one simply has no key
+            settings.pop("api_key", None)
+
             # Redact auth credentials and identity
             if "auth_password_hash" in settings:
                 settings["auth_password_hash"] = "[REDACTED]"
@@ -1550,12 +1641,17 @@ class SettingsService:
             for i, user in enumerate(settings.get("users", []), 1):
                 if "title" in user:
                     user["title"] = f"User {i}"
+                if "username" in user:
+                    user["username"] = f"User_{i}"
                 if "token" in user:
                     user["token"] = ""
                 if "id" in user:
                     user["id"] = 0
                 if "uuid" in user:
                     user["uuid"] = "[REDACTED]"
+
+            # Lets an import tell this apart from a backup (see _keep_current_secrets)
+            settings[REDACTED_EXPORT_MARKER] = True
 
         return settings
 
@@ -1581,10 +1677,16 @@ class SettingsService:
             errors.append("Settings file is empty")
             return {"valid": False, "errors": errors, "warnings": warnings}
 
-        # Check for required Plex settings (warn if missing)
-        if not settings_data.get("PLEX_URL"):
+        redacted = is_redacted_export(settings_data)
+        if redacted:
+            warnings.append("This file was exported without sensitive data. Importing it keeps this "
+                            "installation's Plex connection, login, API key, users and Sonarr/Radarr keys.")
+
+        # Check for required Plex settings (warn if missing). A redacted file
+        # never has them; the import keeps the current ones instead.
+        if not redacted and not settings_data.get("PLEX_URL"):
             warnings.append("Missing PLEX_URL - will need to configure Plex connection")
-        if not settings_data.get("PLEX_TOKEN"):
+        if not redacted and not settings_data.get("PLEX_TOKEN"):
             warnings.append("Missing PLEX_TOKEN - will need to re-authenticate with Plex")
 
         # Check path mappings structure
@@ -1600,7 +1702,7 @@ class SettingsService:
                         warnings.append(f"Path mapping '{mapping.get('name', i + 1)}' missing plex_path or real_path")
 
         # Check users structure
-        users = settings_data.get("users", [])
+        users = [] if redacted else settings_data.get("users", [])
         if users:
             if not isinstance(users, list):
                 errors.append("users must be a list")
@@ -1609,34 +1711,15 @@ class SettingsService:
                 if users_without_tokens > 0:
                     warnings.append(f"{users_without_tokens} user(s) missing tokens - will need to sync users")
 
-        # Check cache limit format
-        cache_limit = settings_data.get("cache_limit", "")
-        if cache_limit and not any(cache_limit.upper().endswith(suffix) for suffix in ["GB", "TB", "MB"]):
-            warnings.append(f"cache_limit '{cache_limit}' may not be a valid format (expected e.g., '250GB')")
+        # Size settings the engine would read as "no limit"
+        for key, allow_percent in (("cache_drive_size", False), ("cache_limit", True),
+                                   ("min_free_space", True), ("plexcache_quota", True)):
+            problem = size_setting_error(str(settings_data.get(key) or ""), allow_percent=allow_percent)
+            if problem:
+                warnings.append(f"{key}: {problem}")
 
         # Check for unknown top-level keys (informational)
-        known_keys = {
-            "PLEX_URL", "PLEX_TOKEN", "valid_sections", "path_mappings", "users",
-            "users_toggle", "skip_ondeck", "skip_watchlist", "watchlist_toggle",
-            "watchlist_episodes", "watchlist_retention_days", "watched_move", "prefetch_minimum_minutes",
-            "create_plexcached_backups", "hardlinked_files", "check_hardlinks_on_restore", "use_symlinks", "cache_retention_hours",
-            "cache_limit", "min_free_space", "plexcache_quota", "cache_eviction_mode", "cache_eviction_threshold_percent",
-            "eviction_min_priority", "remote_watchlist_toggle", "remote_watchlist_rss_url",
-            "notification_type", "unraid_level", "unraid_levels", "webhook_url",
-            "webhook_level", "webhook_levels", "max_log_files", "keep_error_logs_days",
-            "days_to_monitor", "number_episodes", "activity_retention_hours",
-            "excluded_folders", "pinned_preferred_resolution", "pinned_media",
-            # Advanced settings
-            "max_concurrent_moves_array", "max_concurrent_moves_cache", "exit_if_active_session",
-            # Integrations (Sonarr/Radarr) - multi-instance list
-            "arr_instances",
-            # Legacy flat keys (auto-migrated to arr_instances)
-            "sonarr_enabled", "sonarr_url", "sonarr_api_key",
-            "radarr_enabled", "radarr_url", "radarr_api_key",
-            # Legacy keys that may exist
-            "plex_source", "real_source", "nas_library_folders", "plex_library_folders"
-        }
-        unknown_keys = set(settings_data.keys()) - known_keys
+        unknown_keys = set(settings_data.keys()) - KNOWN_SETTINGS_KEYS
         if unknown_keys:
             warnings.append(f"Unknown settings will be preserved: {', '.join(sorted(unknown_keys)[:5])}")
 
@@ -1662,6 +1745,9 @@ class SettingsService:
             # pins live in a separate tracker JSON, not inside plexcache_settings.
             settings_data = dict(settings_data)  # don't mutate caller's dict
             pinned_payload = settings_data.pop("pinned_media", None)
+            redacted = is_redacted_export(settings_data)
+            if redacted:
+                settings_data = _keep_current_secrets(settings_data, self._load_raw())
 
             if merge:
                 # Load existing and merge
@@ -1695,7 +1781,11 @@ class SettingsService:
                         logging.warning(f"import_settings: pinned tracker restore failed: {e}")
                 # Invalidate caches since settings changed
                 self.invalidate_plex_cache()
-                return {"success": True, "message": "Settings imported successfully"}
+                message = "Settings imported successfully"
+                if redacted:
+                    message += (" (exported without sensitive data, so this installation's Plex "
+                                "connection, login, keys and users were kept)")
+                return {"success": True, "message": message, "redacted": redacted}
             else:
                 return {"success": False, "message": "Failed to save settings file"}
 
