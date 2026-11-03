@@ -1492,20 +1492,22 @@ class SettingsService:
             logging.warning(f"export_settings: could not read pinned tracker: {e}")
 
         if not include_sensitive:
-            # Remove main Plex token
-            if "PLEX_TOKEN" in settings:
-                settings["PLEX_TOKEN"] = ""
+            # Remove main Plex token and Jellyfin API key
+            for key in ("PLEX_TOKEN", "jellyfin_api_key"):
+                if key in settings:
+                    settings[key] = ""
 
-            # Redact Plex URL (preserve structure, hide IP/machine ID)
-            if "PLEX_URL" in settings and settings["PLEX_URL"]:
-                url = settings["PLEX_URL"]
-                # Preserve protocol and port, redact the host
-                match = re.match(r'(https?://)(.+?)(:(\d+))?(/.*)?$', url)
-                if match:
-                    port = f":{match.group(4)}" if match.group(4) else ""
-                    settings["PLEX_URL"] = f"{match.group(1)}[REDACTED]{port}"
-                else:
-                    settings["PLEX_URL"] = "[REDACTED]"
+            # Redact Plex/Jellyfin URL (preserve structure, hide IP/machine ID)
+            for key in ("PLEX_URL", "jellyfin_url"):
+                if key in settings and settings[key]:
+                    url = settings[key]
+                    # Preserve protocol and port, redact the host
+                    match = re.match(r'(https?://)(.+?)(:(\d+))?(/.*)?$', url)
+                    if match:
+                        port = f":{match.group(4)}" if match.group(4) else ""
+                        settings[key] = f"{match.group(1)}[REDACTED]{port}"
+                    else:
+                        settings[key] = "[REDACTED]"
 
             # Redact client ID
             if "plexcache_client_id" in settings:

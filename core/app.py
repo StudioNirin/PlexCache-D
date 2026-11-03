@@ -29,7 +29,7 @@ from core.config import ConfigManager
 from core.logging_config import LoggingManager, reset_warning_error_flag
 from core.system_utils import SystemDetector, FileUtils, SingleInstanceLock, get_disk_usage, get_array_direct_path, detect_zfs, set_zfs_prefixes, format_bytes, create_dir_with_ownership, check_cache_share_alignment, cleanup_empty_parent_folders, resolve_cache_boundary, sweep_empty_folders
 from core.plex_api import PlexManager, OnDeckItem
-from core.jellyfin_api import JellyfinManager
+from core.jellyfin_api import ActiveSessions, JellyfinManager
 from core.file_operations import MultiPathModifier, SiblingFileFinder, FileFilter, FileMover, PlexcachedRestorer, CacheTimestampTracker, WatchlistTracker, OnDeckTracker, CachePriorityManager, PlexcachedMigration, get_media_identity, find_matching_plexcached, is_directory_level_file, is_video_file, save_json_atomically
 from core.pinned_media import PinnedMediaTracker, resolve_pins_to_paths
 
@@ -1080,22 +1080,25 @@ class PlexCacheApp:
     def _check_active_sessions(self) -> None:
         """Check for active Plex and Jellyfin sessions."""
         sessions = self.plex_manager.get_active_sessions()
-        jellyfin_paths = self.jellyfin_manager.get_active_session_paths() if self.jellyfin_manager else []
-        if jellyfin_paths:
-            if self.config_manager.exit_if_active_session:
-                logging.warning('There is an active Jellyfin session. Exiting...')
-                sys.exit('There is an active Jellyfin session. Exiting...')
-            for real_path in self.file_path_modifier.modify_file_paths(jellyfin_paths):
+        jellyfin_sessions = (self.jellyfin_manager.get_active_sessions() if self.jellyfin_manager
+                             else ActiveSessions(0, []))
+        # Count sessions, not paths: a session on an unmapped Jellyfin path still counts
+        active_servers = [name for name, found in (("Plex", sessions), ("Jellyfin", jellyfin_sessions.count))
+                          if found]
+        if not active_servers:
+            return
+        if self.config_manager.exit_if_active_session:
+            message = f"There is an active session on {' and '.join(active_servers)}. Exiting..."
+            logging.warning(message)
+            sys.exit(message)
+        if sessions:
+            self._process_active_sessions(sessions)
+        if jellyfin_sessions.paths:
+            for real_path in self.file_path_modifier.modify_file_paths(jellyfin_sessions.paths):
                 logging.debug(f"Skipping active Jellyfin session file: {real_path}")
                 self.files_to_skip.append(real_path)
-        if sessions:
-            if self.config_manager.exit_if_active_session:
-                logging.warning('There is an active session. Exiting...')
-                sys.exit('There is an active session. Exiting...')
-            else:
-                self._process_active_sessions(sessions)
-                if self.files_to_skip:
-                    logging.info(f"[FILTER] Skipped {len(self.files_to_skip)} active session(s)")
+        if self.files_to_skip:
+            logging.info(f"[FILTER] Skipped {len(self.files_to_skip)} active session(s)")
     
     def _process_active_sessions(self, sessions: List) -> None:
         """Process active sessions and add files to skip list."""
@@ -1383,8 +1386,10 @@ class PlexCacheApp:
                 logging.warning("Skipping array restore - OnDeck data incomplete (Plex server unreachable)")
                 logging.warning("Files will remain on cache until next successful run")
             elif self.jellyfin_manager and not self.jellyfin_manager.is_ondeck_data_complete():
-                logging.warning("Skipping array restore - Jellyfin OnDeck data incomplete (Jellyfin unreachable)")
-                logging.warning("Files will remain on cache until next successful run")
+                logging.warning("Skipping array restore - Jellyfin OnDeck data incomplete (Jellyfin unreachable "
+                                "or a request failed, see errors above)")
+                logging.warning("Plex files are held on cache too until Jellyfin answers; "
+                                "remove the Jellyfin URL/API key to stop using it as an OnDeck source")
             elif (self.config_manager.cache.watchlist_toggle
                     and not self.plex_manager.is_watchlist_data_complete()):
                 logging.warning("Skipping array restore - watchlist data incomplete (plex.tv unreachable)")

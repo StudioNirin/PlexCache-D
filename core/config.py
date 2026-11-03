@@ -524,18 +524,38 @@ class ConfigManager:
         """Load optional Jellyfin settings. Env vars win so the API key can stay out of the settings file."""
         self.jellyfin.url = os.environ.get('JELLYFIN_URL') or self.settings_data.get('jellyfin_url', '')
         self.jellyfin.api_key = os.environ.get('JELLYFIN_API_KEY') or self.settings_data.get('jellyfin_api_key', '')
-        self.jellyfin.path_mappings = self.settings_data.get('jellyfin_path_mappings', {}) or {}
+        self.jellyfin.path_mappings = self._valid_jellyfin_mappings(
+            self.settings_data.get('jellyfin_path_mappings', {}) or {}, 'jellyfin_path_mappings')
         self.jellyfin.skip_users = self.settings_data.get('jellyfin_skip_users', []) or []
         # JELLYFIN_PATH_MAPPINGS is a JSON object, JELLYFIN_SKIP_USERS a comma-separated list
         env_mappings = os.environ.get('JELLYFIN_PATH_MAPPINGS')
         if env_mappings:
             try:
-                self.jellyfin.path_mappings = json.loads(env_mappings)
+                parsed = json.loads(env_mappings)
             except json.JSONDecodeError as e:
                 logging.error(f"Invalid JSON in JELLYFIN_PATH_MAPPINGS: {e}")
+            else:
+                if isinstance(parsed, dict):
+                    self.jellyfin.path_mappings = self._valid_jellyfin_mappings(parsed, 'JELLYFIN_PATH_MAPPINGS')
+                else:
+                    logging.error(f"JELLYFIN_PATH_MAPPINGS must be a JSON object, got {type(parsed).__name__}")
         env_skip_users = os.environ.get('JELLYFIN_SKIP_USERS')
         if env_skip_users:
             self.jellyfin.skip_users = [u.strip() for u in env_skip_users.split(',') if u.strip()]
+
+    @staticmethod
+    def _valid_jellyfin_mappings(mappings: Any, source: str) -> Dict[str, str]:
+        """Keep only string → string entries; a bad optional setting must not stop the Plex run."""
+        if not isinstance(mappings, dict):
+            logging.error(f"{source} must be an object of Jellyfin path → Plex path, got {type(mappings).__name__}")
+            return {}
+        valid = {}
+        for jellyfin_path, plex_path in mappings.items():
+            if isinstance(jellyfin_path, str) and isinstance(plex_path, str) and jellyfin_path and plex_path:
+                valid[jellyfin_path] = plex_path
+            else:
+                logging.error(f"Ignoring invalid {source} entry: {jellyfin_path!r} → {plex_path!r}")
+        return valid
 
     def _validate_eviction_settings(self) -> None:
         """Range-check the eviction trio, and flag a threshold that cannot act.
