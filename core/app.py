@@ -584,6 +584,8 @@ class PlexCacheApp:
         if not jellyfin.path_mappings:
             logging.warning("[JELLYFIN] jellyfin_path_mappings is empty — no Jellyfin item will match a library")
         logging.info(f"[JELLYFIN] Additional OnDeck source enabled: {jellyfin.url}")
+        if jellyfin.favorites_toggle and not self.config_manager.cache.watchlist_toggle:
+            logging.warning("[JELLYFIN] jellyfin_favorites_toggle needs watchlist_toggle — favorites are not cached")
         self.jellyfin_manager = JellyfinManager(
             url=jellyfin.url,
             api_key=jellyfin.api_key,
@@ -1394,6 +1396,13 @@ class PlexCacheApp:
                     and not self.plex_manager.is_watchlist_data_complete()):
                 logging.warning("Skipping array restore - watchlist data incomplete (plex.tv unreachable)")
                 logging.warning("Files will remain on cache until next successful run")
+            elif (self.config_manager.cache.watchlist_toggle
+                    and self.config_manager.jellyfin.favorites_toggle
+                    and self.jellyfin_manager
+                    and not self.jellyfin_manager.is_favorites_data_complete()):
+                logging.warning("Skipping array restore - Jellyfin favorites incomplete (Jellyfin unreachable "
+                                "or a request failed, see errors above)")
+                logging.warning("Files will remain on cache until next successful run")
             else:
                 logging.debug("Checking for files to move back to array...")
                 # Provide Plex media type metadata for classification
@@ -1640,6 +1649,28 @@ class PlexCacheApp:
                         logging.debug(f"Skipped {rss_expired_count} RSS watchlist items due to retention expiry")
                 except Exception as e:
                     logging.error(f"Failed to fetch remote watchlist via RSS: {str(e)}")
+
+            # --- Jellyfin favorites (Jellyfin has no watchlist) ---
+            if self.jellyfin_manager and self.config_manager.jellyfin.favorites_toggle:
+                jellyfin_favorites = self.jellyfin_manager.get_favorite_media(
+                    self.config_manager.cache.watchlist_episodes)
+                logging.info(f"[FETCH] Jellyfin favorites: {len(jellyfin_favorites)} items")
+                for file_path, username, watchlisted_at, episode_info, rating_key, media_type in jellyfin_favorites:
+                    if self.should_stop:
+                        logging.info("Operation stopped during watchlist processing")
+                        return result_set
+                    # No favorited-at date in Jellyfin: the tracker counts from the first run that sees it
+                    self.watchlist_tracker.update_entry(
+                        file_path, username, watchlisted_at,
+                        rating_key=rating_key, media_type=media_type,
+                    )
+                    user_retention = per_user_wl_days.get(username, retention_days)
+                    if user_retention > 0:
+                        if self.watchlist_tracker.is_expired(file_path, user_retention, username=username):
+                            expired_count += 1
+                            continue
+                    result_set.add(file_path)
+                    plex_path_to_info[file_path] = episode_info
 
             if expired_count > 0:
                 # INFO, matching the OnDeck twin above: items dropping out of

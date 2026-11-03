@@ -141,6 +141,8 @@ class JellyfinConfig:
     api_key: str = ""
     path_mappings: Dict[str, str] = field(default_factory=dict)
     skip_users: List[str] = field(default_factory=list)
+    # Unplayed favorites act as a Jellyfin watchlist (needs watchlist_toggle)
+    favorites_toggle: bool = False
 
     @property
     def enabled(self) -> bool:
@@ -539,6 +541,10 @@ class ConfigManager:
                     self.jellyfin.path_mappings = self._valid_jellyfin_mappings(parsed, 'JELLYFIN_PATH_MAPPINGS')
                 else:
                     logging.error(f"JELLYFIN_PATH_MAPPINGS must be a JSON object, got {type(parsed).__name__}")
+        self.jellyfin.favorites_toggle = bool(self.settings_data.get('jellyfin_favorites_toggle', False))
+        env_favorites = os.environ.get('JELLYFIN_FAVORITES_TOGGLE')
+        if env_favorites:
+            self.jellyfin.favorites_toggle = env_favorites.strip().lower() in ('1', 'true', 'yes', 'on')
         env_skip_users = os.environ.get('JELLYFIN_SKIP_USERS')
         if env_skip_users:
             self.jellyfin.skip_users = self._split_users(env_skip_users)

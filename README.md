@@ -336,8 +336,11 @@ Enabled when URL and API key are set (Jellyfin Dashboard → API Keys). Env vars
 | `JELLYFIN_API_KEY` | `jellyfin_api_key` | |
 | `JELLYFIN_PATH_MAPPINGS` (JSON) | `jellyfin_path_mappings` | `{"/media/": "/mnt/user/plex-media/"}` |
 | `JELLYFIN_SKIP_USERS` (comma-separated) | `jellyfin_skip_users` | `guest,kid` |
+| `JELLYFIN_FAVORITES_TOGGLE` | `jellyfin_favorites_toggle` | `true` |
 
 `jellyfin_path_mappings` translates the paths Jellyfin reports into the paths Plex reports, so the regular path mappings apply. Prefixes match whole folders (`/media` does not match `/media2`), trailing slashes don't matter. Items without a matching prefix are ignored and logged once per library folder as `[JELLYFIN] Skipping unmapped path`.
+
+Jellyfin has no watchlist. With `jellyfin_favorites_toggle` (and `watchlist_toggle`) on, unplayed favorites stand in for it: favorite movies, and the first `watchlist_episodes` unplayed episodes of favorite series (specials skipped). They follow the watchlist rules, including `watchlist_retention_days`, counted from the first run that sees the favorite since Jellyfin doesn't record when it was set.
 
 All enabled Jellyfin users are fetched, regardless of `users_toggle` (that setting only applies to Plex). Use `jellyfin_skip_users` to leave users out.
 

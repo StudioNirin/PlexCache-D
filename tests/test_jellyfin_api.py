@@ -264,6 +264,145 @@ class TestOnDeck:
         assert m.is_ondeck_data_complete()
 
 
+def _favorite_routes(favorites, seasons=None, season_episodes=None, users=None):
+    """/Items serves the favorites list or, with parentId, one season's unplayed episodes."""
+    season_episodes = season_episodes or {}
+
+    def items(params):
+        if params.get("isFavorite") == "true":
+            return {"Items": favorites}
+        return {"Items": season_episodes[params["parentId"]][:params["limit"]]}
+
+    return {
+        "/Users": users if users is not None else [{"Id": "u1", "Name": "roger"}],
+        "/Items": items,
+        "/Shows/s1/Seasons": {"Items": seasons or []},
+    }
+
+
+class TestFavorites:
+    def test_unplayed_movie(self):
+        movie = {"Id": "m1", "Type": "Movie", "Name": "Film", "MediaSources": [{"Path": "/media/en/Movies/film.mkv"}]}
+        m = _manager(_favorite_routes([movie]))
+
+        assert m.get_favorite_media(episodes_per_show=3) == [
+            ("/mnt/user/plex-media/Movies/film.mkv", "roger", None, None, None, "movie")]
+        params = next(p for path, p in m.session.calls if path == "/Items")
+        assert (params["isFavorite"], params["isPlayed"]) == ("true", "false")
+        assert m.is_favorites_data_complete()
+
+    def test_series_first_unplayed_episodes_without_specials(self):
+        series = {"Id": "s1", "Type": "Series", "Name": "Show"}
+        seasons = [{"Id": "sea2", "IndexNumber": 2}, {"Id": "sea0", "IndexNumber": 0}, {"Id": "sea1", "IndexNumber": 1}]
+        season_episodes = {
+            "sea0": [_episode("x1", 0, 1, "/media/en/TV/s00e01.mkv")],
+            "sea1": [_episode("e5", 1, 5, "/media/en/TV/s01e05.mkv"), _episode("e6", 1, 6, "/media/en/TV/s01e06.mkv")],
+            "sea2": [_episode(f"f{i}", 2, i, f"/media/en/TV/s02e0{i}.mkv") for i in range(1, 5)],
+        }
+        m = _manager(_favorite_routes([series], seasons, season_episodes))
+
+        items = m.get_favorite_media(episodes_per_show=3)
+
+        assert [(i[0], i[3], i[5]) for i in items] == [
+            ("/mnt/user/plex-media/TV/s01e05.mkv", {"show": "Show", "season": 1, "episode": 5}, "episode"),
+            ("/mnt/user/plex-media/TV/s01e06.mkv", {"show": "Show", "season": 1, "episode": 6}, "episode"),
+            ("/mnt/user/plex-media/TV/s02e01.mkv", {"show": "Show", "season": 2, "episode": 1}, "episode"),
+        ]
+        season_calls = [p for path, p in m.session.calls if path == "/Items" and "parentId" in p]
+        assert [(p["parentId"], p["limit"]) for p in season_calls] == [("sea1", 3), ("sea2", 1)]
+        assert all(p["isPlayed"] == "false" for p in season_calls)
+
+    def test_skip_users(self):
+        movie = {"Id": "m1", "Type": "Movie", "Path": "/media/en/a.mkv"}
+        users = [{"Id": "u1", "Name": "roger"}, {"Id": "u2", "Name": "kid"}]
+        m = _manager(_favorite_routes([movie], users=users), skip_users=["kid"])
+
+        assert [i[1] for i in m.get_favorite_media(episodes_per_show=1)] == ["roger"]
+
+    @pytest.mark.critical
+    def test_failed_series_keeps_other_favorites(self):
+        movie = {"Id": "m1", "Type": "Movie", "Path": "/media/en/a.mkv"}
+        series = {"Id": "s1", "Type": "Series", "Name": "Show"}
+        routes = _favorite_routes([series, movie])
+        routes["/Shows/s1/Seasons"] = RuntimeError("timeout")
+        m = _manager(routes)
+
+        assert [i[0] for i in m.get_favorite_media(episodes_per_show=1)] == ["/mnt/user/plex-media/a.mkv"]
+        assert not m.is_favorites_data_complete()
+
+    @pytest.mark.critical
+    def test_failed_favorites_list_marks_incomplete(self):
+        routes = _favorite_routes([])
+        routes["/Items"] = RuntimeError("down")
+        m = _manager(routes)
+
+        assert m.get_favorite_media(episodes_per_show=1) == []
+        assert not m.is_favorites_data_complete()
+        # OnDeck completeness is tracked separately
+        assert m.is_ondeck_data_complete()
+
+    @pytest.mark.critical
+    def test_user_list_failure_marks_incomplete(self):
+        m = _manager({"/Users": RuntimeError("down")})
+
+        assert m.get_favorite_media(episodes_per_show=1) == []
+        assert not m.is_favorites_data_complete()
+
+
+class TestFavoritesInWatchlist:
+    """PlexCacheApp._process_watchlist feeds Jellyfin favorites into the watchlist tracker."""
+
+    def _app(self, favorites, favorites_toggle=True, expired=()):
+        from core.app import PlexCacheApp
+        app = object.__new__(PlexCacheApp)
+        app.config_manager = MagicMock()
+        app.config_manager.cache.watchlist_retention_days = 30
+        app.config_manager.cache.watchlist_episodes = 3
+        app.config_manager.cache.remote_watchlist_toggle = False
+        app.config_manager.cache.cache_associated_files = "none"
+        app.config_manager.plex.per_user_watchlist_days = {}
+        app.config_manager.plex.users = []
+        app.config_manager.jellyfin.favorites_toggle = favorites_toggle
+        app.plex_manager = MagicMock()
+        app.plex_manager.get_watchlist_media.return_value = []
+        app.jellyfin_manager = MagicMock()
+        app.jellyfin_manager.get_favorite_media.return_value = favorites
+        app.watchlist_tracker = MagicMock()
+        app.watchlist_tracker.is_expired.side_effect = lambda path, days, username=None: path in expired
+        app.file_path_modifier = MagicMock()
+        app.file_path_modifier.modify_file_paths.side_effect = lambda paths: list(paths)
+        app._stop_requested = False
+        app.media_info_map = {}
+        app.sibling_map = {}
+        app.files_to_skip = []
+        return app
+
+    def test_favorites_added_and_tracked(self):
+        favorites = [("/data/film.mkv", "roger", None, None, None, "movie"),
+                     ("/data/e1.mkv", "roger", None, {"show": "Show", "season": 1, "episode": 1}, None, "episode")]
+        app = self._app(favorites)
+
+        result = app._process_watchlist()
+
+        assert {"/data/film.mkv", "/data/e1.mkv"} <= result
+        app.jellyfin_manager.get_favorite_media.assert_called_once_with(3)
+        app.watchlist_tracker.update_entry.assert_any_call(
+            "/data/film.mkv", "roger", None, rating_key=None, media_type="movie")
+        assert app.media_info_map["/data/e1.mkv"]["media_type"] == "episode"
+
+    def test_expired_favorite_skipped(self):
+        app = self._app([("/data/old.mkv", "roger", None, None, None, "movie")], expired={"/data/old.mkv"})
+
+        assert "/data/old.mkv" not in app._process_watchlist()
+
+    def test_toggle_off_does_not_fetch(self):
+        app = self._app([], favorites_toggle=False)
+
+        app._process_watchlist()
+
+        app.jellyfin_manager.get_favorite_media.assert_not_called()
+
+
 class TestActiveSessions:
     def test_path_from_now_playing_item(self):
         sessions = [{"UserId": "u1", "NowPlayingItem": {"Id": "m1", "Path": "/media/en/a.mkv"}}, {"UserId": "u2"}]
@@ -362,7 +501,8 @@ class TestCheckActiveSessions:
 class TestConfig:
     def _load(self, tmp_path, monkeypatch, settings, env=None):
         from core.config import ConfigManager
-        for key in ("JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_PATH_MAPPINGS", "JELLYFIN_SKIP_USERS"):
+        for key in ("JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_PATH_MAPPINGS", "JELLYFIN_SKIP_USERS",
+                    "JELLYFIN_FAVORITES_TOGGLE"):
             monkeypatch.delenv(key, raising=False)
         for key, value in (env or {}).items():
             monkeypatch.setenv(key, value)
@@ -409,6 +549,13 @@ class TestConfig:
         assert cfg.path_mappings == {}
         # The manager must still start with what is left
         JellyfinManager(cfg.url, cfg.api_key, path_mappings=cfg.path_mappings, session=FakeSession({}))
+
+    def test_favorites_toggle(self, tmp_path, monkeypatch):
+        assert not self._load(tmp_path, monkeypatch, {}).favorites_toggle
+        assert self._load(tmp_path, monkeypatch, {"jellyfin_favorites_toggle": True}).favorites_toggle
+        assert not self._load(tmp_path, monkeypatch, {"jellyfin_favorites_toggle": True},
+                              env={"JELLYFIN_FAVORITES_TOGGLE": "false"}).favorites_toggle
+        assert self._load(tmp_path, monkeypatch, {}, env={"JELLYFIN_FAVORITES_TOGGLE": "true"}).favorites_toggle
 
     @pytest.mark.parametrize("value, expected", [
         ("guest,kid", ["guest", "kid"]),
