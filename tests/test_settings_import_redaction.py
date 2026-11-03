@@ -122,6 +122,16 @@ def test_legacy_redacted_export_without_marker_is_recognised(svc):
     assert raw["auth_password_hash"] == "hash-value"
 
 
+def test_redacted_jellyfin_entries_keep_current_values(svc):
+    jellyfin = {"jellyfin_url": "http://192.168.1.20:8096", "jellyfin_api_key": "jellyfin-key"}
+    svc.import_settings(dict(CURRENT, **jellyfin), merge=False)
+    shared = svc.export_settings(include_sensitive=False)
+    shared.update(jellyfin_url="http://[REDACTED]:8096", jellyfin_api_key="")   # as the export writes them
+    svc.import_settings(shared, merge=True)
+    raw = svc._load_raw()
+    assert {k: raw[k] for k in jellyfin} == jellyfin
+
+
 def test_full_backup_round_trips_exactly(svc):
     backup = svc.export_settings(include_sensitive=True)
     svc.import_settings(dict(backup, days_to_monitor=99), merge=True)

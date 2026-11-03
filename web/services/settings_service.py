@@ -57,6 +57,9 @@ KNOWN_SETTINGS_KEYS = frozenset({
     "max_concurrent_moves_array", "max_concurrent_moves_cache", "exit_if_active_session",
     # Integrations (Sonarr/Radarr) - multi-instance list
     "arr_instances",
+    # Jellyfin as an additional OnDeck and watchlist source
+    "jellyfin_url", "jellyfin_api_key", "jellyfin_path_mappings", "jellyfin_skip_users",
+    "jellyfin_favorites_toggle",
     # Legacy keys (migrated or ignored on load)
     "sonarr_enabled", "sonarr_url", "sonarr_api_key",
     "radarr_enabled", "radarr_url", "radarr_api_key",
@@ -75,6 +78,7 @@ REDACTED_EXPORT_KEYS = (
     "PLEX_URL", "PLEX_TOKEN", "plexcache_client_id", "remote_watchlist_rss_url", "webhook_url",
     "auth_password_hash", "auth_password_salt", "auth_password_username",
     "auth_admin_plex_id", "auth_admin_username", "api_key", "users", "_cached_users",
+    "jellyfin_url", "jellyfin_api_key",
 )
 
 
