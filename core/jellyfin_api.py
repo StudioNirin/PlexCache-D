@@ -197,8 +197,13 @@ class JellyfinManager:
             return
 
         # startItemId skips everything before the current episode, keeping long shows small
-        episodes = self._get(f"/Shows/{item['SeriesId']}/Episodes", userId=user_id, startItemId=item['Id'],
+        episodes_path = f"/Shows/{item['SeriesId']}/Episodes"
+        episodes = self._get(episodes_path, userId=user_id, startItemId=item['Id'],
                              fields=ITEM_FIELDS, isMissing='false').get('Items', [])
+        if not episodes:
+            # Jellyfin <= 10.11 returns nothing when the item is an alternate version; fetch the full list instead
+            episodes = self._get(episodes_path, userId=user_id, fields=ITEM_FIELDS,
+                                 isMissing='false').get('Items', [])
         # Shape Jellyfin episodes like plexapi ones to share the prefetch logic
         candidates = [
             SimpleNamespace(parentIndex=e.get('ParentIndexNumber'), index=e.get('IndexNumber'),

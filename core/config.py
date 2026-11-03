@@ -526,7 +526,7 @@ class ConfigManager:
         self.jellyfin.api_key = os.environ.get('JELLYFIN_API_KEY') or self.settings_data.get('jellyfin_api_key', '')
         self.jellyfin.path_mappings = self._valid_jellyfin_mappings(
             self.settings_data.get('jellyfin_path_mappings', {}) or {}, 'jellyfin_path_mappings')
-        self.jellyfin.skip_users = self.settings_data.get('jellyfin_skip_users', []) or []
+        self.jellyfin.skip_users = self._split_users(self.settings_data.get('jellyfin_skip_users', []) or [])
         # JELLYFIN_PATH_MAPPINGS is a JSON object, JELLYFIN_SKIP_USERS a comma-separated list
         env_mappings = os.environ.get('JELLYFIN_PATH_MAPPINGS')
         if env_mappings:
@@ -541,7 +541,14 @@ class ConfigManager:
                     logging.error(f"JELLYFIN_PATH_MAPPINGS must be a JSON object, got {type(parsed).__name__}")
         env_skip_users = os.environ.get('JELLYFIN_SKIP_USERS')
         if env_skip_users:
-            self.jellyfin.skip_users = [u.strip() for u in env_skip_users.split(',') if u.strip()]
+            self.jellyfin.skip_users = self._split_users(env_skip_users)
+
+    @staticmethod
+    def _split_users(users: Any) -> List[str]:
+        """Accept a list or a comma-separated string ("guest,kid"), so a string isn't split into characters."""
+        if isinstance(users, str):
+            users = users.split(',')
+        return [str(u).strip() for u in users if str(u).strip()]
 
     @staticmethod
     def _valid_jellyfin_mappings(mappings: Any, source: str) -> Dict[str, str]:

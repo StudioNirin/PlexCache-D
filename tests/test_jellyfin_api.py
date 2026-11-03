@@ -237,6 +237,21 @@ class TestOnDeck:
         params = next(p for path, p in m.session.calls if path == "/Shows/s1/Episodes")
         assert params["startItemId"] == "e7"
 
+    def test_episode_list_retried_without_start_item(self):
+        # Alternate version as current item: Jellyfin <= 10.11 returns an empty list for startItemId
+        current = _episode("e2-alt", 1, 2, "/media/en/TV/s01e02-4k.mkv")
+        episodes = [_episode(f"e{i}", 1, i, f"/media/en/TV/s01e0{i}.mkv") for i in range(1, 5)]
+        routes = _routes(next_up=[current])
+        routes["/Shows/s1/Episodes"] = lambda params: {"Items": [] if "startItemId" in params else episodes}
+        m = _manager(routes)
+
+        items = m.get_on_deck_media(days_to_monitor=30, number_episodes=2)
+
+        assert [i.file_path for i in items if not i.is_current_ondeck] == [
+            "/mnt/user/plex-media/TV/s01e03.mkv", "/mnt/user/plex-media/TV/s01e04.mkv"]
+        assert [("startItemId" in p) for path, p in m.session.calls if path == "/Shows/s1/Episodes"] == [True, False]
+        assert m.is_ondeck_data_complete()
+
     def test_complete_flag_resets_on_next_run(self):
         routes = _routes()
         routes["/Users"] = RuntimeError("down")
@@ -394,6 +409,16 @@ class TestConfig:
         assert cfg.path_mappings == {}
         # The manager must still start with what is left
         JellyfinManager(cfg.url, cfg.api_key, path_mappings=cfg.path_mappings, session=FakeSession({}))
+
+    @pytest.mark.parametrize("value, expected", [
+        ("guest,kid", ["guest", "kid"]),
+        (" guest , kid ,", ["guest", "kid"]),
+        ("guest", ["guest"]),
+        (["guest", " kid "], ["guest", "kid"]),
+    ])
+    def test_skip_users_string_or_list(self, tmp_path, monkeypatch, value, expected):
+        cfg = self._load(tmp_path, monkeypatch, {"jellyfin_skip_users": value})
+        assert cfg.skip_users == expected
 
     def test_invalid_mapping_entries_are_dropped(self, tmp_path, monkeypatch):
         cfg = self._load(tmp_path, monkeypatch, {"jellyfin_path_mappings": {
