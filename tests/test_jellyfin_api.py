@@ -391,6 +391,20 @@ class TestFavoritesInWatchlist:
             "/data/film.mkv", "roger", None, rating_key=None, media_type="movie", source="jellyfin")
         assert app.media_info_map["/data/e1.mkv"]["media_type"] == "episode"
 
+    def test_sources_pruned_with_what_each_server_reported(self):
+        app = self._app([("/data/film.mkv", "roger", None, None, None, "movie")])
+        app.plex_manager.get_watchlist_media.return_value = [
+            ("/data/film.mkv", "anna", None, None, None, "movie"),
+            ("/data/other.mkv", "anna", None, None, None, "movie"),
+        ]
+        app.plex_manager.is_watchlist_data_complete.return_value = True
+        app.jellyfin_manager.is_favorites_data_complete.return_value = True
+
+        app._process_watchlist()
+
+        app.watchlist_tracker.prune_sources.assert_called_once_with(
+            {"/data/film.mkv": {"plex", "jellyfin"}, "/data/other.mkv": {"plex"}}, {"plex", "jellyfin"})
+
     def test_expired_favorite_skipped(self):
         app = self._app([("/data/old.mkv", "roger", None, None, None, "movie")], expired={"/data/old.mkv"})
 

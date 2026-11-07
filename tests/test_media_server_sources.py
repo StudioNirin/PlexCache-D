@@ -146,3 +146,64 @@ class TestSourceBadgeMacro:
         html = self._render("{{ watchlist_badge(['plex', 'jellyfin']) }}")
         assert ">Watchlist · Plex + Jellyfin</span>" in html
         assert "On a Plex user&#39;s Watchlist and on a Jellyfin user&#39;s favorites" in html
+
+
+class TestWatchlistPruneSources:
+    """A server that stops reporting an item loses its label, unless its fetch failed."""
+
+    def _tracker(self, tmp_path):
+        tracker = WatchlistTracker(str(tmp_path / "watchlist.json"))
+        tracker.update_entry("/m/film.mkv", "roger", None, source="plex")
+        tracker.update_entry("/m/film.mkv", "roger", None, source="jellyfin")
+        return tracker
+
+    def test_unfavorited_but_still_on_plex_watchlist(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+
+        tracker.prune_sources({"/m/film.mkv": {"plex"}}, {"plex", "jellyfin"})
+
+        assert tracker.get_entry("/m/film.mkv")["sources"] == ["plex"]
+
+    def test_incomplete_fetch_keeps_its_source(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+
+        tracker.prune_sources({"/m/film.mkv": {"plex"}}, {"plex"})
+
+        assert tracker.get_entry("/m/film.mkv")["sources"] == ["plex", "jellyfin"]
+
+    def test_unseen_and_legacy_entries_untouched(self, tmp_path):
+        tracker = self._tracker(tmp_path)
+        tracker._data["/m/legacy.mkv"] = {"users": ["roger"]}
+
+        tracker.prune_sources({"/m/legacy.mkv": {"plex"}}, {"plex", "jellyfin"})
+
+        assert tracker.get_entry("/m/film.mkv")["sources"] == ["plex", "jellyfin"]
+        assert "sources" not in tracker.get_entry("/m/legacy.mkv")
+
+
+class TestCompleteWatchlistSources:
+    def _app(self, plex_complete=True, jellyfin=True, favorites=True, favorites_complete=True):
+        from core.app import PlexCacheApp
+        app = object.__new__(PlexCacheApp)
+        app.config_manager = MagicMock()
+        app.config_manager.jellyfin.favorites_toggle = favorites
+        app.plex_manager = MagicMock()
+        app.plex_manager.is_watchlist_data_complete.return_value = plex_complete
+        app.jellyfin_manager = MagicMock() if jellyfin else None
+        if jellyfin:
+            app.jellyfin_manager.is_favorites_data_complete.return_value = favorites_complete
+        return app
+
+    def test_all_complete(self):
+        assert self._app()._complete_watchlist_sources(rss_failed=False) == {"plex", "jellyfin"}
+
+    def test_plex_incomplete_or_rss_failed(self):
+        assert self._app(plex_complete=False)._complete_watchlist_sources(False) == {"jellyfin"}
+        assert self._app()._complete_watchlist_sources(rss_failed=True) == {"jellyfin"}
+
+    def test_jellyfin_favorites_failed(self):
+        assert self._app(favorites_complete=False)._complete_watchlist_sources(False) == {"plex"}
+
+    def test_jellyfin_off_or_favorites_off_counts_as_complete(self):
+        assert "jellyfin" in self._app(jellyfin=False)._complete_watchlist_sources(False)
+        assert "jellyfin" in self._app(favorites=False)._complete_watchlist_sources(False)

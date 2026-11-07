@@ -1288,8 +1288,8 @@ class WatchlistTracker(JSONTracker):
     }
 
     sources lists the media servers that reported the item ("plex" for a Plex
-    Watchlist, "jellyfin" for a Jellyfin favorite). Like users, it only grows
-    until the entry goes stale.
+    Watchlist, "jellyfin" for a Jellyfin favorite). prune_sources() drops a
+    server once its complete fetch no longer reports the item.
     """
 
     def __init__(self, tracker_file: str):
@@ -1381,6 +1381,31 @@ class WatchlistTracker(JSONTracker):
                 logging.debug(f"[USER:{username}] Added new watchlist entry: {file_path}")
 
             self._save()
+
+    def prune_sources(self, seen: Dict[str, Set[str]], complete_sources: Set[str]) -> None:
+        """Drop media servers that no longer report an item that is still being reported.
+
+        Only touches paths seen this run (entries that dropped off entirely go stale
+        as before) and only sources in complete_sources, so a failed fetch keeps its
+        labels. users is left alone: it is not shown per server and nothing else
+        depends on it shrinking.
+
+        Args:
+            seen: Path -> media servers that reported it this run.
+            complete_sources: Servers whose data this run is complete.
+        """
+        with self._lock:
+            changed = False
+            for file_path, seen_here in seen.items():
+                entry = self._data.get(file_path)
+                if not entry or 'sources' not in entry:
+                    continue
+                kept = [s for s in entry['sources'] if s in seen_here or s not in complete_sources]
+                if kept != entry['sources']:
+                    entry['sources'] = kept
+                    changed = True
+            if changed:
+                self._save()
 
     def is_expired(self, file_path: str, retention_days: int, username: str = None) -> bool:
         """Check if a watchlist item has expired based on retention period.
