@@ -1235,7 +1235,8 @@ class PlexCacheApp:
                 item.username,
                 episode_info=item.episode_info,
                 is_current_ondeck=item.is_current_ondeck,
-                rating_key=item.rating_key
+                rating_key=item.rating_key,
+                source=item.source,
             )
             # Build media_info_map from OnDeck metadata
             ep = item.episode_info
@@ -1662,7 +1663,7 @@ class PlexCacheApp:
                     # No favorited-at date in Jellyfin: the tracker counts from the first run that sees it
                     self.watchlist_tracker.update_entry(
                         file_path, username, watchlisted_at,
-                        rating_key=rating_key, media_type=media_type,
+                        rating_key=rating_key, media_type=media_type, source='jellyfin',
                     )
                     user_retention = per_user_wl_days.get(username, retention_days)
                     if user_retention > 0:
@@ -1888,6 +1889,7 @@ class PlexCacheApp:
                 users = old_wl_entry.get('users', [])
                 watchlisted_at_str = old_wl_entry.get('watchlisted_at')
                 old_media_type = old_wl_entry.get('media_type')
+                old_sources = old_wl_entry.get('sources') or ['plex']
                 self.watchlist_tracker.remove_entry(old_path)
                 # Re-create with new path, preserving original data
                 watchlisted_at = None
@@ -1897,10 +1899,11 @@ class PlexCacheApp:
                     except ValueError:
                         pass
                 for user in users:
-                    self.watchlist_tracker.update_entry(
-                        new_path, user, watchlisted_at,
-                        rating_key=rating_key, media_type=old_media_type,
-                    )
+                    for old_source in old_sources:
+                        self.watchlist_tracker.update_entry(
+                            new_path, user, watchlisted_at,
+                            rating_key=rating_key, media_type=old_media_type, source=old_source,
+                        )
                 logging.info(f"[UPGRADE] Transferred watchlist entry with {len(users)} user(s) (rating_key={rating_key})")
 
         # 5. Handle .plexcached backup files

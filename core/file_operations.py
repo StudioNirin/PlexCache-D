@@ -1282,9 +1282,14 @@ class WatchlistTracker(JSONTracker):
         "/path/to/file.mkv": {
             "watchlisted_at": "2025-12-02T14:26:27.156439",
             "users": ["Brandon", "Home"],
-            "last_seen": "2025-12-03T10:00:00.000000"
+            "last_seen": "2025-12-03T10:00:00.000000",
+            "sources": ["plex", "jellyfin"]
         }
     }
+
+    sources lists the media servers that reported the item ("plex" for a Plex
+    Watchlist, "jellyfin" for a Jellyfin favorite). Like users, it only grows
+    until the entry goes stale.
     """
 
     def __init__(self, tracker_file: str):
@@ -1296,7 +1301,8 @@ class WatchlistTracker(JSONTracker):
         super().__init__(tracker_file, "watchlist")
 
     def update_entry(self, file_path: str, username: str, watchlisted_at: Optional[datetime],
-                     rating_key: Optional[str] = None, media_type: Optional[str] = None) -> None:
+                     rating_key: Optional[str] = None, media_type: Optional[str] = None,
+                     source: str = "plex") -> None:
         """Update or create an entry for a watchlist item.
 
         If the item already exists and the new watchlisted_at is more recent,
@@ -1311,6 +1317,7 @@ class WatchlistTracker(JSONTracker):
                 pin_type for watchlisted TV episodes. None leaves any existing value
                 unchanged so legacy entries keep their current behavior until the next
                 Plex fetch repopulates them.
+            source: Media server that reported it ("plex" or "jellyfin").
         """
         with self._lock:
             now_iso = datetime.now().isoformat()
@@ -1348,6 +1355,9 @@ class WatchlistTracker(JSONTracker):
                 if media_type is not None:
                     entry['media_type'] = media_type
 
+                if source not in entry.get('sources', []):
+                    entry.setdefault('sources', []).append(source)
+
                 # Always update last_seen
                 entry['last_seen'] = now_iso
             else:
@@ -1360,7 +1370,8 @@ class WatchlistTracker(JSONTracker):
                 new_entry = {
                     'watchlisted_at': watchlisted_at_iso,
                     'users': [username],
-                    'last_seen': now_iso
+                    'last_seen': now_iso,
+                    'sources': [source],
                 }
                 if rating_key is not None:
                     new_entry['rating_key'] = rating_key
@@ -1461,7 +1472,8 @@ class OnDeckTracker(JSONTracker):
                 "episode": 5,
                 "is_current_ondeck": true
             },
-            "ondeck_users": ["Brandon"]
+            "ondeck_users": ["Brandon"],
+            "sources": ["plex"]
         }
     }
 
@@ -1473,6 +1485,7 @@ class OnDeckTracker(JSONTracker):
     - episode_info: For TV episodes, contains show/season/episode and whether this is
                    the actual OnDeck episode vs a prefetched next episode
     - ondeck_users: Users for whom this is the CURRENT OnDeck episode (not prefetched)
+    - sources: Media servers that reported it this run ("plex", "jellyfin")
     """
 
     def __init__(self, tracker_file: str):
@@ -1512,7 +1525,8 @@ class OnDeckTracker(JSONTracker):
     def update_entry(self, file_path: str, username: str,
                      episode_info: Optional[Dict[str, any]] = None,
                      is_current_ondeck: bool = False,
-                     rating_key: Optional[str] = None) -> None:
+                     rating_key: Optional[str] = None,
+                     source: str = "plex") -> None:
         """Update or create an entry for an OnDeck item.
 
         Args:
@@ -1521,6 +1535,7 @@ class OnDeckTracker(JSONTracker):
             episode_info: For TV episodes, dict with 'show', 'season', 'episode' keys.
             is_current_ondeck: True if this is the actual OnDeck episode (not prefetched next).
             rating_key: Plex rating key for upgrade tracking (None to leave unchanged).
+            source: Media server that reported it ("plex" or "jellyfin").
         """
         with self._lock:
             now_iso = datetime.now().isoformat()
@@ -1538,6 +1553,8 @@ class OnDeckTracker(JSONTracker):
                 # Add user if not already in list
                 if username not in entry.get('users', []):
                     entry.setdefault('users', []).append(username)
+                if source not in entry.get('sources', []):
+                    entry.setdefault('sources', []).append(source)
                 # Always update last_seen
                 entry['last_seen'] = now_iso
                 # Backfill first_seen for existing entries (migration)
@@ -1576,7 +1593,8 @@ class OnDeckTracker(JSONTracker):
                     'users': [username],
                     'first_seen': now_iso,
                     'last_seen': now_iso,
-                    'user_first_seen': {username: now_iso}
+                    'user_first_seen': {username: now_iso},
+                    'sources': [source],
                 }
                 if is_current_ondeck:
                     new_entry['ondeck_users'] = [username]
@@ -1694,7 +1712,7 @@ class OnDeckTracker(JSONTracker):
     def prepare_for_run(self) -> None:
         """Prepare tracker for a new run while preserving first_seen timestamps.
 
-        Clears per-run fields (users, ondeck_users, episode_info) on all entries
+        Clears per-run fields (users, ondeck_users, sources, episode_info) on all entries
         so they can be repopulated by update_entry() calls. Initializes the
         _seen_this_run set to track which entries are refreshed this run.
 
@@ -1706,6 +1724,7 @@ class OnDeckTracker(JSONTracker):
             for file_path, entry in self._data.items():
                 entry['users'] = []
                 entry['ondeck_users'] = []
+                entry['sources'] = []
                 entry.pop('episode_info', None)
             # Don't save yet — update_entry() calls will save as entries are refreshed
             logging.debug("Prepared OnDeck tracker for new run (preserved first_seen timestamps)")

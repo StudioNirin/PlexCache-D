@@ -39,8 +39,8 @@
                 Released
             </span>
             {% else %}
-            {% if file.is_ondeck %}{{ ondeck_badge() }}{% endif %}
-            {% if file.is_watchlist %}{{ watchlist_badge() }}{% endif %}
+            {% if file.is_ondeck %}{{ ondeck_badge(file.ondeck_sources) }}{% endif %}
+            {% if file.is_watchlist %}{{ watchlist_badge(file.watchlist_sources) }}{% endif %}
             {% if not file.is_ondeck and not file.is_watchlist and not file.is_pinned %}
                 {{ lapsed_badge(file.source) }}
             {% endif %}

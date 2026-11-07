@@ -139,6 +139,7 @@ class TestOnDeck:
             ("/mnt/user/plex-media/TV/s01e04.mkv", False),
         ]
         assert all(i.username == "roger" for i in items)
+        assert all(i.source == "jellyfin" for i in items)
         assert items[1].episode_info == {"show": "Show", "season": 1, "episode": 2}
         assert items[3].episode_info == {"show": "Show", "season": 1, "episode": 4}
         assert m.is_ondeck_data_complete()
@@ -387,7 +388,7 @@ class TestFavoritesInWatchlist:
         assert {"/data/film.mkv", "/data/e1.mkv"} <= result
         app.jellyfin_manager.get_favorite_media.assert_called_once_with(3)
         app.watchlist_tracker.update_entry.assert_any_call(
-            "/data/film.mkv", "roger", None, rating_key=None, media_type="movie")
+            "/data/film.mkv", "roger", None, rating_key=None, media_type="movie", source="jellyfin")
         assert app.media_info_map["/data/e1.mkv"]["media_type"] == "episode"
 
     def test_expired_favorite_skipped(self):

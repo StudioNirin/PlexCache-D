@@ -1,5 +1,6 @@
 {% from "macros/associated_files.html" import af_badge %}
 {% from "macros/user_badge.html" import user_badge %}
+{% from "macros/source_badge.html" import ondeck_badge, watchlist_badge %}
 <!-- Priority Report Content - loaded via HTMX -->
 
 {% if data.files %}
@@ -181,12 +182,8 @@
                         <span class="badge badge-released"
                               title="Handed back to the Unraid mover, still on cache until it relocates.">Released</span>
                         {% else %}
-                        {% if file.is_ondeck %}
-                        <span class="badge badge-info">OnDeck</span>
-                        {% endif %}
-                        {% if file.is_watchlist %}
-                        <span class="badge badge-muted">Watchlist</span>
-                        {% endif %}
+                        {% if file.is_ondeck %}{{ ondeck_badge(file.ondeck_sources) }}{% endif %}
+                        {% if file.is_watchlist %}{{ watchlist_badge(file.watchlist_sources) }}{% endif %}
                         {% if not file.is_ondeck and not file.is_watchlist %}
                             {% if file.source == 'ondeck' %}
                             <span class="badge badge-warning">Stale OnDeck</span>
