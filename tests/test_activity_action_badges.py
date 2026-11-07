@@ -199,7 +199,8 @@ class TestSharedSourceBadges:
         cell = cell[:cell.index("</td>")]
         assert ">OnDeck<" not in cell, "file_table row still inlines an OnDeck badge"
         assert ">Watchlist<" not in cell, "file_table row still inlines a Watchlist badge"
-        assert "ondeck_badge()" in cell and "watchlist_badge()" in cell
+        # Called with the row's media-server sources (Plex / Jellyfin)
+        assert "ondeck_badge(" in cell and "watchlist_badge(" in cell
 
         ra = RA_LIST.read_text(encoding="utf-8")
         badge_macro = ra[ra.index("{% macro ra_status_badge"):ra.index("{% macro ra_row")]

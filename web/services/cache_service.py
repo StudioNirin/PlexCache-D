@@ -8,7 +8,7 @@ import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from web.config import DATA_DIR, CONFIG_DIR, SETTINGS_FILE
 # Defaults come from core's dataclass rather than repeated literals: the engine
@@ -32,6 +32,8 @@ def cached_files_to_dicts(files: List["CachedFile"]) -> List[Dict[str, Any]]:
             "users": f.users,
             "is_ondeck": f.is_ondeck,
             "is_watchlist": f.is_watchlist,
+            "ondeck_sources": f.ondeck_sources,
+            "watchlist_sources": f.watchlist_sources,
             "is_pinned": f.is_pinned,
             "is_released": f.is_released,
             "subtitle_count": f.subtitle_count,
@@ -89,6 +91,31 @@ class CachedFile:
     # entry's released_at stamp so PlexCache can still evict it if the mover
     # never comes (a cache:prefer or cache:only share).
     is_released: bool = False
+    # Media servers behind the OnDeck / Watchlist reason ("plex", "jellyfin"),
+    # in SOURCE_ORDER. Empty unless Jellyfin shows up in the trackers, so a
+    # Plex-only install keeps its plain badges.
+    ondeck_sources: List[str] = field(default_factory=list)
+    watchlist_sources: List[str] = field(default_factory=list)
+
+
+# Display order for media servers in the source badges
+SOURCE_ORDER = ("plex", "jellyfin")
+
+
+def _entry_sources(info: Dict) -> List[str]:
+    """Known media servers recorded on a tracker entry, in SOURCE_ORDER."""
+    recorded = info.get("sources") or []
+    return [s for s in SOURCE_ORDER if s in recorded]
+
+
+def trackers_have_jellyfin(*trackers: Dict) -> bool:
+    """True when any tracker entry came from Jellyfin, i.e. sources are worth showing."""
+    return any(
+        "jellyfin" in (info.get("sources") or [])
+        for tracker in trackers
+        for info in tracker.values()
+        if isinstance(info, dict)
+    )
 
 
 class CacheService:
@@ -686,8 +713,12 @@ class CacheService:
         source_filter: str,
         search: str,
         now: datetime,
+        show_sources: bool = False,
     ) -> Optional[CachedFile]:
-        """Build a CachedFile for a single video path, or None if filtered out."""
+        """Build a CachedFile for a single video path, or None if filtered out.
+
+        show_sources fills ondeck_sources / watchlist_sources from the trackers.
+        """
         filename = os.path.basename(cache_path)
 
         if search and search.lower() not in filename.lower():
@@ -717,6 +748,8 @@ class CacheService:
 
         is_ondeck = False
         is_watchlist = False
+        ondeck_sources: List[str] = []
+        watchlist_sources: List[str] = []
         users: set = set()
         episode_info = None
         tracker_rating_key: Optional[str] = None
@@ -727,6 +760,8 @@ class CacheService:
             if os.path.basename(plex_path) == cache_basename:
                 is_ondeck = True
                 source = "ondeck"
+                if show_sources:
+                    ondeck_sources = _entry_sources(info)
                 if "users" in info:
                     users.update(info["users"])
                 episode_info = info.get("episode_info")
@@ -740,6 +775,8 @@ class CacheService:
                 is_watchlist = True
                 if not is_ondeck:
                     source = "watchlist"
+                if show_sources:
+                    watchlist_sources = _entry_sources(info)
                 if "users" in info:
                     users.update(info["users"])
                 if tracker_rating_key is None and info.get("rating_key"):
@@ -829,6 +866,8 @@ class CacheService:
             rating_key=row_rating_key,
             pin_type=row_pin_type,
             is_released=is_released,
+            ondeck_sources=ondeck_sources,
+            watchlist_sources=watchlist_sources,
         )
 
     def get_all_cached_files(
@@ -867,6 +906,7 @@ class CacheService:
         pinned_cache_paths = set(pinned_cache_path_map.keys())
 
         now = datetime.now()
+        show_sources = trackers_have_jellyfin(ondeck, watchlist)
 
         # Include associated files stored inside parent timestamp entries
         for ts_info in timestamps.values():
@@ -893,6 +933,7 @@ class CacheService:
                 source_filter=source_filter,
                 search=search,
                 now=now,
+                show_sources=show_sources,
             )
             if cached_file is not None:
                 files.append(cached_file)
@@ -1556,6 +1597,8 @@ class CacheService:
                 "users": f.users,
                 "is_ondeck": f.is_ondeck,
                 "is_watchlist": f.is_watchlist,
+                "ondeck_sources": f.ondeck_sources,
+                "watchlist_sources": f.watchlist_sources,
                 "subtitle_count": f.subtitle_count,
                 "sidecar_count": f.sidecar_count,
                 "associated_files": f.associated_files,

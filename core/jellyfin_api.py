@@ -180,7 +180,8 @@ class JellyfinManager:
                                                  prefetch_minimum_minutes, on_deck_files)
                 elif item.get('Type') == 'Movie':
                     for path in self._item_paths(item):
-                        on_deck_files.append(OnDeckItem(file_path=path, username=username, is_current_ondeck=True))
+                        on_deck_files.append(OnDeckItem(file_path=path, username=username,
+                                                        is_current_ondeck=True, source='jellyfin'))
                 else:
                     logging.debug(f"[JELLYFIN] Skipping OnDeck item '{item.get('Name')}' — type {item.get('Type')}")
             except Exception as e:
@@ -274,7 +275,8 @@ class JellyfinManager:
 
         for path in self._item_paths(item):
             on_deck_files.append(OnDeckItem(file_path=path, username=username,
-                                            episode_info=episode_info, is_current_ondeck=True))
+                                            episode_info=episode_info, is_current_ondeck=True,
+                                            source='jellyfin'))
 
         if episode_info is None or not item.get('SeriesId'):
             logging.warning(f"[JELLYFIN] Skipping next episode fetch for '{show}' - missing index data")
@@ -302,7 +304,8 @@ class JellyfinManager:
             next_info = {'show': show, 'season': next_episode.parentIndex, 'episode': next_episode.index}
             for path in self._item_paths(next_episode.item):
                 on_deck_files.append(OnDeckItem(file_path=path, username=username,
-                                                episode_info=next_info, is_current_ondeck=False))
+                                                episode_info=next_info, is_current_ondeck=False,
+                                                source='jellyfin'))
 
     def get_active_sessions(self) -> ActiveSessions:
         """Everything currently playing on Jellyfin, with Plex-space paths where a mapping exists."""

@@ -1235,7 +1235,8 @@ class PlexCacheApp:
                 item.username,
                 episode_info=item.episode_info,
                 is_current_ondeck=item.is_current_ondeck,
-                rating_key=item.rating_key
+                rating_key=item.rating_key,
+                source=item.source,
             )
             # Build media_info_map from OnDeck metadata
             ep = item.episode_info
@@ -1546,6 +1547,21 @@ class PlexCacheApp:
             f"(+{len(pinned_sibling_paths)} sibling files)"
         )
 
+    def _complete_watchlist_sources(self, rss_failed: bool) -> Set[str]:
+        """Media servers whose watchlist data this run is complete, so a missing item really dropped off.
+
+        A server without a complete fetch keeps its recorded sources, so an outage never
+        relabels the badges. Jellyfin counts as complete when favorites are off: it then
+        reports nothing, and old favorite labels should go.
+        """
+        complete = set()
+        if self.plex_manager.is_watchlist_data_complete() and not rss_failed:
+            complete.add('plex')
+        if (not self.jellyfin_manager or not self.config_manager.jellyfin.favorites_toggle
+                or self.jellyfin_manager.is_favorites_data_complete()):
+            complete.add('jellyfin')
+        return complete
+
     def _process_watchlist(self) -> set:
         """Process watchlist media (local API + remote RSS) and return a set of modified file paths and subtitles.
 
@@ -1557,6 +1573,9 @@ class PlexCacheApp:
         retention_days = self.config_manager.cache.watchlist_retention_days
         per_user_wl_days = self.config_manager.plex.per_user_watchlist_days or {}
         expired_count = 0
+        # Which media server reported each tracker path this run, to prune stale sources
+        seen_sources: Dict[str, Set[str]] = {}
+        rss_failed = False
 
         try:
             if retention_days > 0:
@@ -1588,6 +1607,7 @@ class PlexCacheApp:
                     file_path, username, watchlisted_at,
                     rating_key=rating_key, media_type=media_type,
                 )
+                seen_sources.setdefault(file_path, set()).add('plex')
 
                 # Check watchlist retention (skip expired items, with per-user override)
                 user_retention = per_user_wl_days.get(username, retention_days)
@@ -1630,6 +1650,7 @@ class PlexCacheApp:
                             file_path, username, watchlisted_at,
                             rating_key=rating_key, media_type=media_type,
                         )
+                        seen_sources.setdefault(file_path, set()).add('plex')
 
                         # Check watchlist retention (skip expired items, with per-user override)
                         rss_user_retention = per_user_wl_days.get(username, retention_days)
@@ -1648,6 +1669,7 @@ class PlexCacheApp:
                         expired_count += rss_expired_count
                         logging.debug(f"Skipped {rss_expired_count} RSS watchlist items due to retention expiry")
                 except Exception as e:
+                    rss_failed = True
                     logging.error(f"Failed to fetch remote watchlist via RSS: {str(e)}")
 
             # --- Jellyfin favorites (Jellyfin has no watchlist) ---
@@ -1662,8 +1684,9 @@ class PlexCacheApp:
                     # No favorited-at date in Jellyfin: the tracker counts from the first run that sees it
                     self.watchlist_tracker.update_entry(
                         file_path, username, watchlisted_at,
-                        rating_key=rating_key, media_type=media_type,
+                        rating_key=rating_key, media_type=media_type, source='jellyfin',
                     )
+                    seen_sources.setdefault(file_path, set()).add('jellyfin')
                     user_retention = per_user_wl_days.get(username, retention_days)
                     if user_retention > 0:
                         if self.watchlist_tracker.is_expired(file_path, user_retention, username=username):
@@ -1671,6 +1694,8 @@ class PlexCacheApp:
                             continue
                     result_set.add(file_path)
                     plex_path_to_info[file_path] = episode_info
+
+            self.watchlist_tracker.prune_sources(seen_sources, self._complete_watchlist_sources(rss_failed))
 
             if expired_count > 0:
                 # INFO, matching the OnDeck twin above: items dropping out of
@@ -1888,6 +1913,7 @@ class PlexCacheApp:
                 users = old_wl_entry.get('users', [])
                 watchlisted_at_str = old_wl_entry.get('watchlisted_at')
                 old_media_type = old_wl_entry.get('media_type')
+                old_sources = old_wl_entry.get('sources') or ['plex']
                 self.watchlist_tracker.remove_entry(old_path)
                 # Re-create with new path, preserving original data
                 watchlisted_at = None
@@ -1897,10 +1923,11 @@ class PlexCacheApp:
                     except ValueError:
                         pass
                 for user in users:
-                    self.watchlist_tracker.update_entry(
-                        new_path, user, watchlisted_at,
-                        rating_key=rating_key, media_type=old_media_type,
-                    )
+                    for old_source in old_sources:
+                        self.watchlist_tracker.update_entry(
+                            new_path, user, watchlisted_at,
+                            rating_key=rating_key, media_type=old_media_type, source=old_source,
+                        )
                 logging.info(f"[UPGRADE] Transferred watchlist entry with {len(users)} user(s) (rating_key={rating_key})")
 
         # 5. Handle .plexcached backup files
