@@ -1486,7 +1486,7 @@ Example log format:
 
             // Session Issues
             {
-                pattern: /There is an active session\. Exiting/i,
+                pattern: /There is an active session.*Exiting/i,
                 title: "Active Session Detected - Exiting",
                 severity: "warning",
                 suggestion: "Someone is actively streaming. The script exited to avoid interruption."

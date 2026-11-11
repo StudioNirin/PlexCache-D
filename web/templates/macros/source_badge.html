@@ -23,12 +23,44 @@
     'other':           'On cache, but PlexCache no longer has a reason to keep it. The next run moves it back to the array.'
 } %}
 
-{% macro ondeck_badge() -%}
-<span class="badge badge-info" title="{{ SOURCE_TOOLTIPS['ondeck'] }}">OnDeck</span>
+{#
+  Which media server put it there. `sources` is a list of "plex"/"jellyfin"
+  (CachedFile.ondeck_sources / watchlist_sources); it stays empty on Plex-only
+  installs, and then the badges render exactly as before. Jellyfin has no
+  Watchlist, so its side of a Watchlist badge is a favorite.
+#}
+{% set SERVER_LABELS = {'plex': 'Plex', 'jellyfin': 'Jellyfin'} %}
+{% set SERVER_TOOLTIPS = {
+    'ondeck': {
+        'plex':     'on a Plex user\'s OnDeck',
+        'jellyfin': 'in a Jellyfin user\'s Continue Watching or Next Up'
+    },
+    'watchlist': {
+        'plex':     'on a Plex user\'s Watchlist',
+        'jellyfin': 'on a Jellyfin user\'s favorites'
+    }
+} %}
+
+{% macro _server_badge(kind, css, label, sources) -%}
+{%- set known = (sources or []) | select('in', SERVER_LABELS) | list -%}
+{%- if known -%}
+{%- set reasons = [] -%}
+{%- for s in known %}{% set _ = reasons.append(SERVER_TOOLTIPS[kind][s]) %}{% endfor -%}
+{%- set reason = reasons | join(' and ') -%}
+<span class="badge {{ css }}" title="{{ reason[:1] | upper }}{{ reason[1:] }}, so PlexCache keeps it on cache for now.">
+  {{- label }} · {% for s in known %}{{ SERVER_LABELS[s] }}{% if not loop.last %} + {% endif %}{% endfor -%}
+</span>
+{%- else -%}
+<span class="badge {{ css }}" title="{{ SOURCE_TOOLTIPS[kind] }}">{{ label }}</span>
+{%- endif -%}
 {%- endmacro %}
 
-{% macro watchlist_badge() -%}
-<span class="badge badge-muted" title="{{ SOURCE_TOOLTIPS['watchlist'] }}">Watchlist</span>
+{% macro ondeck_badge(sources=None) -%}
+{{ _server_badge('ondeck', 'badge-info', 'OnDeck', sources) }}
+{%- endmacro %}
+
+{% macro watchlist_badge(sources=None) -%}
+{{ _server_badge('watchlist', 'badge-muted', 'Watchlist', sources) }}
 {%- endmacro %}
 
 {#

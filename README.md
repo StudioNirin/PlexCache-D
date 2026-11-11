@@ -324,6 +324,28 @@ python3 plexcache.py
 
 For additional help, check the [Wiki](https://github.com/StudioNirin/PlexCache-D/wiki) for detailed guides. If something doesn't make sense or doesn't work, please open a new issue. But don't be upset if the answer is in the Wiki and we mock you for not reading it thoroughly first.
 
+## Jellyfin (optional)
+
+Jellyfin can be added as a second OnDeck source next to Plex, for setups where both servers share the same media. Every enabled Jellyfin user's *Continue Watching* and *Next Up* (plus the next `number_episodes` episodes) are cached like Plex OnDeck items, and files playing on Jellyfin are skipped. There is no Jellyfin watchlist. Plex stays required. Needs **Jellyfin 10.9 or newer** (older servers lack `/UserItems/Resume`, so every run would count as incomplete and nothing would move back to the array).
+
+Enabled when URL and API key are set (Jellyfin Dashboard → API Keys). Env vars override the settings file:
+
+| Env var | Settings key | Example |
+|---|---|---|
+| `JELLYFIN_URL` | `jellyfin_url` | `http://jellyfin:8096` |
+| `JELLYFIN_API_KEY` | `jellyfin_api_key` | |
+| `JELLYFIN_PATH_MAPPINGS` (JSON) | `jellyfin_path_mappings` | `{"/media/": "/mnt/user/plex-media/"}` |
+| `JELLYFIN_SKIP_USERS` (comma-separated) | `jellyfin_skip_users` | `guest,kid` |
+| `JELLYFIN_FAVORITES_TOGGLE` | `jellyfin_favorites_toggle` | `true` |
+
+`jellyfin_path_mappings` translates the paths Jellyfin reports into the paths Plex reports, so the regular path mappings apply. Prefixes match whole folders (`/media` does not match `/media2`), trailing slashes don't matter. Items without a matching prefix are ignored and logged once per library folder as `[JELLYFIN] Skipping unmapped path`.
+
+Jellyfin has no watchlist. With `jellyfin_favorites_toggle` (and `watchlist_toggle`) on, unplayed favorites stand in for it: favorite movies, and the first `watchlist_episodes` unplayed episodes of favorite series (specials skipped). They follow the watchlist rules, including `watchlist_retention_days`, counted from the first run that sees the favorite since Jellyfin doesn't record when it was set.
+
+All enabled Jellyfin users are fetched, regardless of `users_toggle` (that setting only applies to Plex). Use `jellyfin_skip_users` to leave users out.
+
+If any Jellyfin request fails, moving files back to the array is skipped for that run — for Plex files too, since PlexCache can't tell whether a Jellyfin user is still watching them. Remove the Jellyfin URL/API key if Jellyfin is offline for longer.
+
 ## Notes
 
 This script might be compatible with other systems, especially Linux-based ones, although I have primarily tested it on Unraid with plex as docker container. While I cannot support every case, it's worth checking the GitHub issues to see if your specific case has already been discussed. Particularly worth checking the original Bexem repo issues page.

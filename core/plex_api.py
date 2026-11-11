@@ -118,12 +118,14 @@ class OnDeckItem:
         username: The user who has this on their OnDeck.
         episode_info: For TV episodes, dict with 'show', 'season', 'episode' keys.
         is_current_ondeck: True if this is the actual OnDeck episode (not prefetched next).
+        source: Media server that reported it ("plex" or "jellyfin").
     """
     file_path: str
     username: str
     episode_info: Optional[Dict[str, any]] = None
     is_current_ondeck: bool = False
     rating_key: Optional[str] = None
+    source: str = "plex"
 
 
 @dataclass
@@ -1211,7 +1213,8 @@ class PlexManager:
                     rating_key=movie_rating_key or None
                 ))
     
-    def _get_next_episodes(self, episodes: List[Episode], current_season: int,
+    @staticmethod
+    def _get_next_episodes(episodes: List[Episode], current_season: int,
                           current_episode_index: int, number_episodes: int,
                           prefetch_minimum_minutes: int = 0) -> List[Episode]:
         """Get the next episodes after the current one.
