@@ -13,6 +13,7 @@ from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, List
+from urllib.parse import urlsplit
 
 import requests
 
@@ -298,9 +299,15 @@ class WebhookHandler(logging.Handler):
 
     Supports Discord (embeds), Slack (Block Kit), and generic webhooks.
     Platform is auto-detected from the webhook URL.
+
+    A failed delivery is logged once and pauses messages for PAUSE_AFTER_FAILURE_SECONDS,
+    so an outage costs one failed request instead of one per log record. The run
+    summary is still attempted while paused, since a run sends only one.
     """
 
     SUMMARY = SUMMARY
+
+    PAUSE_AFTER_FAILURE_SECONDS = 300
 
     # Platform detection patterns
     DISCORD_PATTERNS = ['discord.com/api/webhooks/', 'discordapp.com/api/webhooks/']
@@ -321,6 +328,12 @@ class WebhookHandler(logging.Handler):
         self._summary_data: Optional[dict] = None
         # List of enabled notification types: "summary", "error", "warning"
         self.enabled_levels = enabled_levels if enabled_levels else ["summary"]
+        # Set while this thread is inside emit(), so records it logs are not sent back here
+        self._emitting = threading.local()
+        self._state_lock = threading.Lock()
+        self._paused_until = 0.0
+        self._failing = False
+        self._skipped = 0
 
     def _detect_platform(self, url: str) -> str:
         """Auto-detect webhook platform from URL."""
@@ -355,6 +368,18 @@ class WebhookHandler(logging.Handler):
         elif record.levelno >= logging.WARNING and record.levelno != SUMMARY:
             mark_warning(record.getMessage())
 
+        # A failed delivery logs an error, and the root logger hands that record straight
+        # back to this handler. Sending it would fail the same way and log again, so
+        # anything logged from inside emit() is left to the file and Unraid handlers.
+        if getattr(self._emitting, 'active', False):
+            return
+        self._emitting.active = True
+        try:
+            self._dispatch(record)
+        finally:
+            self._emitting.active = False
+
+    def _dispatch(self, record):
         # Check which notification types are enabled
         if record.levelno == SUMMARY:
             # Send summary if:
@@ -390,7 +415,7 @@ class WebhookHandler(logging.Handler):
             else:
                 payload = self._build_generic_summary(record)
 
-            self._send_payload(payload)
+            self._send_payload(payload, ignore_pause=True)
         except Exception as e:
             logging.error(f"Failed to send webhook summary: {e}")
 
@@ -408,8 +433,12 @@ class WebhookHandler(logging.Handler):
         except Exception as e:
             logging.error(f"Failed to send webhook message: {e}")
 
-    def _send_payload(self, payload: dict) -> bool:
+    def _send_payload(self, payload: dict, ignore_pause: bool = False) -> bool:
         """Send payload to webhook URL."""
+        with self._state_lock:
+            if not ignore_pause and time.monotonic() < self._paused_until:
+                self._skipped += 1
+                return False
         headers = {"Content-Type": "application/json"}
         try:
             response = requests.post(
@@ -418,14 +447,50 @@ class WebhookHandler(logging.Handler):
                 headers=headers,
                 timeout=10
             )
-            # Discord returns 204, Slack returns 200
-            if response.status_code not in [200, 204]:
-                logging.error(f"Webhook failed: HTTP {response.status_code}")
-                return False
-            return True
         except requests.RequestException as e:
-            logging.error(f"Webhook request failed: {e}")
+            self._delivery_failed(f"Webhook request failed: {self._redact(str(e))}")
             return False
+        # Discord returns 204, Slack returns 200
+        if response.status_code not in [200, 204]:
+            self._delivery_failed(f"Webhook failed: HTTP {response.status_code}")
+            return False
+        self._delivery_succeeded()
+        return True
+
+    def _delivery_failed(self, message: str) -> None:
+        """Pause messages after a failure, and log only the first failure of an outage."""
+        with self._state_lock:
+            first_failure = not self._failing
+            self._failing = True
+            self._paused_until = time.monotonic() + self.PAUSE_AFTER_FAILURE_SECONDS
+        if first_failure:
+            minutes = self.PAUSE_AFTER_FAILURE_SECONDS // 60
+            logging.error(f"{message} (webhook messages paused for {minutes} minutes)")
+        else:
+            logging.debug(message)
+
+    def _delivery_succeeded(self) -> None:
+        with self._state_lock:
+            recovered, skipped = self._failing, self._skipped
+            self._failing = False
+            self._paused_until = 0.0
+            self._skipped = 0
+        if recovered:
+            logging.info(f"Webhook reachable again ({skipped} message(s) not sent while it was down)")
+
+    def _redact(self, text: str) -> str:
+        """Hide the webhook's path and query, which carry its token, from logged text.
+
+        requests puts the path in its errors ("Max retries exceeded with url: /api/webhooks/<id>/<token>").
+        """
+        parts = urlsplit(self.webhook_url)
+        host = parts.netloc.rsplit("@", 1)[-1]  # never log user:password@ from a generic webhook
+        text = text.replace(self.webhook_url, f"{parts.scheme}://{host}/[REDACTED]")
+        request_uri = parts.path + (f"?{parts.query}" if parts.query else "")
+        for secret in (request_uri, parts.path, parts.query):
+            if secret and secret != "/":
+                text = text.replace(secret, "/[REDACTED]" if secret.startswith("/") else "[REDACTED]")
+        return text
 
     def _get_status_color(self) -> int:
         """Get color based on summary data status."""
