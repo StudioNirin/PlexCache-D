@@ -75,7 +75,7 @@
     {% endif %}
 </a>
 
-<a href="/maintenance{% if stats.get('health_duplicate_count', 0) > 0 %}#duplicates{% endif %}" class="stat-card stat-card-link {% if stats.health_issues > 0 %}stat-card-danger{% elif stats.health_warnings > 0 %}stat-card-warning{% else %}stat-card-success{% endif %}"
+<a href="/maintenance{% if stats.get('health_duplicate_count', 0) > 0 %}#duplicates{% endif %}" class="stat-card stat-card-link {% if stats.health_issues > 0 %}stat-card-danger{% elif stats.health_warnings > 0 %}stat-card-warning{% endif %}"
    title="{% if stats.health_issues > 0 %}{{ stats.health_orphaned_count }} orphaned backup{{ 's' if stats.health_orphaned_count != 1 }}{% endif %}{% if stats.health_warnings > 0 %}{% if stats.health_issues > 0 %}, {% endif %}{% set parts = [] %}{% if stats.health_stale_exclude_count > 0 %}{% set _ = parts.append(stats.health_stale_exclude_count ~ ' stale exclude') %}{% endif %}{% if stats.health_stale_timestamp_count > 0 %}{% set _ = parts.append(stats.health_stale_timestamp_count ~ ' stale timestamp') %}{% endif %}{{ parts|join(', ') }}{% endif %}{% if stats.health_issues == 0 and stats.health_warnings == 0 %}All tracking data is consistent{% endif %}">
     <div class="stat-card-header">
         {% if stats.health_issues > 0 %}

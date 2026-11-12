@@ -764,17 +764,14 @@ body {
     color: var(--plex-warning);
 }
 
-/* Stat card color variants */
+/* Stat card color variants. Only problems get an edge: an OK card already
+   shows its state through its icon and value colour. */
 .stat-card-danger {
     border-left: 3px solid var(--plex-error);
 }
 
 .stat-card-warning {
     border-left: 3px solid var(--plex-warning);
-}
-
-.stat-card-success {
-    border-left: 3px solid var(--plex-success);
 }
 
 .stat-label {
