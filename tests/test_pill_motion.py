@@ -47,6 +47,20 @@ def test_engine_is_loaded_once_from_base():
     assert "<script src=\"{{ static_url('js/pill-motion.js') }}\"></script>" in BASE
 
 
+def test_pages_put_back_the_previous_pill():
+    """Navigating replayed the pill's entrance on every page: the pill is
+    saved on pagehide and restored right after the banner element is parsed."""
+    banner_div = BASE.index('<div id="global-operation-banner"')
+    restore = BASE.index("PillMotion.restoreBanner()")
+    assert banner_div < restore < BASE.index("{% block content %}")
+    assert "window.addEventListener('pagehide', _diSaveBanner);" in ENGINE
+    save = _between(ENGINE, "function _diSaveBanner(", "function restoreBanner(")
+    assert "querySelectorAll('script')" in save  # a stand-in, not a re-run of the state's scripts
+    assert "if (oldPill.hasAttribute('data-di-placeholder')) return;" in ENGINE  # always replaced
+    assert "#global-operation-banner[data-di-continued] .di-pill { animation: none !important; }" in CUSTOM_CSS
+    assert "target.removeAttribute('data-di-continued')" in ENGINE  # a real state change flashes again
+
+
 def test_template_holds_no_engine_code():
     for fn in ("function _diDoFlip(", "function _diMorphStart(", "function diSmoothSetState(",
                "function _diSpring(", "function diTriggerRun(", "addEventListener('htmx:"):

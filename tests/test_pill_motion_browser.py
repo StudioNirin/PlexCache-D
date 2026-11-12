@@ -13,6 +13,7 @@ first).
 
 import json
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -33,6 +34,7 @@ HARNESS = """<!doctype html><html data-theme="dark"><head><meta charset="utf-8">
 <body><div class="app-container"><main class="main-content" style="margin-left:0"><div class="content-wrapper">
 <div class="page-header"><div class="page-title"><h1>Dashboard</h1></div>
 <div id="global-operation-banner" hx-get="/api/operation-banner" hx-trigger="load" hx-swap="innerHTML"></div>
+<script>if (window.PillMotion) PillMotion.restoreBanner();</script>
 </div></div></main></div></body></html>"""
 
 _env = Environment(loader=FileSystemLoader(str(TEMPLATES)))
@@ -163,6 +165,7 @@ def pill(browser):
                 kind = "text/css" if f.suffix == ".css" else "application/javascript"
                 return route.fulfill(body=f.read_bytes(), content_type=kind)
         if path == "/api/operation-banner":
+            time.sleep(state.get("latency", 0))  # a real server takes a moment; the harness would not
             html = _env.get_template("components/global_operation_banner.html").render(**state["ctx"])
             return route.fulfill(body=html, content_type="text/html")
         if path in ("/api/dismiss-operation", "/maintenance/dismiss-action"):
@@ -302,6 +305,48 @@ def test_phase_change_reshapes_instead_of_resetting(pill, expanded):
     assert abs(start["w"] - before["w"]) < 1 and abs(start["h"] - before["h"]) < 1
     pill.settle()
     assert pill.leftovers() == 0
+
+
+FRAMES = """
+window.__frames = []; const t0 = performance.now();
+(function f() { const o = document.getElementById('global-operation-banner'); const p = o && o.querySelector('.di-pill');
+  if (p) { const r = p.getBoundingClientRect();
+    window.__frames.push({ t: performance.now() - t0, state: p.getAttribute('data-state'),
+      restored: p.hasAttribute('data-di-placeholder'), top: r.top, opacity: +getComputedStyle(p).opacity,
+      anims: p.getAnimations().map(a => a.animationName).filter(Boolean),
+      morph: !!p.querySelector(':scope > div[aria-hidden]') }); }
+  if (performance.now() - t0 < 1000) requestAnimationFrame(f); })();
+"""
+
+
+@pytest.mark.parametrize("make", [running, completed, idle_ready], ids=["running", "completed", "ready"])
+def test_navigating_keeps_the_pill_in_place(pill, make):
+    """A new page shows the previous page's pill from its first frame, in
+    place, and the first poll replaces it without an entrance or a flash."""
+    pill.load(make())
+    top = pill.rect(".di-pill")["y"]
+    pill.page.add_init_script(FRAMES)
+    pill.state["latency"] = 0.3
+    pill.page.goto(BASE_URL)  # leaving the page saves the pill (pagehide)
+    pill.page.wait_for_timeout(1100)
+    frames = pill.js("() => window.__frames")
+    assert frames and frames[0]["restored"], frames[:2]  # there from the first frame with a pill
+    assert any(not f["restored"] for f in frames)  # and replaced by the live one
+    for f in frames:
+        assert abs(f["top"] - top) < 0.5 and f["opacity"] == 1 and not f["anims"], f
+
+
+def test_state_change_across_a_navigation_morphs(pill):
+    pill.load(running())
+    pill.page.add_init_script(FRAMES)
+    pill.state["ctx"] = completed()  # the run finished while the page was changing
+    pill.state["latency"] = 0.3
+    pill.page.goto(BASE_URL)
+    pill.page.wait_for_timeout(1100)
+    frames = pill.js("() => window.__frames")
+    assert frames[0]["restored"] and frames[0]["state"] == "op-running-caching"
+    assert any(f["morph"] and f["state"] == "op-completed" for f in frames)  # reshaped from the old pill
+    assert not any("diSlideDown" in f["anims"] for f in frames)
 
 
 def test_dismissing_reshapes_into_the_ready_pill(pill):

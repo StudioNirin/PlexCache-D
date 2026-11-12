@@ -653,6 +653,10 @@ footer {
 }
 /* One-shot entrance animation — added by JS only on real state changes */
 .di-pill--entrance { animation: diSlideDown 0.3s ease-out; }
+/* A page that put back the previous page's pill (pill-motion.js
+   restoreBanner) is a continuation, not a new state: the pill's one-shot
+   animations (entrance, completion flash) wait for a real state change */
+#global-operation-banner[data-di-continued] .di-pill { animation: none !important; }
 
 .di-pill:hover { transform: scale(1.02); }
 

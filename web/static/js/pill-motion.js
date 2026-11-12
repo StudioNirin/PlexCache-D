@@ -581,6 +581,53 @@
         setTimeout(function() { if (outer._flipCleanup === cleanup) cleanup(); }, spring.total + 50);
     }
 
+    /* ── Continuity across page loads ────────────────────────────────
+       Every page starts with an empty banner that the first poll fills, and
+       a fresh page has no memory of the previous state, so each navigation
+       replayed the pill's entrance (fade in, slide down 20px). Instead the
+       pill is saved when a page is left and put back, unchanged, before the
+       next page first paints (restoreBanner, called from base.html right
+       after the banner element). The first poll then replaces it quietly:
+       same state, no entrance and no completion flash; a state that changed
+       in between morphs from it like any other state change. */
+    var _DI_SAVE_KEY = 'di-banner';
+
+    function _diSaveBanner() {
+        var outer = document.getElementById('global-operation-banner');
+        if (!outer) return;
+        if (outer._flipCleanup) outer._flipCleanup();
+        var pill = outer.querySelector('.di-pill');
+        try {
+            if (!pill || pill.getAttribute('data-state') === 'disconnected') {
+                sessionStorage.removeItem(_DI_SAVE_KEY);
+                return;
+            }
+            var copy = outer.cloneNode(true);
+            copy.querySelectorAll('script').forEach(function(s) { s.parentNode.removeChild(s); });
+            var p = copy.querySelector('.di-pill');
+            p.classList.remove('di-pill--entrance', 'di-morphing', 'di-expanded', 'di-detail');
+            p.removeAttribute('data-di-placeholder');
+            sessionStorage.setItem(_DI_SAVE_KEY, JSON.stringify({
+                state: pill.getAttribute('data-state'), html: copy.innerHTML, at: Date.now()
+            }));
+        } catch (e) { /* storage blocked or full: the next page loads the pill as before */ }
+    }
+    window.addEventListener('pagehide', _diSaveBanner);
+
+    function restoreBanner() {
+        var outer = document.getElementById('global-operation-banner');
+        if (!outer || outer.firstElementChild) return;
+        var saved = null;
+        try { saved = JSON.parse(sessionStorage.getItem(_DI_SAVE_KEY) || 'null'); } catch (e) { saved = null; }
+        if (!saved || !saved.html || Date.now() - saved.at > 10 * 60 * 1000) return;  /* only a recent one */
+        outer.innerHTML = saved.html;  /* a stand-in: its scripts are gone; the first poll replaces it */
+        var pill = outer.querySelector('.di-pill');
+        if (!pill) { outer.innerHTML = ''; return; }
+        pill.setAttribute('data-di-placeholder', '');
+        outer.setAttribute('data-di-prev-state', saved.state);  /* not a new state: no entrance */
+        outer.setAttribute('data-di-continued', '');           /* nor a replayed completion flash */
+    }
+
     /* Run / Dry Run from the idle pill. The response is the next banner state;
        it is swapped in as a reshape of this bubble (collapsing first if the
        pill is open, while the request is in flight) */
@@ -1017,7 +1064,11 @@
                state morph (the response's first data-state is its pill's) */
             var oldPill = target.querySelector('.di-pill');
             var m = /data-state="([^"]+)"/.exec(evt.detail.serverResponse || '');
-            _diPrev = (oldPill && m && m[1] !== oldPill.getAttribute('data-state')) ? _diSnapshotPill(target) : null;
+            var changed = oldPill && m && m[1] !== oldPill.getAttribute('data-state');
+            _diPrev = changed ? _diSnapshotPill(target) : null;
+            /* A real state change ends a restored page's continuation: its
+               one-shot animations (completion flash) play again */
+            if (changed) target.removeAttribute('data-di-continued');
         });
         document.addEventListener('htmx:afterSwap', function(evt) {
             var target = evt.detail.target;
@@ -1054,6 +1105,7 @@
             var banner = evt.detail.target;
             var oldPill = banner.querySelector('.di-pill');
             if (!oldPill) return;  // No pill yet — allow first swap
+            if (oldPill.hasAttribute('data-di-placeholder')) return;  // a restored stand-in: always replace it
 
             var oldState = oldPill.getAttribute('data-state') || '';
 
@@ -1206,7 +1258,8 @@
     });
     }  // __diBannerListenersBound
 
-    window.PillMotion = { config: cfg, spring: _diSpring, reducedMotion: _diReducedMotion };
+    window.PillMotion = { config: cfg, spring: _diSpring, reducedMotion: _diReducedMotion,
+                          restoreBanner: restoreBanner };
     window.showBannerWarning = showBannerWarning;
     window.diGetExpandState = diGetExpandState;
     window.diSetExpandState = diSetExpandState;

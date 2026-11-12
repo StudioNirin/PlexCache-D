@@ -26,7 +26,7 @@ function load(supportsLinear) {
     const noop = () => {};
     const doc = { addEventListener: noop, getElementById: () => null, querySelector: () => null,
                   querySelectorAll: () => [], documentElement: {} };
-    const win = { matchMedia: () => ({ matches: false }) };
+    const win = { matchMedia: () => ({ matches: false }), addEventListener: noop };
     const ctx = { window: win, document: doc, setTimeout, clearTimeout, console,
                   CSS: { supports: () => supportsLinear } };
     win.CSS = ctx.CSS;

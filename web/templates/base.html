@@ -146,6 +146,10 @@
                      hx-swap="innerHTML">
                 </div>
                 <script>
+                    // Put back the pill the previous page showed, before this page first
+                    // paints, so navigating does not replay its entrance (pill-motion.js)
+                    if (window.PillMotion) PillMotion.restoreBanner();
+
                     // Scroll to top when an unpin kicks off a background eviction
                     // so the user sees the banner spin up.
                     document.body.addEventListener('pinned-eviction-started', function() {
