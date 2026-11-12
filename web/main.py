@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 
 from web import __version__
 from web.config import templates, STATIC_DIR, PROJECT_ROOT, CONFIG_DIR, SETTINGS_FILE
@@ -266,6 +266,20 @@ async def auth_middleware(request: Request, call_next):
     if request.headers.get("upgrade", "").lower() == "websocket":
         return await call_next(request)
 
+    # API key: accepted for the run/status/stop API routes only (web/api_access.py).
+    # A key that is sent but wrong is rejected outright rather than falling back
+    # to the session, so a misconfigured automation fails loudly.
+    from web.api_access import API_KEY_HEADER, api_key_matches, is_api_key_route
+    api_key_route = is_api_key_route(request.method, path)
+    if api_key_route:
+        provided_key = request.headers.get(API_KEY_HEADER)
+        if provided_key:
+            if api_key_matches(provided_key, auth_service.get_api_key()):
+                request.state.api_key_auth = True
+                return await call_next(request)
+            logging.warning(f"[API] Rejected invalid API key for {request.method} {path}")
+            return JSONResponse({"success": False, "message": "Invalid API key"}, status_code=401)
+
     # Check session cookie
     session_token = request.cookies.get("plexcache_session")
     if session_token:
@@ -288,6 +302,13 @@ async def auth_middleware(request: Request, call_next):
                 )
 
             return response
+
+    # API routes answer with JSON, not a login redirect, so scripts see the cause
+    if api_key_route:
+        return JSONResponse(
+            {"success": False, "message": f"Login session or {API_KEY_HEADER} header required"},
+            status_code=401,
+        )
 
     # HTMX requests: 401 + HX-Redirect (prevents partial HTML swap)
     # Use HX-Current-URL (the actual page) so login redirects back to the page,

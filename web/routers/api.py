@@ -363,6 +363,14 @@ def health_check():
     return {"status": "healthy"}
 
 
+def _queued_run_status():
+    info = get_run_trigger().pending_info()
+    if info is None:
+        return {"queued": False, "run_at": None}
+    return {"queued": True, "run_at": _iso(info["run_at"]),
+            "dry_run": info["dry_run"], "verbose": info["verbose"]}
+
+
 @router.get("/status")
 def detailed_status():
     """
@@ -400,6 +408,7 @@ def detailed_status():
             "last_run_display": schedule_status.get("last_run_display"),
         },
         "operation": operation_status,
+        "queued_run": _queued_run_status(),
         "cache": {
             "files": cache_stats.get("cache_files", 0),
             "size": cache_stats.get("cache_size", "0 B"),
@@ -409,52 +418,90 @@ def detailed_status():
     }
 
 
+# One trigger per process: it holds the cooldown clock and any queued run.
+_run_trigger = None
+
+
+def get_run_trigger():
+    """RunTrigger wired to the operation runner, maintenance runner and settings."""
+    global _run_trigger
+    if _run_trigger is None:
+        from web.api_access import RunTrigger, clamp_cooldown, DEFAULT_COOLDOWN_SECONDS
+        from web.services.maintenance_runner import get_maintenance_runner
+        from web.services.operation_runner import OperationState
+
+        runner = get_operation_runner()
+
+        def blocked_reason():
+            if get_maintenance_runner().is_running:
+                return "A maintenance action is in progress"
+            pid = runner._check_external_process()
+            if pid is not None:
+                return f"A CLI run is in progress (PID {pid})"
+            return None
+
+        _run_trigger = RunTrigger(
+            start_run=lambda dry_run, verbose: runner.start_operation(
+                dry_run=dry_run, verbose=verbose, source="api"),
+            is_busy=lambda: runner.state == OperationState.RUNNING,
+            blocked_reason=blocked_reason,
+            cooldown_seconds=lambda: clamp_cooldown(get_settings_service().get_security_settings().get(
+                "api_run_cooldown_seconds", DEFAULT_COOLDOWN_SECONDS)),
+        )
+    return _run_trigger
+
+
+def _iso(epoch):
+    return datetime.fromtimestamp(epoch).isoformat(timespec="seconds") if epoch else None
+
+
 @router.post("/run")
 def trigger_run(dry_run: bool = False, verbose: bool = False):
     """
-    Trigger an immediate PlexCache operation.
+    Trigger a PlexCache run from an external tool or automation.
 
-    This endpoint allows external tools and automation to trigger cache operations.
-    The operation runs in the background; poll /api/status to track progress.
+    Calls that arrive within the API run cooldown, or while a run is in
+    progress, are merged into one follow-up run instead of being dropped.
 
-    Args:
-        dry_run: If true, simulate without moving files
-        verbose: If true, enable debug logging for this run
-
-    Returns:
-        JSON with success status and message
+    Responses (the JSON always has success, message and running):
+      202  started, or queued (status "queued", run_at when known)
+      409  blocked by a maintenance action or a CLI run
     """
-    operation_runner = get_operation_runner()
+    result = get_run_trigger().request(dry_run=dry_run, verbose=verbose)
+    body = {
+        "success": result.status in ("started", "queued"),
+        "status": result.status,
+        "message": result.message,
+        "running": get_operation_runner().is_running,
+        "run_at": _iso(result.run_at),
+    }
+    return JSONResponse(body, status_code=409 if result.status == "blocked" else 202)
 
-    if operation_runner.is_running:
-        return {
-            "success": False,
-            "message": "Operation already in progress",
-            "running": True
-        }
 
-    # Start the operation
-    started = operation_runner.start_operation(dry_run=dry_run, verbose=verbose)
+@router.post("/stop")
+def stop_run():
+    """
+    Stop the current cache run (it finishes the file in progress first) and
+    drop any queued API run. Maintenance actions are not affected.
 
-    if started:
-        mode = []
-        if dry_run:
-            mode.append("dry-run")
-        if verbose:
-            mode.append("verbose")
-        mode_str = f" ({', '.join(mode)})" if mode else ""
-
-        return {
-            "success": True,
-            "message": f"Operation started{mode_str}",
-            "running": True
-        }
+    Responses: 200 when a run was stopped or a queued run dropped, 409 when
+    there was nothing to stop.
+    """
+    runner = get_operation_runner()
+    dropped = get_run_trigger().cancel_pending()
+    stopped = runner.stop_operation()
+    if stopped:
+        message = "Stop requested: the run stops after the current file"
+    elif dropped:
+        message = "Queued run cancelled"
     else:
-        return {
-            "success": False,
-            "message": "Failed to start operation",
-            "running": False
-        }
+        message = "No cache run in progress"
+    if dropped and stopped:
+        message += "; queued run cancelled"
+    return JSONResponse(
+        {"success": stopped or dropped, "message": message, "running": runner.is_running},
+        status_code=200 if (stopped or dropped) else 409,
+    )
 
 
 @router.get("/operation-indicator", response_class=HTMLResponse)

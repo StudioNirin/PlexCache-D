@@ -150,7 +150,7 @@ class OperationRunner:
         # Run grouping: minted at start_operation(), attached to every FileActivity
         # so the dashboard's run-grouped Recent Activity view can bucket entries.
         self._run_id: Optional[str] = None
-        self._run_source: str = "web"  # "web" | "scheduled"
+        self._run_source: str = "web"  # "web" | "scheduled" | "api"
         # Track current operation type based on headers
         self._current_operation: Optional[str] = None
         # Patterns to match file operation headers and content
@@ -925,8 +925,8 @@ class OperationRunner:
         Args:
             dry_run: If True, simulate without moving files
             verbose: If True, enable DEBUG level logging
-            source: Trigger origin for run grouping — "web" (manual UI button) or
-                    "scheduled" (APScheduler). Stored on every FileActivity for
+            source: Trigger origin for run grouping — "web" (manual UI button),
+                    "scheduled" (APScheduler) or "api" (POST /api/run). Stored on every FileActivity for
                     the dashboard's run-grouped Recent Activity view.
 
         Returns:

@@ -10,6 +10,7 @@ from typing import Dict, Any, Optional, List
 from dataclasses import dataclass, field, asdict
 
 from web.config import DATA_DIR, SETTINGS_FILE, IS_DOCKER
+from web.api_access import DEFAULT_COOLDOWN_SECONDS, clamp_cooldown
 # Defaults come from core's dataclass rather than repeated literals: the engine
 # reads CacheConfig, so anything hardcoded here can disagree with what runs.
 from core.config import CacheConfig
@@ -960,6 +961,9 @@ class SettingsService:
             "auth_password_enabled": raw.get("auth_password_enabled", False),
             "auth_password_username": raw.get("auth_password_username", ""),
             "auth_session_hours": raw.get("auth_session_hours", 24),
+            "api_key": raw.get("api_key", "") or "",
+            "api_run_cooldown_seconds": clamp_cooldown(
+                raw.get("api_run_cooldown_seconds", DEFAULT_COOLDOWN_SECONDS)),
         }
 
     def save_security_settings(self, settings: Dict[str, Any]) -> bool:
@@ -994,6 +998,16 @@ class SettingsService:
 
         if "auth_admin_username" in settings:
             raw["auth_admin_username"] = settings["auth_admin_username"]
+
+        if "api_key" in settings:
+            key = str(settings["api_key"] or "").strip()
+            if key:
+                raw["api_key"] = key
+            else:
+                raw.pop("api_key", None)
+
+        if "api_run_cooldown_seconds" in settings:
+            raw["api_run_cooldown_seconds"] = clamp_cooldown(settings["api_run_cooldown_seconds"])
 
         return self._save_raw(raw)
 

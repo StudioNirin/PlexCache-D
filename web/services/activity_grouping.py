@@ -31,6 +31,7 @@ SOURCE_LABELS = {
     "scheduled": "Scheduled Run",
     "web": "Web UI Run",
     "cli": "CLI Run",
+    "api": "API Run",
     "maintenance": "Maintenance Run",
     "legacy": "Previous Activity",
 }
@@ -79,7 +80,7 @@ def group_activity_into_runs(
 
             {
                 "run_id": str,
-                "run_source": "scheduled" | "web" | "cli" | "maintenance" | "legacy",
+                "run_source": "scheduled" | "web" | "api" | "cli" | "maintenance" | "legacy",
                 "label": str,                # e.g. "Scheduled Run"
                 "started_at": isoformat,
                 "completed_at": isoformat,

@@ -630,6 +630,22 @@ _INDEX: List[Dict[str, Any]] = [
         "icon": "log-out", "tone": "tone-warn",
         "keywords": ["logout", "sign out", "sessions", "revoke", "all"],
     },
+    {
+        "tab": "security", "setting_id": "api_key",
+        "label": "API Key",
+        "hint": "Lets Tautulli, Home Assistant or a script start, check or stop a cache run.",
+        "section": "Security", "subsection": "API Access",
+        "icon": "key-round", "tone": "tone-warn",
+        "keywords": ["api", "key", "token", "tautulli", "home assistant", "webhook", "automation", "trigger", "curl"],
+    },
+    {
+        "tab": "security", "setting_id": "api_run_cooldown_seconds",
+        "label": "API Run Cooldown",
+        "hint": "Minimum gap between API-started runs; extra calls are merged into one follow-up run.",
+        "section": "Security", "subsection": "API Access",
+        "icon": "timer", "tone": "tone-warn",
+        "keywords": ["api", "cooldown", "debounce", "rate", "limit", "tautulli", "trigger", "seconds"],
+    },
 
     # --- Import / Export ---------------------------------------------------
     {
