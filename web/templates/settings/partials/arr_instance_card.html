@@ -28,6 +28,7 @@
                                 hx-delete="/settings/integrations/instances/{{ index }}"
                                 hx-target="#arr-instances"
                                 hx-swap="innerHTML"
+                                data-confirm-title="Delete instance" data-confirm-label="Delete"
                                 hx-confirm="Delete instance '{{ instance.name }}'?">
                             <i data-lucide="trash-2"></i>
                         </button>

@@ -22,22 +22,7 @@
             {% endfor %}
         </div>
 
-        {% if orphan_mappings %}
-        <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
-        <h3 style="font-size: 1rem; color: var(--plex-text-muted); margin-bottom: 1rem;">
-            <i data-lucide="folder" style="width: 18px; height: 18px; vertical-align: middle;"></i>
-            Custom Mappings
-        </h3>
-        <p class="text-muted" style="font-size: 0.85rem; margin-bottom: 0.75rem;">
-            These path mappings are not linked to a Plex library. They may have been created manually or before library linking was available.
-        </p>
-        <div id="orphan-mappings">
-            {% for mapping in orphan_mappings %}
-            {% set index = mapping._index %}
-            {% include "settings/partials/path_mapping_card.html" %}
-            {% endfor %}
-        </div>
-        {% endif %}
+        {% include "settings/partials/custom_mappings.html" %}
 
         <hr style="border-color: var(--plex-border); margin: 1.5rem 0;">
 
@@ -46,7 +31,9 @@
                 <i data-lucide="plus"></i> Add Custom Path Mapping
             </summary>
 
-            <form hx-post="/settings/paths" hx-target="#orphan-mappings" hx-swap="beforeend" style="margin-top: 1rem;">
+            <form hx-post="/settings/paths" hx-target="#custom-mappings" hx-swap="outerHTML"
+                  data-reset-on-success
+                  style="margin-top: 1rem;">
                 <div class="grid grid-2">
                     <div class="form-group">
                         <label for="new_name">Name</label>

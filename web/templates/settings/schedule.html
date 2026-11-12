@@ -394,14 +394,14 @@ function validateCron() {
         .then(data => {
             validationDiv.className = 'cron-validation ' + (data.valid ? 'valid' : 'invalid');
 
-            if (data.valid) {
-                let html = '<i data-lucide="check-circle"></i> ' + data.message;
-                if (data.next_runs && data.next_runs.length > 0) {
-                    html += '<div class="next-runs">Next runs: ' + data.next_runs.join(', ') + '</div>';
-                }
-                validationDiv.innerHTML = html;
-            } else {
-                validationDiv.innerHTML = '<i data-lucide="x-circle"></i> ' + data.message;
+            // The message can echo the expression back, so it goes in as text.
+            validationDiv.innerHTML = '<i data-lucide="' + (data.valid ? 'check-circle' : 'x-circle') + '"></i> ';
+            validationDiv.appendChild(document.createTextNode(data.message));
+            if (data.valid && data.next_runs && data.next_runs.length > 0) {
+                const nextRuns = document.createElement('div');
+                nextRuns.className = 'next-runs';
+                nextRuns.textContent = 'Next runs: ' + data.next_runs.join(', ');
+                validationDiv.appendChild(nextRuns);
             }
 
             lucide.createIcons();
