@@ -2,7 +2,7 @@
 <Container version="2">
   <Name>Plexcache-D</Name>
   <Repository>ghcr.io/studionirin/plexcache-d:latest</Repository>
-  <Registry>https://github.com/StudioNirin/PlexCache-D</Registry>
+  <Registry>https://ghcr.io/StudioNirin/plexcache-d</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>bash</Shell>
@@ -20,11 +20,14 @@
   For TV shows/anime, it also fetches the next specified number of episodes.</Overview>
 
   <!-- NOTE: Either Support or Project is REQUIRED -->
+  <!-- Support page -->
+  <Support>https://github.com/StudioNirin/PlexCache-D/issues</Support>
+
   <!-- Project page -->
-  <Project>https://github.com/StudioNirin/PlexCache-D/issues</Project>
+  <Project>https://github.com/StudioNirin/PlexCache-D</Project>
 
   <!-- Readme first file -->
-  <ReadMe>https://github.com/StudioNirin/PlexCache-D/blob/main/README.md</ReadMe>
+  <ReadMe>https://raw.githubusercontent.com/StudioNirin/PlexCache-D/main/README.md</ReadMe>
 
   <!-- Support and donation links -->
   <DonateText>Support Development</DonateText>
@@ -32,6 +35,9 @@
 
   <!-- Valid category entries can be generated from the Application Categorizer plugin available in Apps -->
   <Category>Tools:System</Category>
+
+  <!-- Optional extra app search terms -->
+  <ExtraSearchTerms>plex cache mover ssd array spindown ondeck watchlist media</ExtraSearchTerms>
 
   <!-- If this container is beta container, set Beta to true-->
   <Beta>true</Beta>
