@@ -545,6 +545,11 @@ def get_operation_banner(request: Request):
                 "next_run_relative": sched_status.get("next_run_relative") or "momentarily",
                 "next_run_display": sched_status.get("next_run_display", ""),
             }
+        else:
+            # No schedule: the Ready pill shows the last run instead of just the app name
+            from core.activity import last_run_pill_text, load_last_run_summary
+            last_run = sched_status.get("last_run")
+            context["idle_info"] = last_run_pill_text(last_run, load_last_run_summary() if last_run else None)
 
     return templates.TemplateResponse(
         request,
