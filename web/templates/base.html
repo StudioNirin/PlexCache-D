@@ -70,43 +70,43 @@
                 <li>
                     <a href="/" data-tooltip="Dashboard" {% if page_title == 'Dashboard' %}class="active"{% endif %}>
                         <i data-lucide="layout-dashboard"></i>
-                        <span>Dashboard</span>
+                        <span class="sidebar-label">Dashboard</span>
                     </a>
                 </li>
                 <li>
                     <a href="/cache" data-tooltip="Cached Files" {% if page_title == 'Cached Files' %}class="active"{% endif %}>
                         <i data-lucide="database"></i>
-                        <span>Cached Files</span>
+                        <span class="sidebar-label">Cached Files</span>
                     </a>
                 </li>
                 <li>
                     <a href="/recently-added" data-tooltip="Recently Added" {% if page_title == 'Recently Added' %}class="active"{% endif %}>
                         <i data-lucide="sparkles"></i>
-                        <span>Recently Added</span>
+                        <span class="sidebar-label">Recently Added</span>
                     </a>
                 </li>
                 <li>
                     <a href="/cache/drive" data-tooltip="Storage" {% if page_title == 'Storage' %}class="active"{% endif %}>
                         <i data-lucide="hard-drive"></i>
-                        <span>Storage</span>
+                        <span class="sidebar-label">Storage</span>
                     </a>
                 </li>
                 <li>
                     <a href="/settings" data-tooltip="Settings" {% if 'Settings' in page_title|default('') %}class="active"{% endif %}>
                         <i data-lucide="settings"></i>
-                        <span>Settings</span>
+                        <span class="sidebar-label">Settings</span>
                     </a>
                 </li>
                 <li>
                     <a href="/logs" data-tooltip="Logs" {% if page_title == 'Logs' %}class="active"{% endif %}>
                         <i data-lucide="file-text"></i>
-                        <span>Logs</span>
+                        <span class="sidebar-label">Logs</span>
                     </a>
                 </li>
                 <li>
                     <a href="/maintenance" data-tooltip="Maintenance" {% if page_title == 'Maintenance' %}class="active"{% endif %}>
                         <i data-lucide="wrench"></i>
-                        <span>Maintenance</span>
+                        <span class="sidebar-label">Maintenance</span>
                     </a>
                 </li>
             </ul>
@@ -114,14 +114,14 @@
             <form method="post" action="/auth/logout" style="margin: 0; padding: 0 0.5rem;">
                 <button type="submit" class="sidebar-logout-btn" title="Sign out ({{ request.state.user.plex_username }})">
                     <i data-lucide="log-out"></i>
-                    <span>Sign Out</span>
+                    <span class="sidebar-label">Sign Out</span>
                 </button>
             </form>
             {% endif %}
             <div class="sidebar-footer">
                 <button class="sidebar-collapse-btn" onclick="toggleSidebarCollapse()" title="Collapse sidebar">
                     <i data-lucide="panel-left-close"></i>
-                    <span>Collapse</span>
+                    <span class="sidebar-label">Collapse</span>
                 </button>
             </div>
         </nav>

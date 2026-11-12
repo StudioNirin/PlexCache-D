@@ -40,6 +40,14 @@ body {
     --plex-info-text: var(--plex-info);
     --sidebar-width: 200px;
     --sidebar-collapsed: 60px;
+    /* Left inset that centres a 24px item icon in the collapsed width. The
+       inset is made of the sidebar's 1px border, the 0.5rem list or footer
+       padding on each side, and the item's 1px border on each side. The brand
+       inset centres the 32px brand icon. Collapsed items use these instead of
+       justify-content: center, so the icons glide with the width instead of
+       snapping to the middle. */
+    --sidebar-item-inset-collapsed: calc((var(--sidebar-collapsed) - 1px - 1rem - 2px - 24px) / 2);
+    --sidebar-brand-inset-collapsed: calc((var(--sidebar-collapsed) - 1px - 32px) / 2);
 
     /* Color aliases for convenience */
     --success: var(--plex-success);
@@ -119,8 +127,6 @@ body {
     box-shadow: inset 3px 0 0 var(--plex-orange);
 }
 [data-theme="light"] .sidebar-nav li a.active svg { color: var(--plex-orange); }
-/* Collapsed sidebar marks the active item with its bottom border instead */
-[data-theme="light"] .sidebar.collapsed .sidebar-nav li a.active { box-shadow: inset 0 -3px 0 var(--plex-orange); }
 /* Footer: opacity on top of the muted grey left the version at 2.1:1 */
 [data-theme="light"] footer,
 [data-theme="light"] footer .version { opacity: 1; }
@@ -165,6 +171,7 @@ body {
     padding: 0.85rem 1rem;
     border-bottom: 1px solid var(--plex-border);
     background: transparent;
+    transition: padding 0.3s ease;
 }
 
 .sidebar-brand-icon {
@@ -233,7 +240,7 @@ body {
     padding: 0.6rem 1rem;
     color: var(--plex-text-muted);
     text-decoration: none;
-    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+    transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s ease;
     border-radius: var(--plex-radius-sm);
     border: 1px solid transparent;
 }
@@ -259,6 +266,34 @@ body {
     flex-shrink: 0;
 }
 
+/* Item labels (nav, Sign Out, Collapse) and the brand text stay in the layout
+   in both states and never wrap. The sidebar clips them (overflow-x), so while
+   it animates between widths its edge slides over the text: no wrapping and
+   no text popping in. They turn hidden only once the collapse has finished,
+   so find-in-page and text selection cannot reach the clipped text. */
+.sidebar-label {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.sidebar-label,
+.sidebar-brand-text {
+    transition: visibility 0s;
+}
+
+/* Each collapsed rule that a transition animates (visibility, insets, the
+   collapse icon) also matches .sidebar-collapsed-init, the class the <head>
+   script sets before the sidebar exists. Otherwise the page could render once
+   in the expanded layout at 60px, and adding .collapsed would then animate
+   on every load of a collapsed sidebar. */
+.sidebar.collapsed .sidebar-label,
+.sidebar.collapsed .sidebar-brand-text,
+.sidebar-collapsed-init .sidebar .sidebar-label,
+.sidebar-collapsed-init .sidebar .sidebar-brand-text {
+    visibility: hidden;
+    transition: visibility 0s 0.3s;
+}
+
 .sidebar-logout-btn {
     display: flex;
     align-items: center;
@@ -272,7 +307,7 @@ body {
     color: var(--plex-text-muted);
     font-size: 0.875rem;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.15s ease, padding 0.3s ease;
 }
 
 .sidebar-logout-btn:hover {
@@ -288,13 +323,9 @@ body {
     flex-shrink: 0;
 }
 
-.sidebar.collapsed .sidebar-logout-btn span {
-    display: none;
-}
-
-.sidebar.collapsed .sidebar-logout-btn {
-    justify-content: center;
-    padding: 0.6rem 0;
+.sidebar.collapsed .sidebar-logout-btn,
+.sidebar-collapsed-init .sidebar .sidebar-logout-btn {
+    padding: 0.6rem 0 0.6rem var(--sidebar-item-inset-collapsed);
 }
 
 .sidebar-footer {
@@ -348,7 +379,7 @@ body {
     color: var(--plex-text-muted);
     font-size: 0.875rem;
     cursor: pointer;
-    transition: all 0.15s ease;
+    transition: all 0.15s ease, padding 0.3s ease;
 }
 
 .sidebar-collapse-btn:hover {
@@ -365,13 +396,9 @@ body {
     transition: transform 0.3s ease;
 }
 
-.sidebar.collapsed .sidebar-collapse-btn span {
-    display: none;
-}
-
-.sidebar.collapsed .sidebar-collapse-btn {
-    justify-content: center;
-    padding: 0.6rem 0;
+.sidebar.collapsed .sidebar-collapse-btn,
+.sidebar-collapsed-init .sidebar .sidebar-collapse-btn {
+    padding: 0.6rem 0 0.6rem var(--sidebar-item-inset-collapsed);
 }
 
 /* ==================== Collapsed Sidebar ==================== */
@@ -380,41 +407,31 @@ body {
     width: var(--sidebar-collapsed);
 }
 
-.sidebar.collapsed .sidebar-nav li a span,
 .sidebar.collapsed .sidebar-footer small {
     display: none;
 }
 
-/* Hide the brand text without removing it from the layout, so the brand row
-   keeps its expanded height and the nav below does not move up. */
-.sidebar.collapsed .sidebar-brand-text {
-    visibility: hidden;
-    width: 0;
-    overflow: hidden;
-    white-space: nowrap;
-}
-
-.sidebar.collapsed .sidebar-brand {
-    justify-content: center;
-    gap: 0;
-    padding: 0.85rem 0.5rem;
+/* The brand text stays in the layout (hidden, see .sidebar-label above), so
+   the brand row keeps its expanded height and the nav below does not move up. */
+.sidebar.collapsed .sidebar-brand,
+.sidebar-collapsed-init .sidebar .sidebar-brand {
+    padding: 0.85rem 0 0.85rem var(--sidebar-brand-inset-collapsed);
 }
 
 /* Same vertical padding and border as expanded, so every item keeps its
-   height; only the horizontal padding goes, to centre the icon. */
+   height; only the left inset changes, to centre the icon. */
+.sidebar.collapsed .sidebar-nav li a,
+.sidebar-collapsed-init .sidebar .sidebar-nav li a {
+    padding: 0.6rem 0 0.6rem var(--sidebar-item-inset-collapsed);
+}
+
 .sidebar.collapsed .sidebar-nav li a {
-    justify-content: center;
-    padding: 0.6rem 0;
     position: relative;
 }
 
-/* Active marker drawn as an inset shadow so it takes no extra height */
-.sidebar.collapsed .sidebar-nav li a.active {
-    box-shadow: inset 0 -3px 0 var(--plex-orange), 0 0 12px rgba(229, 160, 13, 0.06);
-}
-
 .sidebar.collapsed .sidebar-collapse-btn i,
-.sidebar.collapsed .sidebar-collapse-btn svg {
+.sidebar.collapsed .sidebar-collapse-btn svg,
+.sidebar-collapsed-init .sidebar .sidebar-collapse-btn svg {
     transform: rotate(180deg);
 }
 
@@ -466,6 +483,21 @@ body {
 
 .main-content {
     transition: margin-left 0.3s ease;
+}
+
+/* Reduced motion: the sidebar collapses and expands instantly */
+@media (prefers-reduced-motion: reduce) {
+    .sidebar,
+    .main-content,
+    .sidebar-brand,
+    .sidebar-nav li a,
+    .sidebar-logout-btn,
+    .sidebar-collapse-btn,
+    .sidebar-collapse-btn svg,
+    .sidebar-label,
+    .sidebar-brand-text {
+        transition: none !important;
+    }
 }
 
 /* ==================== Main Content ==================== */
@@ -2882,9 +2914,17 @@ footer .version {
         display: inline;
     }
 
+    .sidebar.collapsed .sidebar-label {
+        visibility: visible;
+    }
+
     .sidebar.collapsed .sidebar-nav li a {
         justify-content: flex-start;
         padding: 0.75rem 1.25rem;
+    }
+
+    .sidebar.collapsed .sidebar-logout-btn {
+        padding: 0.6rem 1rem;
     }
 
     .sidebar.collapsed .sidebar-nav li a::after {
