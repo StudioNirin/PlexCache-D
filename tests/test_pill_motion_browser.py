@@ -388,6 +388,45 @@ def test_widening_state_slides_on_the_reshape_spring(pill):
     assert pill.js("() => document.getElementById('global-operation-banner').style.transition") == ""
 
 
+def test_phone_pill_fits_the_screen(pill):
+    """A finished run with errors ran off the right of a 360px screen: the
+    header is a wrapping column there, as wide as the pill's full content. The
+    run summary shortens instead; the label and the error badge stay whole."""
+    pill.page.set_viewport_size({"width": 360, "height": 740})
+    pill.state["page"] = header_page(200)
+    pill.load(completed(errors=2))
+    pill.js("() => diSetExpandState('false')")
+    pill.page.wait_for_timeout(100)
+    assert _in_flow(pill)
+    p = pill.rect(".di-pill")
+    assert p["x"] >= 0 and p["x"] + p["w"] <= 360 - 16
+    clipped = pill.js("""() => { const e = document.querySelector('#global-operation-banner .di-pill__compact .di-pill__left');
+        return e.scrollWidth - e.clientWidth; }""")
+    assert clipped <= 0
+    summary = pill.js("""() => { const e = document.querySelector('#global-operation-banner .di-pill__compact .di-metric--muted');
+        return [e.textContent, e.scrollWidth > e.clientWidth]; }""")
+    assert summary == ["12 cached · 3 restored", True]  # still there, cut short with an ellipsis
+
+
+def test_phone_header_reads_title_pill_then_actions(pill):
+    """On a phone the header is a column. It follows the Dashboard: title, the
+    pill, then the page's own actions as a small row on the right. The actions
+    (Priority Report, View All Files, Refresh) used to sit between the title
+    and the pill."""
+    pill.page.set_viewport_size({"width": 390, "height": 844})
+    pill.state["page"] = header_page(200)
+    pill.load(running())
+    title, p = pill.js("""() => { const b = r => { r = r.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; };
+        return [b(document.querySelector('.page-title')), b(document.querySelector('#global-operation-banner .di-pill'))]; }""")
+    actions = pill.js("""() => { const r = document.querySelector('.action-buttons').getBoundingClientRect();
+        const h = document.querySelector('.page-header').getBoundingClientRect();
+        return { top: r.top, right: r.right, headerRight: h.right,
+                 font: getComputedStyle(document.querySelector('.action-buttons .btn')).fontSize }; }""")
+    assert title["bottom"] <= p["top"] < p["bottom"] < actions["top"]
+    assert abs(actions["right"] - actions["headerRight"]) < 1
+    assert actions["font"] == "12.8px"  # .btn-sm, like the Dashboard's Refresh
+
+
 def test_opening_keeps_clear_of_the_toggle_and_closing_returns(pill):
     """Slid far to the right, the open pill (here 620px) would reach under the
     theme toggle: it moves back as it opens, and closing returns it."""

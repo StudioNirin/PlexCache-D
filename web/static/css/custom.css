@@ -1525,10 +1525,20 @@ footer {
         transform: none;
     }
 
+    /* min-width 0 down to the compact row's right side: as flex items they
+       otherwise refuse to be narrower than their content, so "Completed · 2
+       errors · 12 cached ..." ran off the right of a 360px screen. The left side
+       (icon, label, error badge) keeps its size; the summary on the right
+       shortens with an ellipsis instead. */
     .di-pill {
-        min-width: auto;
+        min-width: 0;
         max-width: none;
         width: 100%;
+    }
+
+    .di-pill__compact,
+    .di-pill__right {
+        min-width: 0;
     }
 
     .di-pill.di-expanded {
@@ -1536,11 +1546,40 @@ footer {
         min-width: auto;
     }
 
-    /* The header is a column here: stretch the banner to the full width (the row
-       layout's flex-basis does not apply) so the pill and its overlay get a width. */
+    /* The header is a column here: give the banner the full width (the row
+       layout's flex-basis does not apply) so the pill and its overlay get a width.
+       width: 100% rather than only stretch: the header wraps, and a wrapping
+       column is as wide as its widest item, so a stretched banner took the pill's
+       full content width instead of the screen's. */
     .page-header > #global-operation-banner.di-flow {
         flex: 0 0 auto;
         align-self: stretch;
+        width: 100%;
+        order: 0;  /* right under the title, as on the Dashboard */
+    }
+
+    /* The page's own actions (Priority Report, View All Files, Refresh, ...)
+       follow the pill as a light row on the right, like the Dashboard's
+       "Updated ... / Refresh" row, instead of sitting between the title and
+       the pill. Same size as that Refresh (.btn-sm). */
+    .page-header > .action-buttons {
+        order: 1;
+        align-self: flex-end;
+        margin-top: 0.375rem;  /* the Dashboard's 22px from the pill */
+    }
+
+    .page-header:has(> .action-buttons) {
+        margin-bottom: 0.8rem;  /* and its 13px to the content */
+    }
+
+    .page-header > .action-buttons .btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .page-header > .action-buttons .btn svg {
+        width: 14px;
+        height: 14px;
     }
 
     #global-operation-banner.di-flow[data-di-expanded="tier2"] .di-pill,
