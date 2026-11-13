@@ -11,6 +11,8 @@ one row that swipes, or drags with a mouse, with the current tab in view.
 
 Header buttons are the page's own actions: Cached Files and the Priority
 Report are tabs of one section, and Storage links to the files from its card.
+
+The Recently Added explainer is one line; how pins work opens on tap.
 """
 
 import re
@@ -154,3 +156,19 @@ def test_storage_links_to_the_files_from_its_cached_items_card():
     stats = _read("cache/partials/storage_stats.html")
     card = stats[stats.rindex("<a ", 0, stats.index("Cached Items")):stats.index("Cached Items")]
     assert card.startswith('<a href="/cache" class="stat-card stat-card-link"')  # the Dashboard's link-card pattern
+
+
+# ── Recently Added explainer ──────────────────────────────────────
+
+def test_recently_added_explainer_is_one_line_that_opens():
+    """Six lines on a phone every visit: the key point stays visible and how
+    pins work opens on tap (a native <details>, no script, nothing stored)."""
+    html = _read("recently_added/index.html")
+    block = html[html.index('<details class="alert alert-info ra-explainer">'):html.index("</details>")]
+    assert "<summary>" in block and "How pins work" in block
+    summary = block[block.index("<summary>"):block.index("</summary>")]
+    assert "cached automatically" in summary and "<strong>Pin</strong>" in summary
+    body = block[block.index("</summary>"):]
+    for fact in ("pinned instantly, with no copy", "copied over on the next run", "Pins stay until you unpin them"):
+        assert fact in body, fact
+    assert " open" not in block.split(">", 1)[0]  # closed by default

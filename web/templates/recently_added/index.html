@@ -24,16 +24,21 @@
     </div>
 </header>
 
-<!-- Concept explainer -->
-<div class="alert alert-info" style="margin-bottom: 1.5rem;">
-    <i data-lucide="info"></i>
-    <span>
-        New media is cached automatically once it hits your Watchlist or On&nbsp;Deck.
-        To hold something on the cache yourself, <strong>Pin</strong> it: items already on
-        the cache drive are pinned instantly (no copy); items on the array are copied over on
-        the next run. Pins stay until you unpin them.
-    </span>
-</div>
+<!-- Concept explainer: one line; how pins work opens on tap. A native <details>,
+     so tap, click and keyboard all work with no script and nothing to remember. -->
+<details class="alert alert-info ra-explainer">
+    <summary>
+        <i data-lucide="info"></i>
+        <span class="ra-explainer-lead">
+            Watchlist and On&nbsp;Deck items are cached automatically. <strong>Pin</strong> anything else to keep it.
+        </span>
+        <span class="ra-explainer-more">How pins work <i data-lucide="chevron-down"></i></span>
+    </summary>
+    <p class="ra-explainer-body">
+        Items already on the cache drive are pinned instantly, with no copy. Items on the
+        array are copied over on the next run. Pins stay until you unpin them.
+    </p>
+</details>
 
 <!-- Lazy-loaded content (stat cards + filters + table) -->
 {# Refetches on pin/unpin: the pin button swaps only its own <form>, so without

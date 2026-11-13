@@ -1993,6 +1993,46 @@ footer {
 }
 
 /* ─────────────────────────────────────────────────────────────────────
+   Recently Added — explainer: one line, "How pins work" opens on tap
+   ───────────────────────────────────────────────────────────────────── */
+.ra-explainer {
+    display: block;  /* .alert is a row; the summary and the body stack */
+    padding: 0.75rem 1rem;
+    margin-bottom: 1.5rem;
+}
+.ra-explainer > summary {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    cursor: pointer;
+    list-style: none;
+}
+.ra-explainer > summary::-webkit-details-marker { display: none; }
+.ra-explainer > summary:focus-visible {
+    outline: 2px solid var(--plex-orange);
+    outline-offset: 4px;
+    border-radius: 4px;
+}
+.ra-explainer > summary > svg { width: 18px; height: 18px; flex-shrink: 0; }
+.ra-explainer-lead { flex: 1 1 12rem; min-width: 0; }  /* stays beside the icon on a phone */
+.ra-explainer-more {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+    font-weight: 600;
+    white-space: nowrap;
+}
+.ra-explainer > summary:hover .ra-explainer-more { text-decoration: underline; }
+.ra-explainer-more svg { width: 14px; height: 14px; transition: rotate 0.2s ease; }
+.ra-explainer[open] .ra-explainer-more svg { rotate: 180deg; }
+.ra-explainer-body { margin: 0.5rem 0 0 calc(18px + 0.75rem); }
+@media (prefers-reduced-motion: reduce) {
+    .ra-explainer-more svg { transition: none; }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
    Recently Added — small caption under a row's Pin action
    ───────────────────────────────────────────────────────────────────── */
 .ra-status-note {
