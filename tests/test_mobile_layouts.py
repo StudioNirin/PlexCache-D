@@ -5,6 +5,9 @@ On a phone the Logs filter and search cards took most of the first screen, so
 the log started below it. They now become one bar (search; Filters with a
 summary of what is in effect; Refresh; Download), and the rest opens from
 Filters. Long lines wrap by default on a phone, through a labelled switch.
+
+Tab bars (the Settings tabs) wrapped onto three rows on a phone. They are now
+one row that swipes, or drags with a mouse, with the current tab in view.
 """
 
 import re
@@ -20,6 +23,7 @@ def _read(rel):
 
 LOGS = _read("logs/viewer.html")
 THEME = (ROOT / "web" / "static" / "css" / "plex-theme.css").read_text(encoding="utf-8")
+APP_JS = (ROOT / "web" / "static" / "js" / "app.js").read_text(encoding="utf-8")
 
 
 def _phone_blocks(css):
@@ -89,3 +93,37 @@ def test_wrap_is_a_labelled_switch_that_defaults_on_for_phones():
     assert "setWrap(wrapChosen ? !!prefs.wrapLines" in load
     assert "window.matchMedia(PHONE).matches" in load
     assert "wrapChosen: wrapChosen," in LOGS and "wrapChosen = true;" in LOGS
+
+
+# ── Tab bars swipe on a phone ─────────────────────────────────────
+
+def test_tabs_are_one_swipeable_row_on_a_phone():
+    tabs = PHONE[PHONE.index(".tabs {"):PHONE.index("}", PHONE.index(".tabs {"))]
+    for rule in ("flex-wrap: nowrap;", "overflow-x: auto;", "scrollbar-width: none;", "scroll-snap-type: x proximity;"):
+        assert rule in tabs, rule
+    assert ".tabs.can-scroll-left.can-scroll-right" in PHONE  # edges fade where more tabs wait
+
+
+def test_current_tab_is_brought_into_view():
+    block = APP_JS[APP_JS.index("function setUp(bar)"):]
+    assert "bar.querySelector('.tab.active')" in block
+    assert "bar.scrollLeft = active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2;" in block
+    assert "classList.toggle('can-scroll-left'" in APP_JS and "classList.toggle('can-scroll-right'" in APP_JS
+
+
+def test_tab_icons_are_centred_svgs():
+    """Lucide renders <svg>; the icon sat on the text baseline at 24px."""
+    assert re.search(r"\.tab \{\s*display: inline-flex;\s*align-items: center;", THEME)
+    assert re.search(r"\.tab svg \{\s*width: 18px;\s*height: 18px;", THEME)
+
+
+def test_tab_bar_drags_with_a_mouse():
+    """A mouse cannot swipe: the bar drags, and a drag does not open the tab
+    under the pointer when it ends. Touch keeps the native swipe."""
+    drag = APP_JS[APP_JS.index("function dragToScroll(bar)"):APP_JS.index("function setUp(bar)")]
+    assert "e.pointerType !== 'mouse'" in drag
+    assert "Math.abs(dx) < 5" in drag  # a click is not a drag
+    assert "bar.setPointerCapture(down.id)" in drag
+    assert "if (dragged) { e.preventDefault(); e.stopPropagation();" in drag
+    assert "dragToScroll(bar);" in APP_JS
+    assert ".tabs.is-dragging { scroll-snap-type: none; }" in PHONE

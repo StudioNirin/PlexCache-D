@@ -1733,6 +1733,9 @@ textarea {
 }
 
 .tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
     padding: 0.75rem 1rem;
     color: var(--plex-text-muted);
     text-decoration: none;
@@ -1742,6 +1745,14 @@ textarea {
     white-space: nowrap;
 }
 
+/* Lucide swaps each <i data-lucide> for an <svg>: centre it on the label at
+   18px (it sat on the text baseline at the default 24px) */
+.tab svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
 .tab:hover {
     color: var(--plex-text);
 }
@@ -1749,6 +1760,58 @@ textarea {
 .tab.active {
     color: var(--plex-orange-text);
     border-bottom-color: var(--plex-orange);
+}
+
+/* Phones: one row that swipes sideways instead of wrapping onto three rows
+   (Settings has ten tabs). It runs to the screen edges; app.js brings the
+   current tab into view and sets .can-scroll-left/-right, which fade the
+   edge where more tabs are waiting. The underline is an inset shadow because
+   the scroll box clips the tabs' -1px overlap with a border. */
+@media (max-width: 768px) {
+    .tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        overscroll-behavior-x: contain;
+        scroll-snap-type: x proximity;
+        scroll-padding-inline: 1rem;
+        scrollbar-width: none;
+        margin-left: -1rem;
+        margin-right: -1rem;
+        padding: 0 1rem;
+        border-bottom: 0;
+        box-shadow: inset 0 -1px 0 var(--plex-border);
+        margin-bottom: 1.25rem;
+    }
+
+    .tabs::-webkit-scrollbar { display: none; }
+
+    /* Dragged with a mouse (app.js): no snapping while it moves */
+    .tabs.is-dragging { scroll-snap-type: none; }
+    .tabs.is-dragging,
+    .tabs.is-dragging .tab { cursor: grabbing; user-select: none; }
+
+    .tab {
+        flex-shrink: 0;
+        scroll-snap-align: start;
+        padding: 0.625rem 0.875rem;
+        margin-bottom: 0;
+    }
+
+    .tabs.can-scroll-right {
+        -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+        mask-image: linear-gradient(to right, #000 calc(100% - 2.5rem), transparent);
+    }
+
+    .tabs.can-scroll-left {
+        -webkit-mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+        mask-image: linear-gradient(to right, transparent, #000 2.5rem);
+    }
+
+    .tabs.can-scroll-left.can-scroll-right {
+        -webkit-mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+        mask-image: linear-gradient(to right, transparent, #000 2.5rem, #000 calc(100% - 2.5rem), transparent);
+    }
 }
 
 /* ==================== Alerts ==================== */
