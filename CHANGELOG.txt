@@ -1,5 +1,71 @@
 ## Changelog
 
+### v3.3.0 Updates (November 2026)
+
+**Jellyfin, Optional and Alongside Plex** ([#234](https://github.com/StudioNirin/PlexCache-D/pull/234), thanks @RogerSik)
+- Add Jellyfin 10.9+ as a second source next to Plex: each Jellyfin user's Continue Watching and Next Up are cached like Plex OnDeck
+- Optionally treat unplayed Jellyfin favorites as a watchlist, since Jellyfin has none
+- Files playing on Jellyfin are left alone, and source badges show whether Plex or Jellyfin wanted a file
+- Set up with environment variables (Community Apps: Show more settings) or the settings file. Plex is still required
+
+**Recently Added** ([#205](https://github.com/StudioNirin/PlexCache-D/pull/205), [#239](https://github.com/StudioNirin/PlexCache-D/pull/239))
+- New Recently Added page and dashboard widget: see what is new, whether it is on the cache or the array, and pin what you want kept on the cache
+- Loads with a skeleton of the page instead of a spinner, and the explainer can be hidden for good
+
+**Release to Mover** ([#203](https://github.com/StudioNirin/PlexCache-D/pull/203), [#204](https://github.com/StudioNirin/PlexCache-D/pull/204))
+- A watched file that was never backed up as `.plexcached` (it was first written to the cache) is handed back to the Unraid mover instead of being copied to the array. No bytes are moved; the mover takes it on its next run
+- Files with a backup, hard links, ZFS pool-only shares and non-Unraid setups are still moved by PlexCache as before
+- If caching is held back because the cache is short on space, PlexCache moves the released files itself
+- Released files stay counted against the cache quota and remain candidates for eviction
+
+**API Access** ([#236](https://github.com/StudioNirin/PlexCache-D/pull/236), [#212](https://github.com/StudioNirin/PlexCache-D/issues/212))
+- Settings → Security → API Access: generate a key so Tautulli or Home Assistant can start a run, for example when playback stops, even with the Web UI login on
+- The `X-Api-Key` header works for `POST /api/run`, `GET /api/status` and `POST /api/stop` only
+- Calls during a run or inside the cooldown are merged into one follow-up run instead of being dropped
+
+**Safer File Handling**
+- Cache copies are written under a hidden `.pc-part` name and renamed into place once the size checks out, so Plex never sees a half-copied or empty file ([#207](https://github.com/StudioNirin/PlexCache-D/issues/207), [#208](https://github.com/StudioNirin/PlexCache-D/pull/208))
+- Maintenance → Move to Array keeps the newer copy: a newer cache copy (for example a Sonarr/Radarr upgrade) replaces the array copy, and if the array copy is newer both are left alone and reported ([#222](https://github.com/StudioNirin/PlexCache-D/pull/222), [#226](https://github.com/StudioNirin/PlexCache-D/pull/226))
+- Empty folders are removed after eviction, including on multi-pool setups, with a one-time cleanup of folders left behind before ([#196](https://github.com/StudioNirin/PlexCache-D/issues/196), [#202](https://github.com/StudioNirin/PlexCache-D/pull/202))
+- Movies in year-named folders (`Movies/2012/...`) are no longer mistaken for TV seasons, which caused false "failed to move to array" errors ([#232](https://github.com/StudioNirin/PlexCache-D/issues/232), [#233](https://github.com/StudioNirin/PlexCache-D/pull/233))
+- Upgrade swaps copy the new file before removing the old one ([#206](https://github.com/StudioNirin/PlexCache-D/pull/206))
+
+**Settings Accuracy** ([#206](https://github.com/StudioNirin/PlexCache-D/pull/206))
+- Web UI defaults now match what the engine uses (cache limit, eviction threshold)
+- The cache limit accepts values like `3.7T` and `7.5%` instead of silently dropping the cap
+- The Priority Report's episode bonus and the pin budget match the engine, and the pin budget respects the PlexCache quota
+- Warnings for settings combinations that would quietly do nothing
+- Behaviour changes: quota-only setups now get a pin guard, and `auto_transfer_upgrades` also controls the scheduled audit
+
+**Plex and plex.tv Reliability**
+- Retries when plex.tv can't be resolved or returns a server error, and a plex.tv outage no longer blocks moving files back when the watchlist is off ([#197](https://github.com/StudioNirin/PlexCache-D/issues/197), [#198](https://github.com/StudioNirin/PlexCache-D/pull/198), [#204](https://github.com/StudioNirin/PlexCache-D/pull/204), [#209](https://github.com/StudioNirin/PlexCache-D/pull/209))
+- One failing watchlist item no longer stops the rest of that user's list ([#204](https://github.com/StudioNirin/PlexCache-D/pull/204))
+- The remote watchlist RSS feed falls back to Plex's newer address when the old one is refused, with a warning if the feed is over 24 hours old ([#199](https://github.com/StudioNirin/PlexCache-D/pull/199))
+- Removed a spurious "files not found on disk" warning when sizing moves to the array ([#204](https://github.com/StudioNirin/PlexCache-D/pull/204))
+
+**Notifications**
+- When webhooks can't be delivered (for example the internet is down), PlexCache logs one error and pauses for 5 minutes instead of flooding Unraid notifications, and webhook URLs are redacted in the logs ([#235](https://github.com/StudioNirin/PlexCache-D/pull/235))
+
+**Operation Pill**
+- The status pill reshapes smoothly between states, stays in place when you change pages, and moves aside instead of covering the page title ([#238](https://github.com/StudioNirin/PlexCache-D/pull/238))
+- Start a run from the pill's Run button; the duplicate Dashboard header buttons are gone ([#225](https://github.com/StudioNirin/PlexCache-D/pull/225))
+- No overlap at high zoom or on phones ([#216](https://github.com/StudioNirin/PlexCache-D/issues/216), [#218](https://github.com/StudioNirin/PlexCache-D/pull/218)), follows the light theme ([#213](https://github.com/StudioNirin/PlexCache-D/issues/213), [#215](https://github.com/StudioNirin/PlexCache-D/pull/215)) and lines up on phones ([#229](https://github.com/StudioNirin/PlexCache-D/issues/229), [#230](https://github.com/StudioNirin/PlexCache-D/pull/230)), thanks @DeLo1585
+- Clearer labels when only subtitles or artwork are copied, a better time estimate, and progress led by bytes ([#210](https://github.com/StudioNirin/PlexCache-D/pull/210))
+
+**Web UI**
+- Phone layouts: a compact Logs toolbar, swipeable tab bars, and Cached Files and Priority Report as tabs ([#239](https://github.com/StudioNirin/PlexCache-D/pull/239))
+- Settings → Libraries opens without waiting for Plex, and shows the last known list if Plex is down ([#239](https://github.com/StudioNirin/PlexCache-D/pull/239))
+- Readable text in the light theme and a correctly sized collapsed sidebar ([#227](https://github.com/StudioNirin/PlexCache-D/pull/227))
+- Styled confirm dialogs, custom path mapping fixes, and a settings export that hides secrets with an import that keeps your current ones ([#228](https://github.com/StudioNirin/PlexCache-D/pull/228))
+- Total size of the selected files in Maintenance ([#220](https://github.com/StudioNirin/PlexCache-D/issues/220), [#223](https://github.com/StudioNirin/PlexCache-D/pull/223)) and Recent Activity on narrow screens ([#217](https://github.com/StudioNirin/PlexCache-D/issues/217), [#219](https://github.com/StudioNirin/PlexCache-D/pull/219)), thanks @DeLo1585
+- Browsers load the new CSS and JavaScript after an update instead of a cached copy ([#224](https://github.com/StudioNirin/PlexCache-D/pull/224))
+- Add Custom Path Mapping shows a single marker ([#240](https://github.com/StudioNirin/PlexCache-D/pull/240))
+
+**Docker and Unraid**
+- Images are published with Docker v2 manifests, so Unraid's update check works instead of showing "not available" ([#201](https://github.com/StudioNirin/PlexCache-D/pull/201))
+- `:dev` is published from every merge to main ([#200](https://github.com/StudioNirin/PlexCache-D/pull/200)) and shows a DEV badge; release images show no badge
+- Community Apps template: Support, Project and Registry links, search terms and donation link ([#237](https://github.com/StudioNirin/PlexCache-D/pull/237)), plus optional Jellyfin fields and a change log
+
 ### v3.2.0 Updates (March 2026)
 
 **Shared User Token Recovery (Plex API Security Change)**

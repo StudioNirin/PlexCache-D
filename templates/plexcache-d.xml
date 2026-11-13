@@ -20,6 +20,19 @@
   For TV shows/anime, it also fetches the next specified number of episodes.
   Optionally add Jellyfin 10.9+ alongside Plex, so Jellyfin users' Continue Watching and Next Up are cached too.</Overview>
 
+  <!-- Shown as the Change Log in Community Apps. Full list: CHANGELOG.txt -->
+  <Changes>
+### 3.3.0 (November 2026)
+- Optional Jellyfin support alongside Plex: Continue Watching, Next Up and favorites
+- Recently Added page and dashboard widget
+- Watched files that were never backed up are handed back to the Unraid mover instead of being copied
+- API key so Tautulli or Home Assistant can start a run
+- Safer cache copies: Plex never sees a half-copied file
+- Reworked status pill, phone layouts and light theme fixes
+- Docker v2 manifests, so Unraid's update check works
+- Full list: https://github.com/StudioNirin/PlexCache-D/blob/main/CHANGELOG.txt
+  </Changes>
+
   <!-- NOTE: Either Support or Project is REQUIRED -->
   <!-- Support page -->
   <Support>https://github.com/StudioNirin/PlexCache-D/issues</Support>

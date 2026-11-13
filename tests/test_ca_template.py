@@ -44,3 +44,7 @@ def test_jellyfin_is_described_as_alongside_plex():
     assert "alongside Plex" in overview and "alongside Plex" in requires
     assert "jellyfin" in TEMPLATE.find("ExtraSearchTerms").text.split()
 
+
+def test_the_change_log_names_the_current_version():
+    from core import __version__
+    assert TEMPLATE.find("Changes").text.strip().startswith(f"### {__version__} ")
