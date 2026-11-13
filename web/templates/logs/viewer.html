@@ -14,11 +14,24 @@
     </div>
 </header>
 
+<!-- Controls. On a phone (<= 768px) the two cards become one bar: search,
+     then Filters (with a summary of what is in effect), Refresh and Download;
+     the items marked data-log-panel open from Filters. -->
+<div class="log-controls" id="log-controls">
+<button type="button" class="btn btn-secondary log-filters-toggle" id="log-filters-toggle"
+        aria-expanded="false" aria-controls="log-controls">
+    <i data-lucide="sliders-horizontal"></i>
+    <span class="log-filters-title">Filters</span>
+    <span class="log-filters-summary" id="log-filters-summary"></span>
+    <span class="log-filters-dot" aria-hidden="true"></span>
+    <i data-lucide="chevron-down" class="log-filters-chevron"></i>
+</button>
+
 <!-- Filters -->
 <div class="card mb-2">
     <div class="card-body">
         <div class="log-filters">
-            <div class="form-group mb-0">
+            <div class="form-group mb-0 log-file-group" data-log-panel>
                 <label for="log-file-select">Log File</label>
                 <select id="log-file-select" name="filename"
                         hx-get="/logs/content"
@@ -33,7 +46,7 @@
                     {% endif %}
                 </select>
             </div>
-            <div class="form-group mb-0">
+            <div class="form-group mb-0 log-lines-group" data-log-panel>
                 <label for="log-lines">Lines</label>
                 <select id="log-lines" name="lines"
                         hx-get="/logs/content"
@@ -47,7 +60,7 @@
                     <option value="0">All</option>
                 </select>
             </div>
-            <div class="form-group mb-0">
+            <div class="form-group mb-0 log-level-group" data-log-panel>
                 <label for="log-level-filter">Filter Level</label>
                 <select id="log-level-filter">
                     <option value="all">All Levels</option>
@@ -58,7 +71,7 @@
                     <option value="SUMMARY">Summary</option>
                 </select>
             </div>
-            <div class="form-group mb-0">
+            <div class="form-group mb-0 log-phase-group" data-log-panel>
                 <label for="phase-filter">Phase</label>
                 <select id="phase-filter">
                     <option value="all">All Phases</option>
@@ -71,15 +84,15 @@
                     <option value="results">Results</option>
                 </select>
             </div>
-            <div class="form-group mb-0">
+            <div class="form-group mb-0 log-actions">
                 <label>&nbsp;</label>
                 <div class="flex gap-1">
-                    <button class="btn btn-secondary"
+                    <button class="btn btn-secondary" title="Refresh" aria-label="Refresh"
                             hx-get="/logs/content"
                             hx-target="#log-content"
                             hx-include="#log-file-select, #log-lines">
                         <i data-lucide="refresh-cw"></i>
-                        Refresh
+                        <span class="btn-label">Refresh</span>
                     </button>
                     <a id="download-btn" class="btn btn-secondary" href="/logs/download?filename={{ current_file or '' }}" title="Download log file">
                         <i data-lucide="download"></i>
@@ -99,30 +112,31 @@
                 <span class="search-results" id="search-results"></span>
                 <button type="button" class="btn btn-sm btn-secondary" id="search-prev" title="Previous (Shift+Enter)">&#x25B2;</button>
                 <button type="button" class="btn btn-sm btn-secondary" id="search-next" title="Next (Enter)">&#x25BC;</button>
-                <label class="search-toggle" title="Use regex">
+                <label class="search-toggle log-regex-toggle" title="Use regex" data-log-panel>
                     <input type="checkbox" id="search-regex">
                     <span>.*</span>
                 </label>
-                <label class="search-toggle" title="Case sensitive">
+                <label class="search-toggle log-case-toggle" title="Case sensitive" data-log-panel>
                     <input type="checkbox" id="search-case-sensitive">
                     <span>Aa</span>
                 </label>
             </div>
-            <div class="flex flex-wrap items-center gap-1">
-                <div class="time-range-inputs">
+            <div class="flex flex-wrap items-center gap-1 log-options">
+                <div class="time-range-inputs" data-log-panel>
                     <input type="time" id="time-from" step="1" title="From time" placeholder="From">
                     <span class="text-muted">&ndash;</span>
                     <input type="time" id="time-to" step="1" title="To time" placeholder="To">
                     <button type="button" class="btn btn-sm btn-secondary" id="time-clear" title="Clear time filter">&times;</button>
                 </div>
-                <button type="button" class="btn btn-sm btn-secondary" id="wrap-toggle" title="Toggle line wrap">
-                    <i data-lucide="wrap-text"></i>
-                </button>
-                <label class="switch" style="margin: 0;">
+                <label class="switch log-wrap-switch" style="margin: 0;" title="Wrap long lines instead of scrolling sideways" data-log-panel>
+                    <input type="checkbox" id="wrap-toggle">
+                    <span>Wrap lines</span>
+                </label>
+                <label class="switch log-autoscroll-switch" style="margin: 0;" data-log-panel>
                     <input type="checkbox" id="auto-scroll" checked>
                     <span>Auto-scroll</span>
                 </label>
-                <label class="switch" style="margin: 0;">
+                <label class="switch log-live-switch" style="margin: 0;" data-log-panel>
                     <input type="checkbox" id="live-updates">
                     <span>Live Updates</span>
                 </label>
@@ -130,9 +144,10 @@
         </div>
     </div>
 </div>
+</div>
 
 <!-- Log Content -->
-<div class="card">
+<div class="card log-output-card">
     <div class="card-header">
         <i data-lucide="terminal"></i>
         <h2>Log Output</h2>
@@ -172,6 +187,8 @@ var LogViewer = (function() {
     var badgeCounts = {};
 
     var PREFS_KEY = 'plexcache_log_viewer_prefs';
+    var PHONE = '(max-width: 768px)';
+    var wrapChosen = false;  /* the user has set Wrap lines themselves */
 
     // ---- Helpers ----
     function escapeRegex(string) {
@@ -185,7 +202,8 @@ var LogViewer = (function() {
             filterLevel: els.levelFilter.value,
             autoScroll: els.autoScroll.checked,
             liveUpdates: els.liveUpdates.checked,
-            wrapLines: els.logContent.classList.contains('log-wrapped'),
+            wrapLines: els.wrapToggle.checked,
+            wrapChosen: wrapChosen,
             searchRegex: els.searchRegex.checked,
             searchCaseSensitive: els.searchCaseSensitive.checked,
             phaseFilter: els.phaseFilter.value,
@@ -206,7 +224,12 @@ var LogViewer = (function() {
             if (prefs.lines) els.logLines.value = prefs.lines;
             if (prefs.filterLevel) els.levelFilter.value = prefs.filterLevel;
             if (typeof prefs.autoScroll === 'boolean') els.autoScroll.checked = prefs.autoScroll;
-            if (prefs.wrapLines) els.logContent.classList.add('log-wrapped');
+            // Long lines wrap on a phone until the user chooses otherwise. Before
+            // the switch existed every save stored wrapLines: false, so only an
+            // explicit choice (or an old explicit true) overrides the phone default.
+            wrapChosen = !!prefs.wrapChosen;
+            setWrap(wrapChosen ? !!prefs.wrapLines
+                               : (prefs.wrapLines === true || window.matchMedia(PHONE).matches));
             if (prefs.searchRegex) els.searchRegex.checked = true;
             if (prefs.searchCaseSensitive) els.searchCaseSensitive.checked = true;
             if (prefs.phaseFilter) els.phaseFilter.value = prefs.phaseFilter;
@@ -220,6 +243,7 @@ var LogViewer = (function() {
             }
         } catch (e) {
             console.warn('Failed to load log viewer preferences:', e);
+            setWrap(window.matchMedia(PHONE).matches);
             if (liveFromUrl) {
                 els.liveUpdates.checked = true;
                 connectWebSocket();
@@ -653,6 +677,7 @@ var LogViewer = (function() {
                 // Toggle: if already filtering this level, reset to all
                 els.levelFilter.value = (current === level) ? 'all' : level;
                 applyAllFilters();
+                updateFilterSummary();
                 savePreferences();
             });
         });
@@ -688,14 +713,38 @@ var LogViewer = (function() {
         els.downloadBtn.href = '/logs/download?filename=' + encodeURIComponent(filename);
     }
 
-    // ---- Wrap Toggle ----
-    function toggleWrap() {
-        els.logContent.classList.toggle('log-wrapped');
+    // ---- Wrap lines ----
+    function setWrap(on) {
+        els.wrapToggle.checked = on;
+        els.logContent.classList.toggle('log-wrapped', on);
         var pre = els.logContent.querySelector('pre');
         if (pre) {
-            pre.classList.toggle('log-output-wrapped');
+            pre.classList.toggle('log-output-wrapped', on);
         }
-        savePreferences();
+    }
+
+    // ---- Filters summary (phone control bar) ----
+    // The closed Filters button says what is in effect, so a filter hidden
+    // behind it never surprises: "latest · Last 100 · Error · Caching".
+    function optionText(select) {
+        var o = select.options[select.selectedIndex];
+        return o ? o.text : '';
+    }
+
+    function updateFilterSummary() {
+        if (!els.filtersSummary) return;
+        var file = (els.fileSelect.value || '').replace(/^plexcache_log_?/, '').replace(/\.log$/, '');
+        var parts = [file || 'No log', els.logLines.value === '0' ? 'All lines' : optionText(els.logLines)];
+        var active = 0;
+        if (els.levelFilter.value !== 'all') { parts.push(optionText(els.levelFilter)); active++; }
+        if (els.phaseFilter.value !== 'all') { parts.push(optionText(els.phaseFilter)); active++; }
+        if (els.timeFrom.value || els.timeTo.value) {
+            parts.push((els.timeFrom.value || '').slice(0, 5) + '\u2013' + (els.timeTo.value || '').slice(0, 5));
+            active++;
+        }
+        els.filtersSummary.textContent = parts.join(' \u00b7 ');
+        els.filtersToggle.classList.toggle('has-filters', active > 0);
+        els.filtersToggle.title = active ? active + ' filter' + (active > 1 ? 's' : '') + ' in effect' : 'Filters';
     }
 
     // ---- Init ----
@@ -721,6 +770,9 @@ var LogViewer = (function() {
         els.wrapToggle = document.getElementById('wrap-toggle');
         els.downloadBtn = document.getElementById('download-btn');
         els.badgeContainer = document.getElementById('log-level-badges');
+        els.controls = document.getElementById('log-controls');
+        els.filtersToggle = document.getElementById('log-filters-toggle');
+        els.filtersSummary = document.getElementById('log-filters-summary');
 
         // HTMX events
         document.addEventListener('htmx:beforeSwap', onBeforeSwap);
@@ -748,8 +800,20 @@ var LogViewer = (function() {
         els.searchRegex.addEventListener('change', function() { performSearch(); savePreferences(); });
         els.searchCaseSensitive.addEventListener('change', function() { performSearch(); savePreferences(); });
 
-        // Wrap toggle
-        els.wrapToggle.addEventListener('click', toggleWrap);
+        // Wrap lines
+        els.wrapToggle.addEventListener('change', function() {
+            wrapChosen = true;
+            setWrap(this.checked);
+            savePreferences();
+        });
+
+        // Phone control bar: Filters opens the rest
+        els.filtersToggle.addEventListener('click', function() {
+            var open = els.controls.classList.toggle('is-open');
+            this.setAttribute('aria-expanded', open ? 'true' : 'false');
+        });
+        els.controls.addEventListener('change', updateFilterSummary);
+        els.timeClear.addEventListener('click', updateFilterSummary);
 
         // Live updates
         els.liveUpdates.addEventListener('change', function() {
@@ -795,6 +859,7 @@ var LogViewer = (function() {
 
         // Load saved preferences, then trigger initial log fetch
         loadPreferences();
+        updateFilterSummary();
         htmx.trigger('#log-content', 'logViewerReady');
     }
 

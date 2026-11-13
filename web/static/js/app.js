@@ -126,6 +126,34 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// "Don't show this again" on a notice: an element with data-notice="<id>" that
+// holds a [data-notice-dismiss] button. The id is saved in localStorage, and the
+// head script in base.html hides that notice before the first paint from then on.
+document.addEventListener('click', function(e) {
+    var button = e.target.closest && e.target.closest('[data-notice-dismiss]');
+    var notice = button && button.closest('[data-notice]');
+    if (!notice) return;
+    var id = notice.getAttribute('data-notice');
+    try {
+        var dismissed = JSON.parse(localStorage.getItem('dismissedNotices') || '[]');
+        if (!Array.isArray(dismissed)) dismissed = [];
+        if (dismissed.indexOf(id) < 0) dismissed.push(id);
+        localStorage.setItem('dismissedNotices', JSON.stringify(dismissed));
+    } catch (err) { /* storage blocked: close it for this visit only */ }
+
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || !notice.animate) { notice.remove(); return; }
+    var cs = getComputedStyle(notice);
+    notice.style.overflow = 'hidden';
+    notice.animate([
+        { opacity: 1, height: notice.offsetHeight + 'px', marginBottom: cs.marginBottom,
+          paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom,
+          borderTopWidth: cs.borderTopWidth, borderBottomWidth: cs.borderBottomWidth },
+        { opacity: 0, height: '0px', marginBottom: '0px', paddingTop: '0px', paddingBottom: '0px',
+          borderTopWidth: '0px', borderBottomWidth: '0px' }
+    ], { duration: 220, easing: 'ease', fill: 'forwards' }).onfinish = function() { notice.remove(); };
+});
+
 // The Dashboard header used to keep its own Verbose toggle under a separate key.
 // Carry a saved preference over to the pill's setting once, then drop the old key.
 try {
@@ -261,3 +289,65 @@ document.addEventListener('htmx:afterRequest', function(e) {
     var target = clear && document.querySelector(clear);
     if (target) target.innerHTML = '';
 });
+
+// Tab bars (.tabs, the Settings tabs) are one row that swipes (or, with a
+// mouse, drags) sideways on a narrow screen instead of wrapping onto rows. The current tab is brought into
+// view (centred) when the page opens, and an edge fades out wherever there are
+// more tabs beyond it. Desktop wraps as before, where none of this applies.
+(function() {
+    function edges(bar) {
+        var max = bar.scrollWidth - bar.clientWidth;
+        bar.classList.toggle('can-scroll-left', bar.scrollLeft > 1);
+        bar.classList.toggle('can-scroll-right', bar.scrollLeft < max - 1);
+    }
+
+    // A mouse cannot swipe, so the bar drags. Past a few pixels it is a drag,
+    // not a click: the tab under the pointer does not open when it ends.
+    // Touch keeps its native swipe; shift+wheel and trackpads scroll as usual.
+    function dragToScroll(bar) {
+        var down = null, dragged = false;
+        bar.addEventListener('pointerdown', function(e) {
+            dragged = false;
+            if (e.pointerType !== 'mouse' || e.button !== 0 || bar.scrollWidth <= bar.clientWidth) return;
+            down = { x: e.clientX, left: bar.scrollLeft, id: e.pointerId };
+        });
+        bar.addEventListener('pointermove', function(e) {
+            if (!down) return;
+            var dx = e.clientX - down.x;
+            if (!dragged && Math.abs(dx) < 5) return;
+            if (!dragged) {
+                dragged = true;
+                bar.setPointerCapture(down.id);
+                bar.classList.add('is-dragging');  /* no snapping mid-drag */
+            }
+            bar.scrollLeft = down.left - dx;
+        });
+        function end() {
+            if (!down) return;
+            if (bar.hasPointerCapture(down.id)) bar.releasePointerCapture(down.id);
+            down = null;
+            bar.classList.remove('is-dragging');
+        }
+        bar.addEventListener('pointerup', end);
+        bar.addEventListener('pointercancel', end);
+        bar.addEventListener('click', function(e) {
+            if (dragged) { e.preventDefault(); e.stopPropagation(); dragged = false; }
+        }, true);
+        bar.addEventListener('dragstart', function(e) { e.preventDefault(); });  /* not a link drag */
+    }
+
+    function setUp(bar) {
+        var active = bar.querySelector('.tab.active');
+        if (active && bar.scrollWidth > bar.clientWidth) {
+            bar.scrollLeft = active.offsetLeft - (bar.clientWidth - active.offsetWidth) / 2;
+        }
+        edges(bar);
+        bar.addEventListener('scroll', function() { edges(bar); }, { passive: true });
+        window.addEventListener('resize', function() { edges(bar); });
+        dragToScroll(bar);
+    }
+
+    function init() { document.querySelectorAll('.tabs').forEach(setUp); }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
+})();

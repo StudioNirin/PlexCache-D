@@ -12,13 +12,9 @@
             <p>Files currently cached for fast access</p>
         </div>
     </div>
-    <div class="action-buttons">
-        <a href="/cache/priorities" class="btn btn-secondary">
-            <i data-lucide="bar-chart-2"></i>
-            Priority Report
-        </a>
-    </div>
 </header>
+
+{% with cache_tab = 'files' %}{% include "cache/partials/section_tabs.html" %}{% endwith %}
 
 <!-- Alert container for eviction messages -->
 <div id="cache-alert-container"></div>

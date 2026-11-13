@@ -16,7 +16,7 @@
 
 <!-- Health Status Cards -->
 <div class="stats-row mb-2">
-    <div class="stat-card {% if results.health_status == 'critical' %}stat-card-danger{% elif results.health_status == 'warnings' %}stat-card-warning{% else %}stat-card-success{% endif %}">
+    <div class="stat-card {% if results.health_status == 'critical' %}stat-card-danger{% elif results.health_status == 'warnings' %}stat-card-warning{% endif %}">
         <div class="stat-card-header">
             {% if results.health_status == 'critical' %}
             <i data-lucide="alert-circle"></i>
@@ -45,7 +45,7 @@
         {% endif %}
     </div>
 
-    <div class="stat-card {% if results.untracked_files|length == 0 %}stat-card-success{% endif %}">
+    <div class="stat-card">
         <div class="stat-card-header">
             {% if results.untracked_files|length == 0 %}
             <i data-lucide="shield-check"></i>
@@ -58,7 +58,7 @@
         <div class="stat-label">{% if results.untracked_files|length == 0 %}all tracked{% else %}not managed{% endif %}</div>
     </div>
 
-    <div class="stat-card {% if results.orphaned_plexcached|length > 20 %}stat-card-danger{% elif results.orphaned_plexcached|length > 0 %}stat-card-warning{% else %}stat-card-success{% endif %}">
+    <div class="stat-card {% if results.orphaned_plexcached|length > 20 %}stat-card-danger{% elif results.orphaned_plexcached|length > 0 %}stat-card-warning{% endif %}">
         <div class="stat-card-header">
             {% if results.orphaned_plexcached|length == 0 %}
             <i data-lucide="check-circle"></i>

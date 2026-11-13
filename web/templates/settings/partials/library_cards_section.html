@@ -1,0 +1,35 @@
+{# The Libraries tab's library cards. In the page when the list is at hand,
+   otherwise loaded into #library-cards-section by GET /settings/libraries/cards.
+   When Plex could not be reached on the last try, a note says the list is not
+   current (or missing), why, and offers Retry. #}
+{% if libraries_stale %}
+<div class="alert alert-warning library-stale-note" role="status">
+    <i data-lucide="cloud-off"></i>
+    <div class="library-stale-note__text">
+        {% if library_cards %}
+        <strong>Couldn't reach Plex.</strong> This is the library list from {{ libraries_age }}, so recent changes in Plex may be missing.
+        {% else %}
+        <strong>Couldn't reach Plex</strong>, so the library list can't be shown. Check your <a href="/settings/plex">server connection</a>.
+        {% endif %}
+        {% if libraries_error %}<div class="library-stale-note__why">{{ libraries_error }}</div>{% endif %}
+    </div>
+    <button type="button" class="btn btn-sm btn-secondary"
+            hx-get="/settings/libraries/cards?retry=true"
+            hx-target="#library-cards-section"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this">
+        <i data-lucide="refresh-cw"></i> Retry
+    </button>
+</div>
+{% elif not library_cards %}
+<div class="alert alert-info">
+    <i data-lucide="alert-circle"></i>
+    <span>Unable to fetch libraries from Plex. Check your <a href="/settings/plex" style="color: var(--plex-orange-text);">server connection</a>.</span>
+</div>
+{% endif %}
+
+<div id="library-cards">
+    {% for card in library_cards %}
+        {% include "settings/partials/library_card.html" %}
+    {% endfor %}
+</div>

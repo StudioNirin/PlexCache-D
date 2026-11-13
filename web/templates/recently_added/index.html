@@ -24,15 +24,26 @@
     </div>
 </header>
 
-<!-- Concept explainer -->
-<div class="alert alert-info" style="margin-bottom: 1.5rem;">
-    <i data-lucide="info"></i>
-    <span>
-        New media is cached automatically once it hits your Watchlist or On&nbsp;Deck.
-        To hold something on the cache yourself, <strong>Pin</strong> it: items already on
-        the cache drive are pinned instantly (no copy); items on the array are copied over on
-        the next run. Pins stay until you unpin them.
-    </span>
+<!-- Concept explainer: one line; how pins work opens on tap (a native <details>).
+     The x hides it for good in this browser: see data-notice in app.js. -->
+<div class="alert alert-info ra-explainer" data-notice="recently-added-pins">
+    <details>
+        <summary>
+            <i data-lucide="info"></i>
+            <span class="ra-explainer-lead">
+                Watchlist and On&nbsp;Deck items are cached automatically. <strong>Pin</strong> anything else to keep it.
+            </span>
+            <span class="ra-explainer-more">How pins work <i data-lucide="chevron-down"></i></span>
+        </summary>
+        <p class="ra-explainer-body">
+            Items already on the cache drive are pinned instantly, with no copy. Items on the
+            array are copied over on the next run. Pins stay until you unpin them.
+        </p>
+    </details>
+    <button type="button" class="notice-dismiss" data-notice-dismiss
+            title="Don't show this again" aria-label="Don't show this again">
+        <i data-lucide="x"></i>
+    </button>
 </div>
 
 <!-- Lazy-loaded content (stat cards + filters + table) -->
@@ -47,12 +58,7 @@
      hx-include="#ra-days-input"
      hx-trigger="load, pinned-updated from:body delay:400ms"
      hx-swap="innerHTML">
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 3rem;">
-            <span class="spinner" style="width: 28px; height: 28px;"></span>
-            <div class="text-muted" style="margin-top: 0.75rem;">Loading recently added media...</div>
-        </div>
-    </div>
+    {% include "recently_added/partials/list_skeleton.html" %}
 </div>
 {% endblock %}
 

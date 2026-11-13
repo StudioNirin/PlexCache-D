@@ -176,6 +176,15 @@ class SettingsService:
         self._plex_users_cache: Optional[List[Dict]] = None
         self._plex_cache_time: Optional[datetime] = None
         self._plex_cache_ttl = 3600  # 1 hour
+        # The library list has its own clock: users and libraries are fetched
+        # separately, and a shared time made an old list look fresh
+        self._plex_libraries_time: Optional[datetime] = None
+        # The last failed library fetch (in memory only). Remembered for
+        # _PLEX_RETRY_AFTER so pages that need the list do not each wait for
+        # another connection timeout; the Libraries tab shows the list it has,
+        # marked as not current.
+        self._plex_libraries_failed_at: Optional[datetime] = None
+        self._plex_libraries_error: Optional[str] = None
         self._cache_lock = threading.Lock()
         self._last_plex_error: Optional[str] = None  # Last Plex connection error
         # Load from file cache on startup
@@ -235,15 +244,21 @@ class SettingsService:
             if WEB_PLEX_CACHE_FILE.exists():
                 with open(WEB_PLEX_CACHE_FILE, 'r', encoding='utf-8') as f:
                     data = json.load(f)
-                    # Check if cache is still valid
+                    # Users: only while still valid
                     cache_time_str = data.get("cache_time")
                     if cache_time_str:
                         cache_time = datetime.fromisoformat(cache_time_str)
                         elapsed = (datetime.now() - cache_time).total_seconds()
                         if elapsed < self._plex_cache_ttl:
-                            self._plex_libraries_cache = data.get("libraries", [])
                             self._plex_users_cache = data.get("users", [])
                             self._plex_cache_time = cache_time
+                    # Libraries: kept whatever their age, with the time they were
+                    # fetched. A stale list is refreshed on first use, and is what
+                    # the Libraries tab shows (as not current) if Plex is down.
+                    libraries_time_str = data.get("libraries_time") or cache_time_str
+                    if data.get("libraries") and libraries_time_str:
+                        self._plex_libraries_cache = data["libraries"]
+                        self._plex_libraries_time = datetime.fromisoformat(libraries_time_str)
         except (json.JSONDecodeError, IOError, ValueError):
             pass
 
@@ -254,6 +269,7 @@ class SettingsService:
             WEB_PLEX_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
             data = {
                 "cache_time": self._plex_cache_time.isoformat() if self._plex_cache_time else None,
+                "libraries_time": self._plex_libraries_time.isoformat() if self._plex_libraries_time else None,
                 "libraries": self._plex_libraries_cache or [],
                 "users": self._plex_users_cache or []
             }
@@ -1045,19 +1061,81 @@ class SettingsService:
         self._plex_libraries_cache = None
         self._plex_users_cache = None
         self._plex_cache_time = None
+        self._plex_libraries_time = None
+        self._plex_libraries_failed_at = None
+        self._plex_libraries_error = None
 
-    def get_plex_libraries(self, plex_url: Optional[str] = None, plex_token: Optional[str] = None) -> List[Dict[str, Any]]:
+    _PLEX_RETRY_AFTER = 60  # seconds a failed library fetch is remembered
+
+    def _plex_libraries_fresh(self) -> bool:
+        if self._plex_libraries_cache is None or self._plex_libraries_time is None:
+            return False
+        return (datetime.now() - self._plex_libraries_time).total_seconds() < self._plex_cache_ttl
+
+    def _plex_libraries_recently_failed(self) -> bool:
+        return (self._plex_libraries_failed_at is not None
+                and (datetime.now() - self._plex_libraries_failed_at).total_seconds() < self._PLEX_RETRY_AFTER)
+
+    def plex_libraries_ready(self) -> bool:
+        """Whether the library list can be shown without asking Plex now: it is
+        fresh, Plex failed moments ago, or no Plex server is configured. The
+        Libraries tab renders at once when it is, and lazy-loads otherwise."""
+        with self._cache_lock:
+            if self._plex_libraries_fresh() or self._plex_libraries_recently_failed():
+                return True
+        settings = self.get_plex_settings()
+        return not (settings.get("plex_url") and settings.get("plex_token"))
+
+    def get_plex_libraries_status(self, retry: bool = False) -> Dict[str, Any]:
+        """The library list and whether it is current.
+
+        stale is True when the last attempt to reach Plex failed: the list is
+        then the one fetched at fetched_at (or empty), and error says why.
+        retry asks Plex again even if it failed moments ago."""
+        if retry:
+            with self._cache_lock:
+                self._plex_libraries_failed_at = None
+        libraries = self.get_plex_libraries()
+        with self._cache_lock:
+            return {
+                "libraries": libraries,
+                "stale": self._plex_libraries_error is not None,
+                "fetched_at": self._plex_libraries_time if libraries else None,
+                "error": self._plex_libraries_error,
+            }
+
+    @staticmethod
+    def _plex_error_hint(error_msg: str) -> str:
+        """A Plex connection error, in words that say what to check"""
+        if "Connection refused" in error_msg or "Errno 111" in error_msg:
+            return "Cannot connect to Plex server. Is it running and accessible from Docker?"
+        if "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
+            return "Connection timed out. Try using the local IP (e.g., http://192.168.x.x:32400) instead of .plex.direct URL"
+        if "Name or service not known" in error_msg or "getaddrinfo failed" in error_msg:
+            return "Cannot resolve hostname. Try using http://YOUR_LOCAL_IP:32400"
+        if "401" in error_msg or "Unauthorized" in error_msg:
+            return "Invalid Plex token. Try re-authenticating."
+        return f"Plex connection error: {error_msg[:100]}"
+
+    def get_plex_libraries(self, plex_url: Optional[str] = None, plex_token: Optional[str] = None,
+                           force: bool = False) -> List[Dict[str, Any]]:
         """Fetch library sections from Plex server (cached)
 
         Args:
             plex_url: Optional Plex URL (uses saved settings if not provided)
             plex_token: Optional Plex token (uses saved settings if not provided)
+            force: ask Plex even if the cached list is fresh or Plex just failed
         """
+        saved_credentials = plex_url is None and plex_token is None
         with self._cache_lock:
             # Return cached data if valid (only when using saved credentials)
-            if plex_url is None and plex_token is None:
-                if self._is_plex_cache_valid() and self._plex_libraries_cache is not None:
+            if saved_credentials and not force:
+                if self._plex_libraries_fresh():
                     return self._plex_libraries_cache
+                # Plex failed moments ago: answer with the last list rather
+                # than wait for another timeout
+                if self._plex_libraries_recently_failed():
+                    return self._plex_libraries_cache or []
 
         # Use provided credentials or fall back to saved settings
         if plex_url is None or plex_token is None:
@@ -1096,12 +1174,17 @@ class SettingsService:
 
             with self._cache_lock:
                 self._plex_libraries_cache = sorted(libraries, key=lambda x: x["id"])
-                self._plex_cache_time = datetime.now()
+                self._plex_libraries_time = datetime.now()
+                self._plex_libraries_failed_at = None
+                self._plex_libraries_error = None
                 self._save_plex_cache_to_file()
             return self._plex_libraries_cache
-        except Exception:
-            # Return empty but also return file cache if available
+        except Exception as e:
+            # Keep the last list (marked not current) and remember the failure
             with self._cache_lock:
+                if saved_credentials:
+                    self._plex_libraries_failed_at = datetime.now()
+                    self._plex_libraries_error = self._plex_error_hint(str(e))
                 if self._plex_libraries_cache:
                     return self._plex_libraries_cache
             return []
@@ -1249,18 +1332,7 @@ class SettingsService:
             return self._plex_users_cache
         except Exception as e:
             import logging
-            error_msg = str(e)
-            # Provide more helpful error messages
-            if "Connection refused" in error_msg or "Errno 111" in error_msg:
-                self._last_plex_error = f"Cannot connect to Plex server. Is it running and accessible from Docker?"
-            elif "timed out" in error_msg.lower() or "timeout" in error_msg.lower():
-                self._last_plex_error = f"Connection timed out. Try using the local IP (e.g., http://192.168.x.x:32400) instead of .plex.direct URL"
-            elif "Name or service not known" in error_msg or "getaddrinfo failed" in error_msg:
-                self._last_plex_error = f"Cannot resolve hostname. Try using http://YOUR_LOCAL_IP:32400"
-            elif "401" in error_msg or "Unauthorized" in error_msg:
-                self._last_plex_error = "Invalid Plex token. Try re-authenticating."
-            else:
-                self._last_plex_error = f"Plex connection error: {error_msg[:100]}"
+            self._last_plex_error = self._plex_error_hint(str(e))
 
             logging.warning(f"Failed to fetch Plex users: {e}")
 
@@ -1559,9 +1631,12 @@ class SettingsService:
         """
         logger.info("Refreshing Plex data cache...")
         try:
-            # Invalidate current cache to force refresh
-            self.invalidate_plex_cache()
-            self.get_plex_libraries()
+            # Ask Plex again, keeping the current lists as the fallback if it
+            # cannot be reached (invalidating them first lost the last good
+            # library list whenever Plex was down at the hourly refresh)
+            with self._cache_lock:
+                self._plex_cache_time = None
+            self.get_plex_libraries(force=True)
             self.get_plex_users()
             logger.info("Plex data cache refreshed successfully")
             return True

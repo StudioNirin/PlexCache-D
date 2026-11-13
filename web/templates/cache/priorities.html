@@ -5,20 +5,16 @@
 <header class="page-header">
     <div class="page-title">
         <div class="page-title-icon">
-            <i data-lucide="bar-chart-2"></i>
+            <i data-lucide="database"></i>
         </div>
         <div>
-            <h1>Priority Report</h1>
+            <h1>Cached Files</h1>
             <p>Cache priority scores and eviction analysis</p>
         </div>
     </div>
-    <div class="action-buttons">
-        <a href="/cache" class="btn btn-secondary">
-            <i data-lucide="arrow-left"></i>
-            Back to Cache
-        </a>
-    </div>
 </header>
+
+{% with cache_tab = 'priorities' %}{% include "cache/partials/section_tabs.html" %}{% endwith %}
 
 <!-- Priority Report Content - lazy loaded -->
 <div id="priorities-container"

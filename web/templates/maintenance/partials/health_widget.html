@@ -1,4 +1,4 @@
-<a href="/maintenance" class="stat-card {% if health.status == 'critical' %}stat-card-danger{% elif health.status == 'warnings' %}stat-card-warning{% else %}stat-card-success{% endif %}" style="text-decoration: none; cursor: pointer;">
+<a href="/maintenance" class="stat-card {% if health.status == 'critical' %}stat-card-danger{% elif health.status == 'warnings' %}stat-card-warning{% endif %}" style="text-decoration: none; cursor: pointer;">
     <div class="stat-icon">
         {% if health.status == 'critical' %}
         <i data-lucide="alert-circle"></i>
