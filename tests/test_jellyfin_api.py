@@ -565,6 +565,18 @@ class TestConfig:
         # The manager must still start with what is left
         JellyfinManager(cfg.url, cfg.api_key, path_mappings=cfg.path_mappings, session=FakeSession({}))
 
+    def test_blank_template_fields_keep_settings(self, tmp_path, monkeypatch):
+        """Unraid passes a blank template field as an empty variable; it must not override the file."""
+        blank = {k: "" for k in ("JELLYFIN_URL", "JELLYFIN_API_KEY", "JELLYFIN_PATH_MAPPINGS",
+                                 "JELLYFIN_SKIP_USERS", "JELLYFIN_FAVORITES_TOGGLE")}
+        cfg = self._load(tmp_path, monkeypatch, {
+            "jellyfin_url": "http://jf", "jellyfin_api_key": "k", "jellyfin_path_mappings": MAPPINGS,
+            "jellyfin_skip_users": ["kid"], "jellyfin_favorites_toggle": True,
+        }, env=blank)
+        assert (cfg.url, cfg.api_key, cfg.path_mappings, cfg.skip_users, cfg.favorites_toggle) == (
+            "http://jf", "k", MAPPINGS, ["kid"], True)
+        assert not self._load(tmp_path, monkeypatch, {}, env=blank).enabled
+
     def test_favorites_toggle(self, tmp_path, monkeypatch):
         assert not self._load(tmp_path, monkeypatch, {}).favorites_toggle
         assert self._load(tmp_path, monkeypatch, {"jellyfin_favorites_toggle": True}).favorites_toggle

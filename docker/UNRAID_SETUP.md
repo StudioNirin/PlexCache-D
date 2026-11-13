@@ -95,6 +95,13 @@ To enable native Unraid notifications from the Docker container, add these optio
 | `PGID` | 100 | Group ID (100 = users) |
 | `TZ` | America/Los_Angeles | Your timezone |
 | `LOG_LEVEL` | INFO | Logging level (DEBUG, INFO, WARNING, ERROR) |
+| `JELLYFIN_URL` | *(empty)* | Optional. A Jellyfin 10.9+ server to use alongside Plex, e.g. `http://192.168.1.10:8096` |
+| `JELLYFIN_API_KEY` | *(empty)* | Optional. Create one in Jellyfin under Dashboard → API Keys |
+| `JELLYFIN_PATH_MAPPINGS` | *(empty)* | Needed for Jellyfin. JSON object mapping each Jellyfin folder to the Plex path of the same folder, e.g. `{"/media/movies": "/data/movies"}`. Map a folder to itself if both servers see the same path |
+| `JELLYFIN_SKIP_USERS` | *(empty)* | Optional. Comma-separated Jellyfin users to leave out |
+| `JELLYFIN_FAVORITES_TOGGLE` | *(empty)* | Optional. `true` caches unplayed Jellyfin favorites like a watchlist (needs the watchlist on) |
+
+The Jellyfin variables are under **Show more settings** in the Community Apps template. Jellyfin runs alongside Plex, which is still required; see the [Jellyfin section of the README](https://github.com/StudioNirin/PlexCache-D#jellyfin-optional) for how it works.
 
 ### Port Configuration
 

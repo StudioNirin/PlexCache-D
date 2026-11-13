@@ -38,7 +38,7 @@ DEFAULT_PORT = 5000
 # Shared Jinja2 templates instance (all routers should import this)
 templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# Docker image tag - shows badge in sidebar when not "latest"
+# Docker image tag - shows a badge in the sidebar for test builds (see web/image_tag.py)
 IMAGE_TAG = os.environ.get("IMAGE_TAG", "latest")
 templates.env.globals["image_tag"] = IMAGE_TAG
 
@@ -47,25 +47,8 @@ templates.env.globals["image_tag"] = IMAGE_TAG
 from web.static_assets import static_url
 templates.env.globals["static_url"] = static_url
 
-
-def _parse_tag_label(tag: str) -> str:
-    """Derive a short display label from a Docker image tag.
-
-    Examples: 'dev' → 'DEV', 'v3.1.0-beta1' → 'BETA 1', 'latest' → ''
-    """
-    if not tag or tag == "latest":
-        return ""
-    # Pre-release suffix after version: v3.1.0-beta1 → beta1 → BETA 1
-    if tag.startswith("v") and "-" in tag:
-        suffix = tag.split("-", 1)[1]  # "beta1", "rc2", etc.
-        # Insert space before trailing digits: beta1 → BETA 1
-        import re
-        label = re.sub(r'(\D+)(\d+)$', r'\1 \2', suffix)
-        return label.upper()
-    return tag.upper()
-
-
-templates.env.globals["tag_label"] = _parse_tag_label(IMAGE_TAG)
+from web.image_tag import tag_label
+templates.env.globals["tag_label"] = tag_label(IMAGE_TAG)
 
 # Platform detection globals (available in all templates)
 _detector = SystemDetector()

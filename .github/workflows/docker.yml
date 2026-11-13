@@ -95,14 +95,18 @@ jobs:
             # latest only for full (non-prerelease) releases
             type=raw,value=latest,enable=${{ github.event_name == 'release' && !github.event.release.prerelease }}
 
+      # IMAGE_TAG is the sidebar badge (web/image_tag.py): pushes to main/dev
+      # build :dev and show DEV, a full release shows none (the sidebar already
+      # shows the version), and a pre-release like v3.4.0-beta1 shows BETA 1.
       - name: Compute IMAGE_TAG build arg
         id: image_tag
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
-          if [[ "$GITHUB_REF" == refs/heads/dev ]]; then
+          if [[ "$GITHUB_EVENT_NAME" != release ]]; then
             echo "value=dev" >> "$GITHUB_OUTPUT"
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            tag="${GITHUB_REF#refs/tags/}"
-            echo "value=${tag#v}" >> "$GITHUB_OUTPUT"
+          elif [[ "$PRERELEASE" == true ]]; then
+            echo "value=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           else
             echo "value=latest" >> "$GITHUB_OUTPUT"
           fi
