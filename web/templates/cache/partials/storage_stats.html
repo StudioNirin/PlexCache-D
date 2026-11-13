@@ -42,14 +42,14 @@
         <div class="stat-value text-success">{{ data.storage.free_display }}</div>
         <div class="stat-label">available</div>
     </div>
-    <div class="stat-card">
+    <a href="/cache" class="stat-card stat-card-link" title="View all cached files">
         <div class="stat-card-header">
             <i data-lucide="files"></i>
             Cached Items
         </div>
         <div class="stat-value orange">{{ data.storage.file_count }}</div>
         <div class="stat-label">{{ data.storage.cached_size_display }} total</div>
-    </div>
+    </a>
 </div>
 
 <!-- Cache Limit Status -->

@@ -74,7 +74,7 @@
                     </a>
                 </li>
                 <li>
-                    <a href="/cache" data-tooltip="Cached Files" {% if page_title == 'Cached Files' %}class="active"{% endif %}>
+                    <a href="/cache" data-tooltip="Cached Files" {% if page_title in ('Cached Files', 'Priority Report') %}class="active"{% endif %}>
                         <i data-lucide="database"></i>
                         <span>Cached Files</span>
                     </a>

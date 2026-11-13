@@ -8,6 +8,9 @@ Filters. Long lines wrap by default on a phone, through a labelled switch.
 
 Tab bars (the Settings tabs) wrapped onto three rows on a phone. They are now
 one row that swipes, or drags with a mouse, with the current tab in view.
+
+Header buttons are the page's own actions: Cached Files and the Priority
+Report are tabs of one section, and Storage links to the files from its card.
 """
 
 import re
@@ -127,3 +130,27 @@ def test_tab_bar_drags_with_a_mouse():
     assert "if (dragged) { e.preventDefault(); e.stopPropagation();" in drag
     assert "dragToScroll(bar);" in APP_JS
     assert ".tabs.is-dragging { scroll-snap-type: none; }" in PHONE
+
+
+# ── Header buttons are the page's own actions, not navigation ─────
+
+def test_cached_files_and_priority_report_are_tabs_of_one_section():
+    """Priority Report (on Cached Files) and Back to Cache (on the report) sat
+    where other pages keep their own Refresh. They are now tabs."""
+    tabs = _read("cache/partials/section_tabs.html")
+    assert 'class="tabs"' in tabs and 'href="/cache"' in tabs and 'href="/cache/priorities"' in tabs
+    for page, tab in (("cache/list.html", "files"), ("cache/priorities.html", "priorities")):
+        html = _read(page)
+        assert "action-buttons" not in html, page
+        assert f"{{% with cache_tab = '{tab}' %}}{{% include \"cache/partials/section_tabs.html\" %}}{{% endwith %}}" in html
+        assert "<h1>Cached Files</h1>" in html, page
+    assert "Back to Cache" not in _read("cache/priorities.html")
+    # The report is part of the Cached Files section in the sidebar too
+    assert "page_title in ('Cached Files', 'Priority Report')" in _read("base.html")
+
+
+def test_storage_links_to_the_files_from_its_cached_items_card():
+    assert "action-buttons" not in _read("cache/drive.html")
+    stats = _read("cache/partials/storage_stats.html")
+    card = stats[stats.rindex("<a ", 0, stats.index("Cached Items")):stats.index("Cached Items")]
+    assert card.startswith('<a href="/cache" class="stat-card stat-card-link"')  # the Dashboard's link-card pattern

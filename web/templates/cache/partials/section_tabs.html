@@ -1,0 +1,12 @@
+{# Cached Files and the Priority Report are two views of one section, so they
+   switch with tabs (the Settings tab bar: one swipeable row on a phone) rather
+   than with header buttons. That keeps the spot under the operation pill for
+   the page's own Refresh on every page. Pass cache_tab = 'files' | 'priorities'. #}
+<nav class="tabs" aria-label="Cached files views">
+    <a href="/cache" class="tab {% if cache_tab == 'files' %}active{% endif %}"{% if cache_tab == 'files' %} aria-current="page"{% endif %}>
+        <i data-lucide="database"></i> Files
+    </a>
+    <a href="/cache/priorities" class="tab {% if cache_tab == 'priorities' %}active{% endif %}"{% if cache_tab == 'priorities' %} aria-current="page"{% endif %}>
+        <i data-lucide="bar-chart-2"></i> Priority Report
+    </a>
+</nav>
