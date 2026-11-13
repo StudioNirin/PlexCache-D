@@ -1684,7 +1684,8 @@ textarea {
     background: inherit;
 }
 
-.modal-close {
+.modal-close,
+.notice-dismiss {
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -1696,15 +1697,26 @@ textarea {
     cursor: pointer;
 }
 
-.modal-close:hover {
+.modal-close:hover,
+.notice-dismiss:hover {
     color: var(--plex-text);
     background: var(--plex-bg-hover);
 }
 
-.modal-close svg {
+.modal-close svg,
+.notice-dismiss svg {
     width: 18px;
     height: 18px;
 }
+
+/* A notice's "Don't show again" x takes the notice's colour */
+.alert .notice-dismiss { color: inherit; opacity: 0.7; flex-shrink: 0; }
+.alert .notice-dismiss:hover {
+    color: inherit;
+    opacity: 1;
+    background: color-mix(in srgb, currentColor 14%, transparent);
+}
+.notice-dismiss:focus-visible { outline: 2px solid var(--plex-orange); outline-offset: 2px; }
 
 /* Shared confirm dialog (pcConfirm / hx-confirm in app.js) */
 .pc-confirm .modal-content {

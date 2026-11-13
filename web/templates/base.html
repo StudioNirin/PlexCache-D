@@ -30,6 +30,20 @@
             if (sidebarCollapsed) {
                 document.documentElement.classList.add('sidebar-collapsed-init');
             }
+
+            // Notices closed with "Don't show this again" (data-notice ids,
+            // saved by app.js) are hidden here, before the first paint, so
+            // they don't flash in and vanish
+            try {
+                const dismissed = JSON.parse(localStorage.getItem('dismissedNotices') || '[]')
+                    .filter(id => /^[a-z0-9-]+$/.test(id))
+                    .map(id => '[data-notice="' + id + '"]');
+                if (dismissed.length) {
+                    const style = document.createElement('style');
+                    style.textContent = dismissed.join(',') + ' { display: none !important; }';
+                    document.head.appendChild(style);
+                }
+            } catch (e) { /* storage blocked or unreadable: show the notices */ }
         })();
     </script>
 

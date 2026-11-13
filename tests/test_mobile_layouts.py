@@ -12,7 +12,8 @@ one row that swipes, or drags with a mouse, with the current tab in view.
 Header buttons are the page's own actions: Cached Files and the Priority
 Report are tabs of one section, and Storage links to the files from its card.
 
-The Recently Added explainer is one line; how pins work opens on tap.
+The Recently Added explainer is one line; how pins work opens on tap, and an
+x hides it for good in that browser.
 """
 
 import re
@@ -160,15 +161,49 @@ def test_storage_links_to_the_files_from_its_cached_items_card():
 
 # ── Recently Added explainer ──────────────────────────────────────
 
+RA = _read("recently_added/index.html")
+RA_NOTICE = RA[RA.index('<div class="alert alert-info ra-explainer"'):RA.index("</button>", RA.index("ra-explainer")) + 9]
+
+
 def test_recently_added_explainer_is_one_line_that_opens():
     """Six lines on a phone every visit: the key point stays visible and how
-    pins work opens on tap (a native <details>, no script, nothing stored)."""
-    html = _read("recently_added/index.html")
-    block = html[html.index('<details class="alert alert-info ra-explainer">'):html.index("</details>")]
+    pins work opens on tap (a native <details>, no script)."""
+    block = RA_NOTICE[RA_NOTICE.index("<details>"):RA_NOTICE.index("</details>")]
     assert "<summary>" in block and "How pins work" in block
     summary = block[block.index("<summary>"):block.index("</summary>")]
     assert "cached automatically" in summary and "<strong>Pin</strong>" in summary
     body = block[block.index("</summary>"):]
     for fact in ("pinned instantly, with no copy", "copied over on the next run", "Pins stay until you unpin them"):
         assert fact in body, fact
-    assert " open" not in block.split(">", 1)[0]  # closed by default
+    assert block.startswith("<details>")  # closed by default
+
+
+# ── Notices with "Don't show this again" ──────────────────────────
+
+BASE = _read("base.html")
+
+
+def test_recently_added_explainer_can_be_hidden_for_good():
+    assert 'data-notice="recently-added-pins"' in RA_NOTICE.split(">", 1)[0]
+    button = re.search(r"<button[^>]*data-notice-dismiss[^>]*>", RA_NOTICE).group(0)
+    assert 'type="button"' in button
+    assert "title=\"Don't show this again\"" in button and "aria-label=\"Don't show this again\"" in button
+    # Outside the <summary>: a button in there would also open and close it
+    assert RA_NOTICE.index("data-notice-dismiss") > RA_NOTICE.index("</details>")
+
+
+def test_dismissed_notices_are_hidden_before_the_first_paint():
+    """Hidden by the head script, not after load, so a closed notice does not
+    flash in and vanish on every visit."""
+    head = BASE[:BASE.index("</head>")]
+    assert "localStorage.getItem('dismissedNotices')" in head
+    assert "'[data-notice=\"' + id + '\"]'" in head and "display: none !important" in head
+    assert "/^[a-z0-9-]+$/" in head  # only plain ids reach the stylesheet
+
+
+def test_the_x_saves_the_notice_and_closes_it():
+    handler = APP_JS[APP_JS.index("closest('[data-notice-dismiss]')"):]
+    handler = handler[:handler.index("\n});")]
+    assert "localStorage.setItem('dismissedNotices'" in handler
+    assert "notice.remove()" in handler
+    assert "prefers-reduced-motion: reduce" in handler

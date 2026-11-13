@@ -126,6 +126,34 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// "Don't show this again" on a notice: an element with data-notice="<id>" that
+// holds a [data-notice-dismiss] button. The id is saved in localStorage, and the
+// head script in base.html hides that notice before the first paint from then on.
+document.addEventListener('click', function(e) {
+    var button = e.target.closest && e.target.closest('[data-notice-dismiss]');
+    var notice = button && button.closest('[data-notice]');
+    if (!notice) return;
+    var id = notice.getAttribute('data-notice');
+    try {
+        var dismissed = JSON.parse(localStorage.getItem('dismissedNotices') || '[]');
+        if (!Array.isArray(dismissed)) dismissed = [];
+        if (dismissed.indexOf(id) < 0) dismissed.push(id);
+        localStorage.setItem('dismissedNotices', JSON.stringify(dismissed));
+    } catch (err) { /* storage blocked: close it for this visit only */ }
+
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (still || !notice.animate) { notice.remove(); return; }
+    var cs = getComputedStyle(notice);
+    notice.style.overflow = 'hidden';
+    notice.animate([
+        { opacity: 1, height: notice.offsetHeight + 'px', marginBottom: cs.marginBottom,
+          paddingTop: cs.paddingTop, paddingBottom: cs.paddingBottom,
+          borderTopWidth: cs.borderTopWidth, borderBottomWidth: cs.borderBottomWidth },
+        { opacity: 0, height: '0px', marginBottom: '0px', paddingTop: '0px', paddingBottom: '0px',
+          borderTopWidth: '0px', borderBottomWidth: '0px' }
+    ], { duration: 220, easing: 'ease', fill: 'forwards' }).onfinish = function() { notice.remove(); };
+});
+
 // The Dashboard header used to keep its own Verbose toggle under a separate key.
 // Carry a saved preference over to the pill's setting once, then drop the old key.
 try {
