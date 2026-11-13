@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import List, Optional
 from dataclasses import dataclass, field
 
-from core.system_utils import format_bytes
+from core.system_utils import format_bytes, format_cache_age
 from core.file_operations import save_json_atomically
 from core.media_grouping import group_ordered, show_name_from_filename, stable_group_id
 
@@ -508,3 +508,40 @@ def load_last_run_summary(run_sources: Optional[tuple] = None) -> Optional[dict]
         reverse=True,
     )
     return candidates[0]
+
+
+def last_run_pill_text(last_run_iso: Optional[str], summary: Optional[dict] = None) -> dict:
+    """Text for the idle Ready pill (shown when no schedule is set): how long
+    ago the last run was and what it did, so the compact pill says something
+    rather than just the app name.
+
+    Returns {"compact": "Ran 2 hr ago", "detail": "Last run 2 hr ago · 12 cached
+    (38.20 GB) · 2 errors"}. ``last_run_iso`` is data/last_run.txt as the
+    scheduler status reports it; ``summary`` is load_last_run_summary().
+    """
+    age = None
+    if last_run_iso:
+        try:
+            age = format_cache_age(datetime.fromisoformat(last_run_iso))
+        except ValueError:
+            age = None
+    if not age:
+        return {"compact": "Not run yet", "detail": "Not run yet"}
+
+    parts = [f"Last run {age}"]
+    if summary:
+        if summary.get("status") == "failed":
+            parts.append("failed")
+        if summary.get("files_cached"):
+            cached = f"{summary['files_cached']} cached"
+            if summary.get("bytes_cached"):
+                cached += f" ({format_bytes(summary['bytes_cached'])})"
+            parts.append(cached)
+        if summary.get("files_restored"):
+            parts.append(f"{summary['files_restored']} restored")
+        errors = summary.get("error_count") or 0
+        if errors:
+            parts.append(f"{errors} error{'s' if errors != 1 else ''}")
+        if summary.get("dry_run"):
+            parts.append("dry run")
+    return {"compact": f"Ran {age}", "detail": " · ".join(parts)}

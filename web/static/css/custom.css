@@ -496,10 +496,11 @@ footer {
     pointer-events: auto;
 }
 
-/* Fit mode (#216): the fit check in base.html adds .di-flow when the centred pill
-   would collide with the page title, the action buttons or the theme toggle (narrow
-   windows, high zoom, phones). The banner then becomes a full-width row of the page
-   header, ordered after the buttons, and moves back up as soon as there is room. */
+/* Fit mode (#216): the pill slides sideways to clear the page title, the action
+   buttons and the theme toggle (PillMotion.placeIn). Only when the header row has no
+   gap wide enough (narrow windows, high zoom, phones) does it get .di-flow: the banner
+   then becomes a full-width row of the page header, ordered after the buttons, and
+   moves back up as soon as there is room. */
 .page-header > #global-operation-banner.di-flow {
     position: relative;
     top: auto;
@@ -572,16 +573,19 @@ footer {
 }
 
 /* Content emerge animation — scale up from within (expand) */
+/* Used where a view swaps without shared elements (detail panel, pills that
+   do not morph). Through a slight blur and without overshoot, matching the
+   morph's crossfade: the bubble's outline carries the bounce, not its text. */
 @keyframes diFadeIn {
-    from { opacity: 0; transform: scale(0.92); }
-    to   { opacity: 1; transform: scale(1); }
+    from { opacity: 0; transform: scale(0.96); filter: blur(3px); }
+    to   { opacity: 1; transform: scale(1); filter: blur(0); }
 }
-.di-content-enter { animation: diFadeIn 0.22s cubic-bezier(0.34, 1.3, 0.64, 1) both; }
+.di-content-enter { animation: diFadeIn 0.22s ease-out both; }
 
 /* Content recede animation — scale back down into pill (collapse) */
 @keyframes diFadeOut {
-    from { opacity: 1; transform: scale(1); }
-    to   { opacity: 0; transform: scale(0.92); }
+    from { opacity: 1; transform: scale(1); filter: blur(0); }
+    to   { opacity: 0; transform: scale(0.96); filter: blur(3px); }
 }
 .di-content-exit { animation: diFadeOut 0.15s ease-in both; }
 
@@ -591,6 +595,41 @@ footer {
     to   { opacity: 1; }
 }
 .di-content-settle { animation: diSettle 0.12s ease-out both; }
+
+/* Changing numbers (countdown, file count, bytes, elapsed, time left) roll
+   their changed characters in instead of snapping (_diRollText). Tabular
+   figures keep the width steady while digits change. */
+[data-di-num] { font-variant-numeric: tabular-nums; }
+.di-roll-char { display: inline-block; white-space: pre; }
+
+/* An alert (a run that ended with errors, or failed) expands the pill once and
+   pulses the thing that caused it */
+@keyframes diAttention {
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.15); }
+}
+.di-attention { animation: diAttention 0.5s ease-in-out 3; }
+
+/* Reduced motion: the pill and its content change state instantly. The
+   expand/collapse JS checks the same setting and skips its animation; the
+   spinner stays, since it is the only sign a run is still going. */
+@media (prefers-reduced-motion: reduce) {
+    .di-pill,
+    .di-pill--entrance,
+    .di-content-enter,
+    .di-content-exit,
+    .di-content-settle,
+    .di-attention,
+    .di-glow::after {
+        animation: none !important;
+    }
+    .di-pill,
+    .di-pill__progress,
+    .di-progress-fill {
+        transition: none !important;
+    }
+    .di-pill:hover { transform: none; }
+}
 
 /* Base compact pill */
 .di-pill {
@@ -615,6 +654,10 @@ footer {
 }
 /* One-shot entrance animation — added by JS only on real state changes */
 .di-pill--entrance { animation: diSlideDown 0.3s ease-out; }
+/* A page that put back the previous page's pill (pill-motion.js
+   restoreBanner) is a continuation, not a new state: the pill's one-shot
+   animations (entrance, completion flash) wait for a real state change */
+#global-operation-banner[data-di-continued] .di-pill { animation: none !important; }
 
 .di-pill:hover { transform: scale(1.02); }
 
@@ -625,6 +668,64 @@ footer {
     padding: 0 1rem;
     min-width: 200px;
 }
+
+/* Idle pills sit concentric with their shape: rounded content nests in the
+   bubble with even margins (Apple's Dynamic Island guidance). Compact: the
+   22px Run button is the right end-cap, 8px from the end as from the top and
+   bottom ((38 - 22) / 2), and the icon sits 12px in. The expand chevron is
+   dropped here: it took the end of the pill and pushed Run 37px in, and hover
+   or click still expands the pill. */
+#idle-ready-pill,
+#idle-countdown-pill {
+    padding: 0 8px 0 12px;
+}
+#idle-ready-pill .di-pill__compact::after,
+#idle-countdown-pill .di-pill__compact::after {
+    display: none;
+}
+@media (pointer: coarse) {
+    #idle-ready-pill,
+    #idle-countdown-pill { padding-right: 5px; }  /* the touch-sized Run is taller */
+}
+/* Expanded: one 0.85rem margin all round, and a corner radius of that margin
+   plus the 14px radius of the 28px icon circle and of the 28px buttons, so
+   the circle (top-left) and Dry Run (bottom-right) nest in the corners. */
+#global-operation-banner[data-di-expanded="tier2"] #idle-ready-pill,
+#global-operation-banner[data-di-expanded="tier3"] #idle-ready-pill,
+#global-operation-banner[data-di-expanded="tier2"] #idle-countdown-pill,
+#global-operation-banner[data-di-expanded="tier3"] #idle-countdown-pill {
+    padding: 0.85rem;
+    border-radius: calc(0.85rem + 14px);
+}
+.di-idle-actions .di-btn { min-height: 28px; }
+
+/* Ready pill (no schedule): the title, the last run and a nudge to set a
+   schedule stack beside the icon. Top-aligned so the circle stays in its
+   concentric corner; the 4px puts the title's line on the circle's centre. */
+.di-expanded__header-left.di-idle-header { align-items: flex-start; }  /* beats the header's centring */
+.di-idle-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+    padding-top: 4px;
+}
+.di-idle-detail {
+    font-size: 0.75rem;
+    color: var(--di-t50);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.di-idle-nudge {
+    font-size: 0.72rem;
+    color: var(--di-t40);
+}
+.di-idle-nudge a {
+    color: var(--plex-orange-text, var(--plex-orange));
+    text-decoration: none;
+}
+.di-idle-nudge a:hover { text-decoration: underline; }
 
 /* ── Idle pill expanded actions ───────────────────────── */
 .di-idle-actions {
@@ -638,7 +739,7 @@ footer {
     align-items: center;
     gap: 0.35rem;
     padding: 0.35rem 0.75rem;
-    border-radius: 8px;
+    border-radius: 999px;  /* fully round, like the bubble they sit in */
     border: none;
     font-size: 0.78rem;
     font-weight: 600;
@@ -661,6 +762,9 @@ footer {
     font-weight: 700;
 }
 .di-btn--run svg { width: 11px; height: 11px; fill: currentColor; }
+/* Run Now is the compact Run grown up (they morph into each other), so it
+   carries the same filled play glyph */
+.di-btn[data-di-shared="run"] svg { fill: currentColor; }
 @media (pointer: coarse) {
     .di-btn--run { padding: 0.45rem 0.9rem 0.45rem 0.75rem; }
 }
@@ -725,6 +829,9 @@ footer {
     z-index: 0;
     transition: opacity 0.3s ease;
 }
+/* While the bubble reshapes into a new state, its glow waits and then fades
+   in (pill-motion.js state morph), rather than lighting up in the first frame */
+.di-pill.di-morphing::after { opacity: 0; }
 /* Hide glow when expanded */
 #global-operation-banner[data-di-expanded="tier2"] .di-glow::after,
 #global-operation-banner[data-di-expanded="tier3"] .di-glow::after,
@@ -1418,10 +1525,20 @@ footer {
         transform: none;
     }
 
+    /* min-width 0 down to the compact row's right side: as flex items they
+       otherwise refuse to be narrower than their content, so "Completed · 2
+       errors · 12 cached ..." ran off the right of a 360px screen. The left side
+       (icon, label, error badge) keeps its size; the summary on the right
+       shortens with an ellipsis instead. */
     .di-pill {
-        min-width: auto;
+        min-width: 0;
         max-width: none;
         width: 100%;
+    }
+
+    .di-pill__compact,
+    .di-pill__right {
+        min-width: 0;
     }
 
     .di-pill.di-expanded {
@@ -1429,11 +1546,40 @@ footer {
         min-width: auto;
     }
 
-    /* The header is a column here: stretch the banner to the full width (the row
-       layout's flex-basis does not apply) so the pill and its overlay get a width. */
+    /* The header is a column here: give the banner the full width (the row
+       layout's flex-basis does not apply) so the pill and its overlay get a width.
+       width: 100% rather than only stretch: the header wraps, and a wrapping
+       column is as wide as its widest item, so a stretched banner took the pill's
+       full content width instead of the screen's. */
     .page-header > #global-operation-banner.di-flow {
         flex: 0 0 auto;
         align-self: stretch;
+        width: 100%;
+        order: 0;  /* right under the title, as on the Dashboard */
+    }
+
+    /* The page's own actions (Priority Report, View All Files, Refresh, ...)
+       follow the pill as a light row on the right, like the Dashboard's
+       "Updated ... / Refresh" row, instead of sitting between the title and
+       the pill. Same size as that Refresh (.btn-sm). */
+    .page-header > .action-buttons {
+        order: 1;
+        align-self: flex-end;
+        margin-top: 0.375rem;  /* the Dashboard's 22px from the pill */
+    }
+
+    .page-header:has(> .action-buttons) {
+        margin-bottom: 0.8rem;  /* and its 13px to the content */
+    }
+
+    .page-header > .action-buttons .btn {
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8rem;
+    }
+
+    .page-header > .action-buttons .btn svg {
+        width: 14px;
+        height: 14px;
     }
 
     #global-operation-banner.di-flow[data-di-expanded="tier2"] .di-pill,
