@@ -61,6 +61,20 @@ def test_pages_put_back_the_previous_pill():
     assert "target.removeAttribute('data-di-continued')" in ENGINE  # a real state change flashes again
 
 
+def test_placement_slides_before_it_drops():
+    """Recently Added's subtitle reached 13px into the pill's clearance and the
+    whole pill dropped below the header row. Placement lives in the engine, so
+    a reshape and an open/close carry the slide on their own spring."""
+    assert "PillMotion.placeIn(document.querySelector('.content-wrapper > .page-header'))" in BASE
+    assert "function fit()" not in BASE and "di-flow" not in BASE
+    assert "placeIn: placeIn" in ENGINE
+    morph = _between(ENGINE, "function _diStateMorph(", "function _diPlace(")
+    assert "_diPlace(outer, { w: parseFloat(end.width), h: parseFloat(end.height) }, spring);" in morph
+    flip = _between(ENGINE, "function _diDoFlip(", "function diMinimize(")
+    assert "_diPlace(outer, { w: endWidth, h: endHeight }, spring, toState !== 'false');" in flip
+    assert "outer.style.translate = slideAt[which];" in flip  # an interrupted open/close turns round too
+
+
 def test_template_holds_no_engine_code():
     for fn in ("function _diDoFlip(", "function _diMorphStart(", "function diSmoothSetState(",
                "function _diSpring(", "function diTriggerRun(", "addEventListener('htmx:"):

@@ -496,10 +496,11 @@ footer {
     pointer-events: auto;
 }
 
-/* Fit mode (#216): the fit check in base.html adds .di-flow when the centred pill
-   would collide with the page title, the action buttons or the theme toggle (narrow
-   windows, high zoom, phones). The banner then becomes a full-width row of the page
-   header, ordered after the buttons, and moves back up as soon as there is room. */
+/* Fit mode (#216): the pill slides sideways to clear the page title, the action
+   buttons and the theme toggle (PillMotion.placeIn). Only when the header row has no
+   gap wide enough (narrow windows, high zoom, phones) does it get .di-flow: the banner
+   then becomes a full-width row of the page header, ordered after the buttons, and
+   moves back up as soon as there is room. */
 .page-header > #global-operation-banner.di-flow {
     position: relative;
     top: auto;

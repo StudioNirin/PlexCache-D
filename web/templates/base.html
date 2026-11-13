@@ -163,68 +163,10 @@
                 {% block content %}{% endblock %}
 
                 <script>
-                    // Operation pill placement (#216). The pill stays centred on top of the page
-                    // (Dynamic-Island style) as long as it does not collide with the page title,
-                    // the action buttons or the theme toggle. If it would, it gets .di-flow and
-                    // becomes a full-width row of the header, below the buttons. Measured with
-                    // .di-flow removed, so it moves back up as soon as there is room again.
-                    (function () {
-                        var banner = document.getElementById('global-operation-banner');
-                        var header = document.querySelector('.content-wrapper > .page-header');
-                        if (!banner || !header) return;
-                        // Child of the header so the fit mode can place it in the header flow;
-                        // the default state is absolutely positioned and does not affect the layout.
-                        var title = header.querySelector(':scope > .page-title');
-                        header.insertBefore(banner, title ? title.nextSibling : header.firstChild);
-
-                        function collides(a, b, gap) {
-                            if (!b || !b.width || !b.height) return false;
-                            return a.left < b.right + gap && a.right + gap > b.left &&
-                                   a.top < b.bottom && a.bottom > b.top;
-                        }
-
-                        function fit() {
-                            var state = banner.getAttribute('data-di-expanded');
-                            if (state === 'tier2' || state === 'tier3') return; // expanded overlay: keep mode
-                            if (!banner.querySelector('.di-pill')) return;
-                            var inFlow = banner.classList.contains('di-flow');
-                            if (inFlow) banner.classList.remove('di-flow');
-                            var rect = banner.getBoundingClientRect();
-                            var gap = inFlow ? 40 : 16; // hysteresis: no flip-flopping at the edge
-                            var hit = [
-                                header.querySelector(':scope > .page-title'),
-                                header.querySelector(':scope > .action-buttons'),
-                                document.querySelector('.top-controls')
-                            ].some(function (el) {
-                                return el && collides(rect, el.getBoundingClientRect(), gap);
-                            });
-                            if (hit) banner.classList.add('di-flow');
-                        }
-
-                        // Content swaps are handled synchronously (microtask, before the next paint),
-                        // so the pill never flashes in the wrong place. Expand/collapse animations
-                        // are re-checked once they are done.
-                        var slow = null;
-                        if (window.ResizeObserver) {
-                            new ResizeObserver(function () { requestAnimationFrame(fit); }).observe(header);
-                        } else {
-                            window.addEventListener('resize', fit);
-                        }
-                        // Banner content is replaced by htmx and by diTriggerRun() (innerHTML)
-                        new MutationObserver(function (list) {
-                            if (list.some(function (m) { return m.type === 'childList'; })) fit();
-                            if (list.some(function (m) { return m.type === 'attributes'; })) {
-                                clearTimeout(slow);
-                                slow = setTimeout(fit, 450);
-                            }
-                        }).observe(banner, {
-                            childList: true, // direct children only: the pill itself being replaced
-                            attributes: true, attributeFilter: ['data-di-expanded']
-                        });
-                        if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
-                        window.addEventListener('load', fit);
-                        fit();
-                    })();
+                    // Operation pill placement (#216): centred on top of the page, sliding
+                    // sideways to clear the title and buttons, and only dropping below them
+                    // when the header row has no room (pill-motion.js, placeIn)
+                    if (window.PillMotion) PillMotion.placeIn(document.querySelector('.content-wrapper > .page-header'));
                 </script>
 
                 <footer>

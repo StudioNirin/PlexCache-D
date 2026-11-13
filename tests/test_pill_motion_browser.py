@@ -158,7 +158,7 @@ def pill(browser):
     def handle(route):
         path = urlparse(route.request.url).path
         if path == "/":
-            return route.fulfill(body=HARNESS, content_type="text/html")
+            return route.fulfill(body=state.get("page", HARNESS), content_type="text/html")
         if path.startswith("/static/"):
             f = STATIC / path[len("/static/"):]
             if f.is_file():
@@ -303,6 +303,110 @@ def test_phase_change_reshapes_instead_of_resetting(pill, expanded):
     pill.at(0)
     start = pill.rect(".di-pill")
     assert abs(start["w"] - before["w"]) < 1 and abs(start["h"] - before["h"]) < 1
+    pill.settle()
+    assert pill.leftovers() == 0
+
+
+def header_page(title_width, buttons=True, css=""):
+    """A page laid out like base.html: theme toggle, banner, then a page header
+    whose title is `title_width` px wide, placed by PillMotion.placeIn. At the
+    1280px viewport the header runs from x=32 to 1232, centred on 632."""
+    actions = '<div class="action-buttons"><button class="btn btn-secondary">Refresh</button></div>' if buttons else ""
+    return HARNESS.replace(
+        '<div class="page-header"><div class="page-title"><h1>Dashboard</h1></div>\n'
+        '<div id="global-operation-banner"',
+        '<div class="top-controls"><button class="theme-toggle" style="width:36px;height:36px"></button></div>\n'
+        '<div id="global-operation-banner"').replace(
+        '<script>if (window.PillMotion) PillMotion.restoreBanner();</script>\n</div>',
+        '<script>if (window.PillMotion) PillMotion.restoreBanner();</script>\n'
+        f'<div class="page-header"><div class="page-title" style="width:{title_width}px;height:60px"><h1>Recently Added</h1></div>'
+        f'{actions}</div>\n'
+        "<script>PillMotion.placeIn(document.querySelector('.content-wrapper > .page-header'));</script>"
+    ).replace("</head>", f"<style>{css}</style></head>")
+
+
+def _box(pill, selector):
+    return pill.js("""s => { const r = document.querySelector(s).getBoundingClientRect();
+        return { left: r.left, right: r.right, cx: r.left + r.width / 2 }; }""", selector)
+
+
+def _in_flow(pill):
+    return pill.js("() => document.getElementById('global-operation-banner').classList.contains('di-flow')")
+
+
+def test_pill_stays_centred_when_the_title_leaves_room(pill):
+    pill.state["page"] = header_page(200)
+    pill.load(running())
+    assert not _in_flow(pill)
+    assert abs(pill.rect(".di-pill")["cx"] - 632) < 1
+
+
+def test_pill_slides_clear_of_a_wide_title_instead_of_dropping(pill):
+    """Recently Added: the centred pill reached 13px into the subtitle's
+    clearance, and the whole pill dropped below the header row."""
+    pill.state["page"] = header_page(450)
+    pill.load(running())
+    assert not _in_flow(pill)
+    title, actions, p = _box(pill, ".page-title"), _box(pill, ".action-buttons"), pill.rect(".di-pill")
+    assert abs(p["x"] - (title["right"] + 16)) < 1  # only as far as it has to
+    assert p["x"] + p["w"] <= actions["left"] - 16
+
+
+def test_pill_drops_below_only_without_room_and_comes_back(pill):
+    pill.state["page"] = header_page(900)
+    pill.load(running())
+    assert _in_flow(pill)
+    pill.js("() => { document.querySelector('.page-title').style.width = '450px'; }")
+    pill.page.wait_for_function("() => !document.getElementById('global-operation-banner').classList.contains('di-flow')")
+    pill.page.wait_for_timeout(50)
+    assert abs(pill.rect(".di-pill")["x"] - (_box(pill, ".page-title")["right"] + 16)) < 1
+
+
+def test_widening_state_slides_on_the_reshape_spring(pill):
+    """Ready fits centred; Caching is wider and has to slide. It reshapes and
+    slides together, from where it was, instead of jumping on the next poll."""
+    pill.state["page"] = header_page(450)
+    pill.load(idle_ready())
+    before = pill.rect(".di-pill")
+    assert abs(before["cx"] - 632) < 1
+    pill.slow(20)
+    pill.switch(running())
+    total = pill.freeze()
+    pill.at(0)
+    start = pill.rect(".di-pill")
+    assert abs(start["x"] - before["x"]) < 1 and abs(start["w"] - before["w"]) < 1
+    target = _box(pill, ".page-title")["right"] + 16
+    lefts = []
+    for i in range(41):
+        pill.at(total * i / 40)
+        lefts.append(pill.rect(".di-pill")["x"])
+    assert all(b <= a + 0.5 for a, b in zip(lefts, lefts[1:12]))  # one movement, from the start
+    assert min(lefts) > target - 0.05 * (before["x"] - target) - 1  # the spring's small overshoot, no more
+    assert abs(lefts[-1] - target) < 1
+    pill.settle()
+    assert pill.leftovers() == 0
+    assert pill.js("() => document.getElementById('global-operation-banner').style.transition") == ""
+
+
+def test_opening_keeps_clear_of_the_toggle_and_closing_returns(pill):
+    """Slid far to the right, the open pill (here 620px) would reach under the
+    theme toggle: it moves back as it opens, and closing returns it."""
+    pill.state["page"] = header_page(700, buttons=False, css=(
+        '#global-operation-banner[data-di-expanded="tier2"] .di-pill { min-width: 620px; }'))
+    pill.load(running())
+    closed = pill.rect(".di-pill")
+    assert abs(closed["x"] - (_box(pill, ".page-title")["right"] + 16)) < 1
+    toggle = _box(pill, ".top-controls")
+    pill.slow(20)
+    pill.js("() => diSmoothSetState('tier2')")
+    pill.at(pill.freeze())  # where the spring takes it, not a correction after it settles
+    opened = pill.rect(".di-pill")
+    assert opened["w"] >= 619 and opened["x"] + opened["w"] <= toggle["left"] - 16 + 1
+    assert opened["x"] + opened["w"] >= toggle["left"] - 16 - 1  # moved no further than it had to
+    pill.settle()
+    pill.js("() => diSmoothSetState('false')")
+    pill.at(pill.freeze())
+    assert abs(pill.rect(".di-pill")["x"] - closed["x"]) < 1
     pill.settle()
     assert pill.leftovers() == 0
 

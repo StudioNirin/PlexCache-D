@@ -526,7 +526,10 @@
             ['transition', 'minWidth', 'overflow', 'height', 'width', 'borderRadius',
              'paddingTop', 'paddingBottom'].forEach(function(k) { snap.held.style[k] = ''; });
         }
-        if (!pill || !newView || diGetExpandState() !== snap.expand || _diReducedMotion()) return;
+        if (!pill || !newView || diGetExpandState() !== snap.expand || _diReducedMotion()) {
+            _diPlace(outer);
+            return;
+        }
         if (snap.id && !document.getElementById(snap.id)) snap.wrap.id = snap.id;
 
         var perceived = cfg.expandMs;
@@ -560,6 +563,11 @@
             return p + ' ' + spring.total + 'ms ' + spring.easing;
         }).join(', ');
         Object.keys(end).forEach(function(k) { pill.style[k] = end[k]; });
+        /* A compact pill that grows into the page title slides clear of it on
+           the same spring, instead of jumping on the next poll */
+        if (snap.expand === 'false') {
+            _diPlace(outer, { w: parseFloat(end.width), h: parseFloat(end.height) }, spring);
+        }
         var border = pill.animate([{ borderColor: snap.borderColor }, { borderColor: endBorder }],
                                   { duration: perceived, easing: 'ease-in-out' });
         /* The new state's glow fades in over the second half */
@@ -575,10 +583,123 @@
             clearTimeout(glowTimer);
             pill.classList.remove('di-morphing');
             if (progressBar) progressBar.style.opacity = '';
+            outer.style.transition = '';
             if (outer._flipCleanup === cleanup) outer._flipCleanup = null;
         }
         outer._flipCleanup = cleanup;
         setTimeout(function() { if (outer._flipCleanup === cleanup) cleanup(); }, spring.total + 50);
+    }
+
+    /* ── Placement in the page header (#216) ─────────────────────────
+       The pill sits centred on top of the page, Dynamic-Island style. When a
+       page's title, buttons or the theme toggle reach into that spot, it
+       slides sideways just far enough to clear them and stays in the header
+       row. Only when the row has no gap wide enough does it drop below the
+       buttons as a full-width row of its own (.di-flow), moving back up as
+       soon as there is room again.
+
+       The slide is the banner's `translate` (its centring `transform` stays
+       as it is). _diPlace works it out for a given pill size, so a state
+       change that widens the pill, or opening and closing it, moves it on
+       the reshape's own spring. The open pill is an overlay: it may cover
+       the title and buttons, but not the theme toggle or the page edge, and
+       it never switches fit mode. */
+    var _DI_PLACE_GAP = 16;       /* clearance from the title, buttons and toggle */
+    var _DI_PLACE_FLOW_GAP = 40;  /* clearance needed to leave fit mode: no flip-flopping at the edge */
+
+    function _diPlace(outer, size, spring, overlay) {
+        var header = outer && outer._diHeader;
+        if (!header || !outer.querySelector('.di-pill')) return;
+        var inFlow = outer.classList.contains('di-flow');
+        if (overlay && inFlow) return;  /* fit mode centres the open pill itself */
+        if (inFlow) outer.classList.remove('di-flow');  /* measured where it would sit on top */
+        var r = outer.getBoundingClientRect();
+        var slid = parseFloat(getComputedStyle(outer).translate) || 0;
+        var w = size ? size.w : r.width;
+        var top = r.top, bottom = r.top + Math.max(r.height, size ? size.h : 0);
+        var centre = r.left + r.width / 2 - slid;
+        /* Closed, as near the centre as the title allows; open, as near to
+           where it already is as fits (the least movement) */
+        var want = overlay ? centre + slid : centre;
+        var bounds = header.getBoundingClientRect();
+        var blocks = (overlay ? [document.querySelector('.top-controls')]
+                              : [header.querySelector(':scope > .page-title'),
+                                 header.querySelector(':scope > .action-buttons'),
+                                 document.querySelector('.top-controls')])
+            .map(function(el) { return el && el.getBoundingClientRect(); })
+            .filter(function(b) { return b && b.width && b.height && b.top < bottom && b.bottom > top; });
+
+        /* The free stretch of the row closest to the centre that fits the pill */
+        function slideFor(gap) {
+            var spans = blocks.map(function(b) { return [b.left - gap, b.right + gap]; })
+                              .sort(function(a, b) { return a[0] - b[0]; });
+            var free = [], x = bounds.left, best = null;
+            spans.forEach(function(s) { if (s[0] > x) free.push([x, s[0]]); x = Math.max(x, s[1]); });
+            if (bounds.right > x) free.push([x, bounds.right]);
+            free.forEach(function(f) {
+                if (f[1] - f[0] < w) return;
+                var c = Math.min(Math.max(want, f[0] + w / 2), f[1] - w / 2);
+                if (best === null || Math.abs(c - want) < Math.abs(best - want)) best = c;
+            });
+            return best === null ? null : Math.round(best - centre);
+        }
+
+        var slide = slideFor(inFlow ? _DI_PLACE_FLOW_GAP : _DI_PLACE_GAP);
+        if (slide !== null && inFlow) slide = slideFor(_DI_PLACE_GAP);
+        if (slide === null && overlay) slide = 0;  /* wider than the row: centred, as it always was */
+        if (slide === null) {
+            outer.classList.add('di-flow');
+            outer.style.transition = '';
+            outer.style.translate = '';
+            return;
+        }
+        outer.style.transition = (spring && !inFlow && Math.abs(slide - slid) >= 1)
+            ? 'translate ' + spring.total + 'ms ' + spring.easing : '';
+        outer.style.translate = slide ? slide + 'px 0' : '';
+    }
+
+    /* Called from base.html once the page header is parsed */
+    function placeIn(header) {
+        var outer = document.getElementById('global-operation-banner');
+        if (!outer || !header) return;
+        /* A child of the header, so fit mode can put it in the header's flow;
+           on top it is absolutely positioned and does not affect the layout */
+        var title = header.querySelector(':scope > .page-title');
+        header.insertBefore(outer, title ? title.nextSibling : header.firstChild);
+        outer._diHeader = header;
+
+        var retry = null;
+        function fit() {
+            clearTimeout(retry);
+            /* Mid-animation the pill is between sizes; place it once it has settled */
+            if (outer._flipCleanup) { retry = setTimeout(fit, 100); return; }
+            var state = outer.getAttribute('data-di-expanded');
+            _diPlace(outer, null, null, state === 'tier2' || state === 'tier3');
+        }
+
+        /* A replaced pill is placed before the next paint (microtask), so it
+           never flashes in the wrong place; size changes (window, sidebar,
+           the pill's own text) a frame later */
+        if (window.ResizeObserver) {
+            var ro = new ResizeObserver(function() { requestAnimationFrame(fit); });
+            ro.observe(header);
+            ro.observe(outer);
+        } else {
+            window.addEventListener('resize', fit);
+        }
+        new MutationObserver(function(list) {
+            if (list.some(function(m) { return m.type === 'childList'; })) fit();
+            if (list.some(function(m) { return m.type === 'attributes'; })) {
+                clearTimeout(retry);
+                retry = setTimeout(fit, 100);
+            }
+        }).observe(outer, {
+            childList: true,  /* direct children only: the pill itself being replaced */
+            attributes: true, attributeFilter: ['data-di-expanded']
+        });
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+        window.addEventListener('load', fit);
+        fit();
     }
 
     /* ── Continuity across page loads ────────────────────────────────
@@ -794,6 +915,13 @@
         }).join(', ');
         Object.keys(shapeAt.end).forEach(function(k) { pill.style[k] = shapeAt.end[k]; });
 
+        /* The banner's slide follows the bubble on the same spring: an opening
+           pill keeps clear of the theme toggle and the page edge, a closing one
+           goes back to its place beside the title */
+        var slideAt = { start: outer.style.translate };
+        _diPlace(outer, { w: endWidth, h: endHeight }, spring, toState !== 'false');
+        slideAt.end = outer.style.translate;
+
         /* 8. Content transitions (a morph runs its own crossfade instead) */
         if (isExpanding) {
             var enterTarget = (fromState === 'tier2' && toState === 'tier3')
@@ -848,6 +976,7 @@
             pill.style.transition = '';
             pill.style.willChange = '';
             pill.style.opacity = '';
+            outer.style.transition = '';
             if (progressBar) {
                 if (isExpanding) {
                     progressBar.style.transition = '';
@@ -879,6 +1008,7 @@
                 toward: function(which) {
                     flip.target = which;
                     Object.keys(shapeAt[which]).forEach(function(k) { pill.style[k] = shapeAt[which][k]; });
+                    outer.style.translate = slideAt[which];
                     morph.toward(which);
                     clearTimeout(flip.timer);
                     settleLater();
@@ -1259,7 +1389,7 @@
     }  // __diBannerListenersBound
 
     window.PillMotion = { config: cfg, spring: _diSpring, reducedMotion: _diReducedMotion,
-                          restoreBanner: restoreBanner };
+                          restoreBanner: restoreBanner, placeIn: placeIn };
     window.showBannerWarning = showBannerWarning;
     window.diGetExpandState = diGetExpandState;
     window.diSetExpandState = diSetExpandState;
