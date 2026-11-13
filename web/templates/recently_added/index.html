@@ -58,12 +58,7 @@
      hx-include="#ra-days-input"
      hx-trigger="load, pinned-updated from:body delay:400ms"
      hx-swap="innerHTML">
-    <div class="card">
-        <div class="card-body" style="text-align: center; padding: 3rem;">
-            <span class="spinner" style="width: 28px; height: 28px;"></span>
-            <div class="text-muted" style="margin-top: 0.75rem;">Loading recently added media...</div>
-        </div>
-    </div>
+    {% include "recently_added/partials/list_skeleton.html" %}
 </div>
 {% endblock %}
 

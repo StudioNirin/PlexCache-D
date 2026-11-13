@@ -1,0 +1,74 @@
+{# Shown while /recently-added/list asks Plex. The loaded page's shape, with its
+   headings and labels, so nothing jumps when the data lands. Only what Plex
+   decides (numbers, filter choices, rows) shimmers. #}
+<div aria-busy="true" aria-label="Loading recently added media">
+<div class="stats-row">
+    <div class="stat-card">
+        <div class="stat-card-header"><i data-lucide="sparkles"></i> Recently Added</div>
+        <div class="skeleton skeleton-value"></div>
+        <div class="stat-label">last {{ default_days }} day{{ 's' if default_days != 1 else '' }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-header"><i data-lucide="zap"></i> Already on Cache</div>
+        <div class="skeleton skeleton-value"></div>
+        <div class="stat-label">on fast storage now</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-card-header"><i data-lucide="server"></i> On Array</div>
+        <div class="skeleton skeleton-value"></div>
+        <div class="stat-label">not currently cached</div>
+    </div>
+</div>
+
+<div class="card mb-2">
+    <div class="card-body">
+        <div class="grid grid-3">
+            {% for label in ('Library', 'Added Within', 'Search') %}
+            <div class="form-group mb-0">
+                <label>{{ label }}</label>
+                <div class="skeleton ra-skeleton-control"></div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="activity-filter-bar" style="padding: 0.75rem 0 0;">
+            {% for width in (38, 75, 68) %}
+            <div class="skeleton ra-skeleton-pill" style="width: {{ width }}px;"></div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body" style="padding: 0; overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Library</th>
+                    <th>Added</th>
+                    <th>Size</th>
+                    <th>Location</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for title, sub in ((190, 120), (150, 90), (220, 140), (170, 100), (130, 80)) %}
+                <tr class="ra-skeleton-row">
+                    <td>
+                        <div class="skeleton skeleton-text" style="width: {{ title }}px;"></div>
+                        <div class="skeleton skeleton-text-sm" style="width: {{ sub }}px;"></div>
+                    </td>
+                    <td><div class="skeleton skeleton-text" style="width: 60px;"></div></td>
+                    <td><div class="skeleton skeleton-text" style="width: 52px;"></div></td>
+                    <td><div class="skeleton skeleton-text" style="width: 58px;"></div></td>
+                    <td><div class="skeleton ra-skeleton-pill" style="width: 76px;"></div></td>
+                    <td><div class="skeleton ra-skeleton-pill" style="width: 108px;"></div></td>
+                    <td><div class="skeleton ra-skeleton-button"></div></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+</div>

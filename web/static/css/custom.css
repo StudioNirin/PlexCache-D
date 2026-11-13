@@ -2044,6 +2044,15 @@ footer {
     .ra-explainer-more svg { transition: none; }
 }
 
+/* Recently Added skeleton (partials/list_skeleton.html), sized like the
+   controls, badges and buttons it stands in for */
+.ra-skeleton-control { height: 44px; border-radius: var(--plex-radius-sm); }
+.ra-skeleton-pill { height: 22px; border-radius: var(--plex-radius-xs); }
+.activity-filter-bar .ra-skeleton-pill { height: 24px; border-radius: var(--plex-radius-md); }
+.ra-skeleton-button { width: 58px; height: 30px; border-radius: var(--plex-radius-sm); }
+.ra-skeleton-row td { height: 4.25rem; }  /* a loaded row: title over its details */
+.ra-skeleton-row .skeleton-text-sm { margin: 0; }
+
 /* ─────────────────────────────────────────────────────────────────────
    Recently Added — small caption under a row's Pin action
    ───────────────────────────────────────────────────────────────────── */
@@ -2252,12 +2261,4 @@ footer {
 .library-stale-note .btn.htmx-request svg { animation: spin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
     .library-stale-note .btn.htmx-request svg { animation: none; }
-}
-
-/* Libraries skeleton: the bars sit in a card, which is the plain .skeleton's
-   own base colour, so they only showed while the shimmer passed. Here they
-   keep a visible base and the shimmer runs over it. */
-.library-skeleton .skeleton {
-    background: linear-gradient(90deg, var(--plex-bg-hover) 25%, var(--plex-bg-card-hover) 50%, var(--plex-bg-hover) 75%);
-    background-size: 200% 100%;
 }

@@ -2754,8 +2754,13 @@ td.user-badges .badge {
 
 /* ==================== Skeleton Loading ==================== */
 
+/* A tint of the text colour, so a bar shows on whatever it sits on (a card,
+   a tier card, a table header) in either theme. Solid surface colours matched
+   some of those surfaces and only showed while the shimmer passed. */
 .skeleton {
-    background: linear-gradient(90deg, var(--plex-bg-card) 25%, var(--plex-bg-hover) 50%, var(--plex-bg-card) 75%);
+    --skeleton-base: color-mix(in srgb, var(--plex-text) 9%, transparent);
+    --skeleton-shine: color-mix(in srgb, var(--plex-text) 16%, transparent);
+    background: linear-gradient(90deg, var(--skeleton-base) 25%, var(--skeleton-shine) 50%, var(--skeleton-base) 75%);
     background-size: 200% 100%;
     animation: skeleton-loading 1.5s infinite;
     border-radius: 4px;
@@ -2764,6 +2769,11 @@ td.user-badges .badge {
 @keyframes skeleton-loading {
     0% { background-position: 200% 0; }
     100% { background-position: -200% 0; }
+}
+
+/* The bars show without the shimmer, so reduced motion can simply stop it */
+@media (prefers-reduced-motion: reduce) {
+    .skeleton { animation: none; }
 }
 
 .skeleton-text {
@@ -2839,6 +2849,13 @@ td.user-badges .badge {
     border-top-color: var(--plex-orange);
     border-radius: 50%;
     animation: spin 0.8s linear infinite;
+}
+
+/* A <span> spinner in running text: as an inline box it ignored its size and
+   drew a thin vertical line (div spinners stay blocks, for margin: 0 auto) */
+span.spinner {
+    display: inline-block;
+    vertical-align: middle;
 }
 
 .btn-danger .spinner {
