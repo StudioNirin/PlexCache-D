@@ -2050,6 +2050,126 @@ pre.log-output-wrapped {
     width: 100%;
 }
 
+/* ==================== Logs: phone control bar ====================
+   On a phone the Filters and Search cards took most of the first screen and
+   the log itself started below it. There they become one bar (the cards and
+   their inner wrappers are display: contents, so every control is an item of
+   one grid): search, then Filters with a summary of what is in effect,
+   Refresh and Download. Everything marked data-log-panel opens from Filters. */
+.log-filters-toggle { display: none; }
+
+@media (max-width: 768px) {
+    .log-controls {
+        display: grid;
+        grid-template-columns: repeat(12, minmax(0, 1fr));
+        align-items: center;
+        gap: 0.625rem 0.5rem;
+        padding: 0.875rem;
+        margin-bottom: 1rem;
+        background: var(--plex-bg-card);
+        border: 1px solid var(--plex-border);
+        border-radius: var(--plex-radius-lg);
+        box-shadow: var(--plex-shadow-card);
+    }
+
+    .log-controls > .card,
+    .log-controls .card-body,
+    .log-controls .log-filters,
+    .log-controls .log-toolbar,
+    .log-controls .search-container,
+    .log-controls .log-options {
+        display: contents;
+    }
+
+    .log-controls:not(.is-open) [data-log-panel] { display: none; }
+
+    /* Row 1: search */
+    .log-controls #log-search { grid-row: 1; grid-column: 1 / 9; width: 100%; min-width: 0; }
+    .log-controls #search-results {
+        grid-row: 1; grid-column: 1 / 9; justify-self: end;
+        min-width: 0; padding-right: 0.6rem; pointer-events: none; position: relative;
+    }
+    .log-controls #search-prev { grid-row: 1; grid-column: 9 / 11; }
+    .log-controls #search-next { grid-row: 1; grid-column: 11 / 13; }
+    .log-controls #search-prev,
+    .log-controls #search-next { justify-content: center; align-self: stretch; }
+
+    /* Row 2: Filters, then Refresh and Download as icons */
+    .log-filters-toggle {
+        display: flex;
+        grid-row: 2;
+        grid-column: 1 / 9;
+        min-width: 0;
+        gap: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        font-size: 0.8rem;
+    }
+    .log-filters-toggle svg { width: 14px; height: 14px; flex-shrink: 0; }
+    .log-filters-title { font-weight: 600; flex-shrink: 0; }
+    .log-filters-summary {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-align: left;
+        font-weight: 400;
+        color: var(--plex-text-muted);
+    }
+    .log-filters-dot {
+        display: none;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--plex-orange);
+        flex-shrink: 0;
+    }
+    .log-filters-toggle.has-filters .log-filters-dot { display: block; }
+    .log-filters-chevron { transition: rotate 0.2s ease; }
+    .log-controls.is-open .log-filters-chevron { rotate: 180deg; }
+
+    .log-controls .log-actions { grid-row: 2; grid-column: 9 / 13; }
+    .log-controls .log-actions > label,
+    .log-controls .log-actions .btn-label { display: none; }
+    .log-controls .log-actions .flex { justify-content: flex-end; }
+    .log-controls .log-actions .btn { padding: 0.375rem 0.75rem; font-size: 0.8rem; }
+    .log-controls .log-actions .btn svg { width: 14px; height: 14px; }
+
+    /* Opened from Filters, in reading order, two to a row where they fit */
+    .log-controls .log-file-group     { order: 1; grid-column: 1 / -1; }
+    .log-controls .log-lines-group    { order: 2; grid-column: 1 / 7; }
+    .log-controls .log-level-group    { order: 3; grid-column: 7 / 13; }
+    .log-controls .log-phase-group    { order: 4; grid-column: 1 / -1; }
+    .log-controls .time-range-inputs  { order: 5; grid-column: 1 / -1; display: flex; }
+    .log-controls .log-regex-toggle   { order: 6; grid-column: 1 / 3; }
+    .log-controls .log-case-toggle    { order: 7; grid-column: 3 / 5; }
+    .log-controls .log-wrap-switch    { order: 8; grid-column: 5 / 13; justify-self: end; }
+    .log-controls .log-autoscroll-switch { order: 9; grid-column: 1 / 7; }
+    .log-controls .log-live-switch    { order: 10; grid-column: 7 / 13; justify-self: end; }
+
+    .log-controls [data-log-panel] label { font-size: 0.75rem; margin-bottom: 0.25rem; }
+    .log-controls .time-range-inputs input[type="time"] { flex: 1; width: auto; min-width: 0; }
+    .log-controls.is-open [data-log-panel] { animation: logPanelIn 0.2s ease-out both; }
+
+    /* The log itself: the title stays on one line (the level badges wrap
+       under it when they do not fit) and the text gets the width back that
+       two layers of padding took */
+    .log-output-card .card-header { flex-wrap: wrap; row-gap: 0.5rem; padding: 0.75rem 1rem; }
+    .log-output-card .card-header h2 { white-space: nowrap; }
+    .log-output-card .card-body { padding: 0.5rem; }
+    .log-output-card .log-viewer { padding: 0.625rem; }
+}
+
+@keyframes logPanelIn {
+    from { opacity: 0; translate: 0 -4px; }
+    to { opacity: 1; translate: 0 0; }
+}
+
+@media (max-width: 768px) and (prefers-reduced-motion: reduce) {
+    .log-controls.is-open [data-log-panel] { animation: none; }
+    .log-filters-chevron { transition: none; }
+}
+
 /* Stack filters vertically on narrow screens */
 @media (max-width: 600px) {
     .log-filters {
