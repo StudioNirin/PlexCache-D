@@ -1,0 +1,14 @@
+{# Shown while the Libraries tab loads the library list from Plex #}
+{% for width in (120, 150, 96) %}
+<div class="card mb-2 library-skeleton" aria-hidden="true">
+    <div class="card-body">
+        <div class="flex items-center justify-between gap-2">
+            <div class="flex items-center gap-2" style="flex: 1; min-width: 0;">
+                <div class="skeleton" style="width: 40px; height: 22px; border-radius: 11px;"></div>
+                <div class="skeleton skeleton-text" style="width: {{ width }}px; max-width: 60%; margin: 0;"></div>
+            </div>
+            <div class="skeleton skeleton-text-sm" style="width: 90px; flex-shrink: 0;"></div>
+        </div>
+    </div>
+</div>
+{% endfor %}

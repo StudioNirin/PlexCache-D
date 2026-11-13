@@ -2222,3 +2222,30 @@ footer {
     color: var(--plex-warning);
     font-size: 0.95em;
 }
+
+/* ─────────────────────────────────────────────────────────────────────
+   Libraries tab — note when the library list is not current (Plex could
+   not be reached on the last try), with Retry
+   ───────────────────────────────────────────────────────────────────── */
+.library-stale-note {
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.library-stale-note > svg { width: 18px; height: 18px; flex-shrink: 0; margin-top: 0.1rem; }
+.library-stale-note__text { flex: 1 1 12rem; min-width: 0; }  /* stays beside the icon on a phone */
+.library-stale-note__text a { color: inherit; text-decoration: underline; }
+.library-stale-note__why { margin-top: 0.25rem; font-size: 0.8rem; opacity: 0.85; }
+.library-stale-note .btn { flex-shrink: 0; margin-left: auto; }
+.library-stale-note .btn svg { width: 14px; height: 14px; }
+.library-stale-note .btn.htmx-request svg { animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+    .library-stale-note .btn.htmx-request svg { animation: none; }
+}
+
+/* Libraries skeleton: the bars sit in a card, which is the plain .skeleton's
+   own base colour, so they only showed while the shimmer passed. Here they
+   keep a visible base and the shimmer runs over it. */
+.library-skeleton .skeleton {
+    background: linear-gradient(90deg, var(--plex-bg-hover) 25%, var(--plex-bg-card-hover) 50%, var(--plex-bg-hover) 75%);
+    background-size: 200% 100%;
+}

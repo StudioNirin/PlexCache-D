@@ -9,17 +9,14 @@
     <div class="card-body">
         <p class="text-muted mb-2">Select libraries to cache and configure their path mappings.</p>
 
-        {% if not library_cards %}
-        <div class="alert alert-info">
-            <i data-lucide="alert-circle"></i>
-            <span>Unable to fetch libraries from Plex. Check your <a href="/settings/plex" style="color: var(--plex-orange-text);">server connection</a>.</span>
-        </div>
-        {% endif %}
-
-        <div id="library-cards" data-setting-id="library_toggles">
-            {% for card in library_cards %}
-                {% include "settings/partials/library_card.html" %}
-            {% endfor %}
+        {# Lazy-loaded when the list has to come from Plex (skeleton meanwhile) #}
+        <div id="library-cards-section" data-setting-id="library_toggles"
+             {% if libraries_lazy %}hx-get="/settings/libraries/cards" hx-trigger="load" hx-swap="innerHTML"{% endif %}>
+            {% if libraries_lazy %}
+                {% include "settings/partials/library_cards_skeleton.html" %}
+            {% else %}
+                {% include "settings/partials/library_cards_section.html" %}
+            {% endif %}
         </div>
 
         {% include "settings/partials/custom_mappings.html" %}

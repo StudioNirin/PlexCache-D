@@ -126,9 +126,11 @@ def test_remove_button_shown_only_with_multiple_mappings(client):
     test_client, service = client
     # Two mappings → editing exposes a Remove control.
     r = test_client.get("/settings/libraries")
-    # The libraries page lists cards; ensure the edit form carries delete plumbing
-    # when a library has more than one mapping.
-    assert "removeLibraryMapping(4" in r.text or "delete_1" in r.text
+    # The library cards load from /settings/libraries/cards when the list has
+    # to come from Plex; ensure the edit form carries delete plumbing when a
+    # library has more than one mapping.
+    cards = test_client.get("/settings/libraries/cards")
+    assert "removeLibraryMapping(4" in cards.text or "delete_1" in cards.text
     # Removal uses the styled modal, not the native browser confirm().
     assert 'id="remove-mapping-modal"' in r.text
     assert "confirmRemoveMapping()" in r.text

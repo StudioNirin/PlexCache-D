@@ -18,7 +18,7 @@ from starlette.datastructures import ImmutableMultiDict
 from web.config import templates, CONFIG_DIR, PLEXCACHE_PRODUCT_VERSION
 from web.dependencies import parse_form
 from web.services import get_settings_service, get_scheduler_service
-from core.system_utils import get_disk_usage, detect_zfs, parse_size_bytes, size_setting_error
+from core.system_utils import get_disk_usage, detect_zfs, parse_size_bytes, size_setting_error, format_cache_age
 from core.file_operations import (
     PRIORITY_RANGE_ONDECK_MIN,
     PRIORITY_RANGE_ONDECK_MAX,
@@ -605,16 +605,17 @@ def delete_path_mapping(
 # Libraries tab endpoints
 # =============================================================================
 
-@router.get("/libraries", response_class=HTMLResponse)
-def settings_libraries(request: Request):
-    """Libraries tab — combined library toggle + path mappings"""
-    settings_service = get_settings_service()
+def _library_cards(settings_service, retry: bool = False) -> Dict[str, Any]:
+    """The Libraries tab's library cards, and whether the list is current.
 
-    # Run one-time migration (links existing path_mappings to Plex libraries)
-    settings_service.migrate_link_path_mappings_to_libraries()
+    May ask Plex (the list is cached for an hour), which is why the tab
+    lazy-loads this when the list is not at hand.
+    """
+    # One-time migration (links existing path_mappings to Plex libraries)
+    migrated = settings_service.migrate_link_path_mappings_to_libraries()
 
-    # Fetch libraries from Plex
-    libraries = settings_service.get_plex_libraries()
+    status = settings_service.get_plex_libraries_status(retry=retry)
+    libraries = status["libraries"]
 
     # Load path mappings
     raw_settings = settings_service.get_all()
@@ -629,7 +630,6 @@ def settings_libraries(request: Request):
             m_copy = dict(m)
             m_copy["_index"] = i
             library_mappings.setdefault(sid, []).append(m_copy)
-    orphan_mappings = _custom_mappings(mappings)
 
     # Build library cards
     library_cards = []
@@ -644,16 +644,49 @@ def settings_libraries(request: Request):
             "has_mappings": bool(lib_maps),
         })
 
-    return templates.TemplateResponse(
-        request,
-        "settings/libraries.html",
-        {
-            "page_title": "Library Settings",
-            "active_tab": "libraries",
-            "library_cards": library_cards,
-            "orphan_mappings": orphan_mappings,
-        }
-    )
+    return {
+        "library_cards": library_cards,
+        "libraries_stale": status["stale"],
+        "libraries_age": format_cache_age(status["fetched_at"]),
+        "libraries_error": status["error"],
+        "migrated": migrated,
+        "mappings": mappings,
+    }
+
+
+@router.get("/libraries", response_class=HTMLResponse)
+def settings_libraries(request: Request):
+    """Libraries tab — combined library toggle + path mappings.
+
+    Renders at once. When the library list is at hand (fresh, or Plex failed
+    moments ago) the cards are in the page; otherwise a skeleton stands in and
+    /settings/libraries/cards loads them, so a slow or unreachable Plex no
+    longer holds up the whole tab.
+    """
+    settings_service = get_settings_service()
+    context: Dict[str, Any] = {"page_title": "Library Settings", "active_tab": "libraries"}
+    if settings_service.plex_libraries_ready():
+        cards = _library_cards(settings_service)
+        context.update(cards, libraries_lazy=False)
+        mappings = cards["mappings"]
+    else:
+        context["libraries_lazy"] = True
+        mappings = settings_service.get_all().get("path_mappings", [])
+    context["orphan_mappings"] = _custom_mappings(mappings)
+    return templates.TemplateResponse(request, "settings/libraries.html", context)
+
+
+@router.get("/libraries/cards", response_class=HTMLResponse)
+def settings_library_cards(request: Request, retry: bool = False):
+    """The Libraries tab's cards (lazy-loaded; Retry asks Plex again)"""
+    settings_service = get_settings_service()
+    cards = _library_cards(settings_service, retry=retry)
+    html = templates.get_template("settings/partials/library_cards_section.html").render(
+        {"request": request, **cards})
+    if cards["migrated"]:
+        # The migration just linked mappings to libraries: Custom Mappings changed too
+        html += _render_custom_mappings(request, cards["mappings"], oob=True)
+    return HTMLResponse(html)
 
 
 @router.post("/libraries/{section_id}/toggle", response_class=HTMLResponse)
