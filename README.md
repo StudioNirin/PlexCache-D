@@ -46,6 +46,11 @@ The original PlexCache app only worked for local users for most features, due to
 - (New v3.2) - **Extension-Free Caching** - Cache ALL sibling files (artwork, NFOs, metadata) alongside videos, not just subtitles. Eliminates array spinups caused by Plex reading poster.jpg, .nfo, or other small files.
 - (New v3.2) - **Reference-Counted Directory Files** - Shared files like `poster.jpg` stay cached until the last video in the directory is evicted.
 - (New v3.2) - **Sidecar File Indicators** - Dashboard shows sidecar file counts alongside subtitle counts in the cache browser.
+- (New v3.3) - **Jellyfin (Optional)** - Add Jellyfin 10.9+ alongside Plex, so Jellyfin users' Continue Watching, Next Up and favorites are cached too. See [Jellyfin](#jellyfin-optional).
+- (New v3.3) - **Recently Added** - A page and dashboard widget showing new media, whether it is on the cache or the array, and pins to keep it on the cache.
+- (New v3.3) - **Release to Mover** - Watched files that were never backed up as `.plexcached` are handed back to the Unraid mover instead of being copied to the array.
+- (New v3.3) - **API Access** - An API key so Tautulli or Home Assistant can start or stop a run, even with the Web UI login on.
+- (New v3.3) - **Atomic Cache Copies** - Files are copied under a hidden name and renamed into place once verified, so Plex never sees a partial file.
 - Move watched media present on the cache drive back to the array.
 - Move all sibling files (subtitles, artwork, metadata) along with the media moved to or from the cache.
 - Filter media older than a specified number of days.
