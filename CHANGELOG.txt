@@ -6,7 +6,8 @@
 - Add Jellyfin 10.9+ as a second source next to Plex: each Jellyfin user's Continue Watching and Next Up are cached like Plex OnDeck
 - Optionally treat unplayed Jellyfin favorites as a watchlist, since Jellyfin has none
 - Files playing on Jellyfin are left alone, and source badges show whether Plex or Jellyfin wanted a file
-- Set up with environment variables (Community Apps: Show more settings) or the settings file. Plex is still required
+- Set up with environment variables (Community Apps: Show more settings) or the settings file
+- It adds to Plex rather than replacing it: every run still starts from your Plex server, and Jellyfin's files are found through Plex's library paths
 
 **Recently Added** ([#205](https://github.com/StudioNirin/PlexCache-D/pull/205), [#239](https://github.com/StudioNirin/PlexCache-D/pull/239))
 - New Recently Added page and dashboard widget: see what is new, whether it is on the cache or the array, and pin what you want kept on the cache
