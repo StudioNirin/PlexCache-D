@@ -161,18 +161,49 @@ def test_version_url(test_build, commit, url):
     assert update_check.version_url("3.3.0", test_build, commit) == update_check.REPO_URL + url
 
 
+@pytest.mark.parametrize("test_build,commit,title", [
+    (False, SHA, "Release notes for v3.3.0"),
+    (True, SHA, "Build e426fa9 on GitHub"),
+    (True, None, "Release notes for v3.3.0"),
+])
+def test_version_title_says_what_the_link_opens(test_build, commit, title):
+    assert update_check.version_title("3.3.0", test_build, commit) == title
+
+
 # -- the page ---------------------------------------------------------------------
 
-def test_the_footer_is_gone():
-    assert "<footer" not in BASE and "web_version" not in BASE
+def test_the_footer_shows_the_real_version_and_project_links():
+    footer = BASE[BASE.index('<footer class="app-footer">'):BASE.index("</footer>")]
+    assert "web_version" not in BASE, "the web package's internal version is back"
+    assert "PlexCache-D v{{ product_version }}" in footer
+    for link in ("footer_links.repo", "footer_links.release_notes", "footer_links.issues", "footer_links.build_url"):
+        assert f'href="{{{{ {link} }}}}" target="_blank" rel="noopener"' in footer, link
+    assert 'class="app-footer-update" href="{{ update.url }}"' in footer
+    # Styled by class: a bare footer selector would also reach any <footer> a page adds
     for css in ("plex-theme.css", "custom.css"):
         text = re.sub(r"/\*.*?\*/", "", (ROOT / "web" / "static" / "css" / css).read_text(encoding="utf-8"), flags=re.S)
-        assert not re.search(r"(^|[\s,}\]])footer(\s*[{,]|\s+[.>\w])", text), f"{css} still styles <footer>"
+        assert not re.search(r"(^|[\s,}\]])footer(\s*[{,]|\s+[.>\w])", text), f"{css} styles a bare <footer>"
+
+
+@pytest.mark.parametrize("test_build,commit,notes,build", [
+    (False, SHA, "/releases/tag/v3.3.0", "e426fa9"),
+    (False, None, "/releases/tag/v3.3.0", None),
+    (True, SHA, "/blob/main/CHANGELOG.txt", "e426fa9"),
+    (True, "unknown", "/blob/main/CHANGELOG.txt", None),
+])
+def test_footer_links(test_build, commit, notes, build):
+    links = update_check.footer_links("3.3.0", test_build, commit)
+    assert links["release_notes"] == update_check.REPO_URL + notes
+    assert links["build"] == build
+    assert links["build_url"] == (f"{update_check.REPO_URL}/commit/{SHA}" if build else None)
+    assert links["repo"] == update_check.REPO_URL
+    assert links["issues"] == update_check.REPO_URL + "/issues/new/choose"
 
 
 def test_the_sidebar_links_the_version_and_shows_an_update():
     brand = BASE[BASE.index('<div class="sidebar-brand">'):BASE.index('<ul class="sidebar-nav">')]
     assert '<a href="{{ version_url }}" target="_blank" rel="noopener"' in brand
+    assert 'title="{{ version_title }}"' in brand
     assert "{% set update = available_update() %}" in BASE
     assert 'class="sidebar-update" href="{{ update.url }}"' in brand
     assert "has-update" in brand

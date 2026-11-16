@@ -88,7 +88,7 @@
                 <div class="sidebar-brand-text">
                     <span>PlexCache-D</span>
                     <small class="sidebar-brand-version"><a href="{{ version_url }}" target="_blank" rel="noopener"
-                        title="{% if tag_label %}The commit this build was made from{% else %}What's new in v{{ product_version }}{% endif %}">v{{ product_version }}</a>{% if tag_label %} <span class="dev-badge">{{ tag_label }}</span>{% endif %}</small>
+                        title="{{ version_title }}">v{{ product_version }}</a>{% if tag_label %} <span class="dev-badge">{{ tag_label }}</span>{% endif %}</small>
                     {% if update %}
                     <a class="sidebar-update" href="{{ update.url }}" target="_blank" rel="noopener"
                        title="See what's new in v{{ update.version }}">
@@ -197,6 +197,21 @@
                     // when the header row has no room (pill-motion.js, placeIn)
                     if (window.PillMotion) PillMotion.placeIn(document.querySelector('.content-wrapper > .page-header'));
                 </script>
+
+                <footer class="app-footer">
+                    <span>PlexCache-D v{{ product_version }}</span>
+                    {% if footer_links.build %}
+                    <a href="{{ footer_links.build_url }}" target="_blank" rel="noopener">build {{ footer_links.build }}</a>
+                    {% endif %}
+                    <a href="{{ footer_links.repo }}" target="_blank" rel="noopener">GitHub</a>
+                    <a href="{{ footer_links.release_notes }}" target="_blank" rel="noopener">{% if tag_label %}Changelog{% else %}Release notes{% endif %}</a>
+                    <a href="{{ footer_links.issues }}" target="_blank" rel="noopener">Report an issue</a>
+                    {% if update %}
+                    <a class="app-footer-update" href="{{ update.url }}" target="_blank" rel="noopener">
+                        <i data-lucide="circle-fading-arrow-up"></i>v{{ update.version }} available
+                    </a>
+                    {% endif %}
+                </footer>
             </div>
         </main>
     </div>

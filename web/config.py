@@ -59,6 +59,10 @@ templates.env.globals["product_version"] = PLEXCACHE_PRODUCT_VERSION
 from web import update_check
 templates.env.globals["version_url"] = update_check.version_url(
     PLEXCACHE_PRODUCT_VERSION, bool(tag_label(IMAGE_TAG)), os.environ.get("GIT_COMMIT"))
+templates.env.globals["version_title"] = update_check.version_title(
+    PLEXCACHE_PRODUCT_VERSION, bool(tag_label(IMAGE_TAG)), os.environ.get("GIT_COMMIT"))
+templates.env.globals["footer_links"] = update_check.footer_links(
+    PLEXCACHE_PRODUCT_VERSION, bool(tag_label(IMAGE_TAG)), os.environ.get("GIT_COMMIT"))
 templates.env.globals["available_update"] = update_check.get_available_update
 
 # Share alignment check — exposed as a template global so every code path that

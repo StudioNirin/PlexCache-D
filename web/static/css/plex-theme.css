@@ -2950,6 +2950,58 @@ span.spinner {
     animation: spin 1s linear infinite;
 }
 
+/* ==================== Footer ==================== */
+
+/* Version, build and project links (#243). Items wrap between dots on phones;
+   muted text without opacity, which left the old footer at 2.1:1 in light. */
+.app-footer {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    row-gap: 0.35rem;
+    margin-top: 2rem;
+    padding: 1.25rem 1rem 1.5rem;
+    border-top: 1px solid var(--plex-border);
+    font-size: 0.8rem;
+    color: var(--plex-text-muted);
+}
+.app-footer > * + *::before {
+    content: "\00B7";
+    display: inline-block;  /* keeps the link underline off the dot */
+    margin: 0 0.6rem;
+    color: var(--plex-text-muted);
+}
+.app-footer a {
+    color: var(--plex-text-muted);
+    text-decoration: none;
+}
+.app-footer a:hover {
+    color: var(--plex-text);
+    text-decoration: underline;
+}
+.app-footer a:focus-visible {
+    outline: 2px solid var(--plex-orange);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+.app-footer .app-footer-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    color: var(--plex-orange-text);
+    font-weight: 600;
+}
+.app-footer-update svg {
+    width: 13px;
+    height: 13px;
+}
+/* On phones the items wrap, and a dot would start the next line: space them instead */
+@media (max-width: 768px) {
+    .app-footer { column-gap: 1.1rem; }
+    .app-footer > * + *::before { content: none; }
+}
+
 /* ==================== Theme Toggle ==================== */
 
 .theme-toggle {

@@ -109,6 +109,23 @@ def clear() -> None:
         _available = None
 
 
+def footer_links(version: str, test_build: bool, commit: Optional[str]) -> Dict[str, Optional[str]]:
+    """Links for the page footer.
+
+    The build is the commit the image was made from (GIT_COMMIT), shown only when
+    it is a real commit hash, so a bug report can say exactly what is running.
+    A test build's version may not have a release yet, so it gets the changelog.
+    """
+    sha = commit if commit and _COMMIT.fullmatch(commit) else None
+    return {
+        "repo": REPO_URL,
+        "issues": f"{REPO_URL}/issues/new/choose",
+        "release_notes": f"{REPO_URL}/blob/main/CHANGELOG.txt" if test_build else f"{REPO_URL}/releases/tag/v{version}",
+        "build": sha[:7] if sha else None,
+        "build_url": f"{REPO_URL}/commit/{sha}" if sha else None,
+    }
+
+
 def version_url(version: str, test_build: bool, commit: Optional[str]) -> str:
     """Where the sidebar version links to.
 
@@ -119,3 +136,10 @@ def version_url(version: str, test_build: bool, commit: Optional[str]) -> str:
     if test_build and commit and _COMMIT.fullmatch(commit):
         return f"{REPO_URL}/commit/{commit}"
     return f"{REPO_URL}/releases/tag/v{version}"
+
+
+def version_title(version: str, test_build: bool, commit: Optional[str]) -> str:
+    """Hover text for the sidebar version: what the link opens."""
+    if test_build and commit and _COMMIT.fullmatch(commit):
+        return f"Build {commit[:7]} on GitHub"
+    return f"Release notes for v{version}"
