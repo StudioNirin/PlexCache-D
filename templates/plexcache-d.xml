@@ -54,7 +54,7 @@
   <ExtraSearchTerms>plex jellyfin cache mover ssd array spindown ondeck watchlist media</ExtraSearchTerms>
 
   <!-- If this container is beta container, set Beta to true-->
-  <Beta>true</Beta>
+  <Beta>false</Beta>
 
   <!-- Minimum Unraid version.-->
   <MinVer>6.1</MinVer>
