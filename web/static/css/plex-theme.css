@@ -127,9 +127,6 @@ body {
     box-shadow: inset 3px 0 0 var(--plex-orange);
 }
 [data-theme="light"] .sidebar-nav li a.active svg { color: var(--plex-orange); }
-/* Footer: opacity on top of the muted grey left the version at 2.1:1 */
-[data-theme="light"] footer,
-[data-theme="light"] footer .version { opacity: 1; }
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
@@ -225,6 +222,57 @@ body {
     line-height: 1;
     vertical-align: middle;
     margin-left: 0.2rem;
+}
+
+/* The version links to its release notes, or to a test build's commit */
+.sidebar-brand-version a {
+    color: inherit;
+    text-decoration: none;
+}
+.sidebar-brand-version a:hover {
+    color: var(--plex-text);
+    text-decoration: underline;
+}
+
+/* "vX.Y.Z available" under the version (web/update_check.py) */
+.sidebar-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.35rem;
+    font-size: 0.68rem;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--plex-orange-text);
+    text-decoration: none;
+    white-space: nowrap;
+}
+.sidebar-update:hover { text-decoration: underline; }
+.sidebar-update svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+}
+.sidebar-brand-version a:focus-visible,
+.sidebar-update:focus-visible {
+    outline: 2px solid var(--plex-orange);
+    outline-offset: 2px;
+    border-radius: 2px;
+}
+
+/* A collapsed sidebar hides that text, so the brand icon carries a dot */
+.sidebar-brand-icon { position: relative; }
+.sidebar.collapsed .sidebar-brand-icon.has-update::after,
+.sidebar-collapsed-init .sidebar .sidebar-brand-icon.has-update::after {
+    content: '';
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--plex-text);
+    box-shadow: 0 0 0 2px var(--plex-bg-dark);
 }
 
 .sidebar-nav {
@@ -2902,23 +2950,6 @@ span.spinner {
     animation: spin 1s linear infinite;
 }
 
-/* ==================== Footer ==================== */
-
-footer {
-    text-align: center;
-    padding: 2rem;
-    color: var(--plex-text-muted);
-    font-size: 0.85rem;
-    border-top: 1px solid var(--plex-border);
-    margin-top: 2rem;
-}
-
-footer .version {
-    color: var(--plex-text-muted);
-    opacity: 0.7;
-    margin-left: 0.5rem;
-}
-
 /* ==================== Theme Toggle ==================== */
 
 .theme-toggle {
@@ -3020,6 +3051,40 @@ footer .version {
 .mobile-brand .sidebar-brand-icon i {
     width: 16px;
     height: 16px;
+}
+
+/* Phones hide the sidebar's brand row, so a new release shows here instead */
+.mobile-update {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: 0.25rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: var(--plex-radius-sm);
+    background: color-mix(in srgb, var(--plex-orange) 14%, transparent);
+    color: var(--plex-orange-text);
+    font-size: 0.72rem;
+    font-weight: 600;
+    line-height: 1;
+    text-decoration: none;
+    white-space: nowrap;
+}
+.mobile-update svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+.mobile-update:focus-visible {
+    outline: 2px solid var(--plex-orange);
+    outline-offset: 2px;
+}
+/* Under 360px the version text would reach the theme toggle: icon only (the link keeps its aria-label) */
+@media (max-width: 359px) {
+    .mobile-update {
+        font-size: 0;
+        gap: 0;
+        padding: 0.3rem;
+    }
 }
 
 .mobile-actions {

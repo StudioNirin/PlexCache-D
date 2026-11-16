@@ -52,6 +52,7 @@
     {% block head %}{% endblock %}
 </head>
 <body>
+    {% set update = available_update() %}
     <!-- Mobile Header -->
     <header class="mobile-header">
         <button class="hamburger-btn" onclick="toggleSidebar()" aria-label="Toggle menu">
@@ -60,6 +61,12 @@
         <div class="mobile-brand">
             <div class="sidebar-brand-icon"><i data-lucide="hard-drive"></i></div>
             <span>PlexCache-D</span>
+            {% if update %}
+            <a class="mobile-update" href="{{ update.url }}" target="_blank" rel="noopener"
+               title="See what's new in v{{ update.version }}" aria-label="PlexCache-D v{{ update.version }} is available">
+                <i data-lucide="circle-fading-arrow-up"></i>v{{ update.version }}
+            </a>
+            {% endif %}
         </div>
         <div class="mobile-actions">
             <button class="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
@@ -76,10 +83,18 @@
         <!-- Sidebar -->
         <nav class="sidebar">
             <div class="sidebar-brand">
-                <div class="sidebar-brand-icon"><i data-lucide="hard-drive"></i></div>
+                <div class="sidebar-brand-icon{% if update %} has-update{% endif %}"
+                     {% if update %}title="PlexCache-D v{{ update.version }} is available"{% endif %}><i data-lucide="hard-drive"></i></div>
                 <div class="sidebar-brand-text">
                     <span>PlexCache-D</span>
-                    <small class="sidebar-brand-version">v{{ product_version }}{% if tag_label %} <span class="dev-badge">{{ tag_label }}</span>{% endif %}</small>
+                    <small class="sidebar-brand-version"><a href="{{ version_url }}" target="_blank" rel="noopener"
+                        title="{% if tag_label %}The commit this build was made from{% else %}What's new in v{{ product_version }}{% endif %}">v{{ product_version }}</a>{% if tag_label %} <span class="dev-badge">{{ tag_label }}</span>{% endif %}</small>
+                    {% if update %}
+                    <a class="sidebar-update" href="{{ update.url }}" target="_blank" rel="noopener"
+                       title="See what's new in v{{ update.version }}">
+                        <i data-lucide="circle-fading-arrow-up"></i>v{{ update.version }} available
+                    </a>
+                    {% endif %}
                 </div>
             </div>
             <ul class="sidebar-nav">
@@ -182,10 +197,6 @@
                     // when the header row has no room (pill-motion.js, placeIn)
                     if (window.PillMotion) PillMotion.placeIn(document.querySelector('.content-wrapper > .page-header'));
                 </script>
-
-                <footer>
-                    PlexCache-D Web UI <span class="version">v{{ web_version }}</span>
-                </footer>
             </div>
         </main>
     </div>

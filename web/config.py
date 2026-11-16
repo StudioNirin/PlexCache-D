@@ -7,7 +7,6 @@ from pathlib import Path
 
 from fastapi.templating import Jinja2Templates
 
-from web import __version__
 from core.system_utils import SystemDetector, check_cache_share_alignment
 
 # Paths
@@ -54,8 +53,13 @@ templates.env.globals["tag_label"] = tag_label(IMAGE_TAG)
 _detector = SystemDetector()
 templates.env.globals["is_unraid"] = _detector.is_unraid
 templates.env.globals["is_docker"] = IS_DOCKER
-templates.env.globals["web_version"] = __version__
 templates.env.globals["product_version"] = PLEXCACHE_PRODUCT_VERSION
+
+# Sidebar version link and "new version available" notice (see web/update_check.py)
+from web import update_check
+templates.env.globals["version_url"] = update_check.version_url(
+    PLEXCACHE_PRODUCT_VERSION, bool(tag_label(IMAGE_TAG)), os.environ.get("GIT_COMMIT"))
+templates.env.globals["available_update"] = update_check.get_available_update
 
 # Share alignment check — exposed as a template global so every code path that
 # renders a mapping card gets it, rather than each route remembering to attach it.

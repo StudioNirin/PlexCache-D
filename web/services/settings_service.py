@@ -61,6 +61,8 @@ KNOWN_SETTINGS_KEYS = frozenset({
     # Jellyfin as an additional OnDeck and watchlist source
     "jellyfin_url", "jellyfin_api_key", "jellyfin_path_mappings", "jellyfin_skip_users",
     "jellyfin_favorites_toggle",
+    # New-release notice in the sidebar (web/update_check.py)
+    "update_check",
     # Legacy keys (migrated or ignored on load)
     "sonarr_enabled", "sonarr_url", "sonarr_api_key",
     "radarr_enabled", "radarr_url", "radarr_api_key",
@@ -821,7 +823,9 @@ class SettingsService:
             "webhook_level": raw.get("webhook_level", "summary"),
             # New list-based levels
             "unraid_levels": raw.get("unraid_levels", []),
-            "webhook_levels": raw.get("webhook_levels", [])
+            "webhook_levels": raw.get("webhook_levels", []),
+            # New-release notice in the sidebar (web/update_check.py), on by default
+            "update_check": raw.get("update_check", True) is not False,
         }
 
     def save_notification_settings(self, settings: Dict[str, Any]) -> bool:
@@ -835,6 +839,7 @@ class SettingsService:
         # Legacy fields for backward compatibility
         raw["unraid_level"] = settings.get("unraid_level", raw.get("unraid_level", "summary"))
         raw["webhook_level"] = settings.get("webhook_level", raw.get("webhook_level", "summary"))
+        raw["update_check"] = bool(settings.get("update_check", raw.get("update_check", True)))
         return self._save_raw(raw)
 
     def get_arr_instances(self) -> List[Dict[str, Any]]:

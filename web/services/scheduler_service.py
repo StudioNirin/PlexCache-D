@@ -3,7 +3,7 @@
 import json
 import logging
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
@@ -68,6 +68,7 @@ class SchedulerService:
 
     JOB_ID = "plexcache_scheduled_run"
     PLEX_CACHE_JOB_ID = "plex_cache_refresh"
+    UPDATE_CHECK_JOB_ID = "update_check"
 
     def __init__(self):
         self._scheduler = BackgroundScheduler(
@@ -101,6 +102,9 @@ class SchedulerService:
 
         # Always start the Plex cache refresh job (hourly)
         self._start_plex_cache_refresh_job()
+
+        # New-release check for the sidebar (every 12 hours, first one shortly after start)
+        self._start_update_check_job()
 
         logger.info("Scheduler service started")
 
@@ -160,6 +164,32 @@ class SchedulerService:
         from web.services import get_settings_service
         settings_service = get_settings_service()
         settings_service.refresh_plex_cache()
+
+    def _start_update_check_job(self):
+        """Check GitHub for a newer release every 12 hours (web/update_check.py).
+
+        The first check waits 30 seconds so it never slows startup.
+        """
+        from web import update_check
+        try:
+            self._scheduler.add_job(
+                self._check_for_update,
+                trigger=IntervalTrigger(hours=update_check.CHECK_INTERVAL_HOURS),
+                next_run_time=datetime.now() + timedelta(seconds=30),
+                id=self.UPDATE_CHECK_JOB_ID,
+                name="Update Check",
+                replace_existing=True,
+            )
+        except Exception as e:
+            logger.error(f"Failed to start update check job: {e}")
+
+    def _check_for_update(self):
+        """One update check, unless the update_check setting is off."""
+        from web import update_check
+        if update_check.is_enabled(SETTINGS_FILE):
+            update_check.check_for_update()
+        else:
+            update_check.clear()
 
     def stop(self):
         """Stop the scheduler"""
