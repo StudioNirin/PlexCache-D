@@ -520,6 +520,14 @@ _INDEX: List[Dict[str, Any]] = [
         "icon": "webhook", "tone": "tone-purple",
         "keywords": ["webhook", "levels", "summary", "activity", "success", "warning", "error"],
     },
+    {
+        "tab": "notifications", "setting_id": "update_check",
+        "label": "Show When a New Version Is Out",
+        "hint": "Check GitHub twice a day and show a new release under the version in the sidebar.",
+        "section": "Notifications", "subsection": "Updates",
+        "icon": "circle-fading-arrow-up", "tone": "tone-purple",
+        "keywords": ["update", "updates", "new version", "release", "upgrade", "github", "check"],
+    },
 
     # --- Logging -----------------------------------------------------------
     {

@@ -7,7 +7,7 @@ import uuid
 from html import escape as html_escape
 import threading
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from urllib.parse import urlparse
 
 import requests
@@ -1121,10 +1121,12 @@ def save_notification_settings(
     notification_type: str = Form("system"),
     webhook_url: str = Form(""),
     unraid_levels: List[str] = Form([]),
-    webhook_levels: List[str] = Form([])
+    webhook_levels: List[str] = Form([]),
+    update_check: Optional[str] = Form(None)
 ):
     """Save notification settings"""
     settings_service = get_settings_service()
+    check_updates = update_check == "true"
 
     success = settings_service.save_notification_settings({
         "notification_type": notification_type,
@@ -1133,10 +1135,17 @@ def save_notification_settings(
         "webhook_levels": webhook_levels,
         # Keep legacy fields for backward compatibility
         "unraid_level": unraid_levels[0] if unraid_levels else "summary",
-        "webhook_level": webhook_levels[0] if webhook_levels else "summary"
+        "webhook_level": webhook_levels[0] if webhook_levels else "summary",
+        "update_check": check_updates,
     })
 
     if success:
+        # The sidebar notice follows the switch now, not at the next 12-hour check
+        from web import update_check as update_checker
+        if check_updates:
+            update_checker.check_in_background()
+        else:
+            update_checker.clear()
         return templates.TemplateResponse(
             request,
             "partials/alert.html",

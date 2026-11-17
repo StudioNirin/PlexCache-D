@@ -141,15 +141,6 @@ article nav ul li a[aria-current="page"] {
     margin-bottom: -1px;
 }
 
-/* Footer styling */
-footer {
-    margin-top: 2rem;
-    padding-top: 1rem;
-    border-top: 1px solid var(--plex-border);
-    text-align: center;
-    opacity: 0.7;
-}
-
 /* Recent Activity scrollable container */
 .recent-activity-scroll {
     max-height: 400px;
