@@ -235,8 +235,11 @@ class TestSymlinkToggleOnUnraid:
                 from web.routers import settings as settings_router
                 app = FastAPI()
                 app.include_router(settings_router.router, prefix="/settings")
+                # The page also totals the cached files through the shared
+                # cache service, which other tests leave in their own state.
                 with patch("web.routers.settings.get_settings_service",
-                           return_value=SettingsService()):
+                           return_value=SettingsService()),                      patch("web.services.get_cache_service",
+                           side_effect=RuntimeError("not needed here")):
                     r = TestClient(app).get("/settings/cache")
             assert r.status_code == 200
             start = r.text.index('data-setting-id="use_symlinks"')
