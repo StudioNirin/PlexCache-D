@@ -996,6 +996,17 @@ class PlexCacheApp:
         from configuration alone, hence advice rather than an error.
         """
         if getattr(self.system_detector, 'is_unraid', False):
+            # On Unraid the share already shows the cache copy at the original
+            # path, so the option only ever patches over a cache path in the
+            # wrong share, and its links are not removed once it is off (#246).
+            if self.config_manager.cache.use_symlinks:
+                logging.warning(
+                    "'Create symlinks' is on, but Unraid doesn't need it: the share "
+                    "already shows cached files at their original paths. If Plex can't "
+                    "find cached files, check that each library's cache path is in the "
+                    "same share as its real path, then turn 'Create symlinks' off in "
+                    "Settings > Cache."
+                )
             return
         if self.config_manager.cache.use_symlinks:
             return

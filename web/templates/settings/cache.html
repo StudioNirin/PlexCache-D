@@ -192,13 +192,24 @@
             <div class="form-group" data-setting-id="use_symlinks">
                 <label class="switch">
                     <input type="checkbox" name="use_symlinks"
-                           {% if settings.use_symlinks %}checked{% endif %}>
+                           {% if settings.use_symlinks %}checked{% endif %}
+                           {% if is_unraid and not settings.use_symlinks %}disabled{% endif %}>
                     <span>Create Symlinks After Caching</span>
                 </label>
+                {% if is_unraid and settings.use_symlinks %}
+                <div class="form-hint" style="color: var(--plex-warning); margin-top: 0.25rem;">This is on, but Unraid
+                doesn't need it: the share already shows cached files at their original paths. If Plex can't find
+                cached files, check that each library's cache path is in the same share as its real path
+                (Settings &gt; Libraries), then turn this off.</div>
+                {% elif is_unraid %}
+                <div class="form-hint">Not used on Unraid: the share already shows cached files at their original
+                paths. This option is for other systems, where the original location would otherwise be empty.</div>
+                {% else %}
                 <div class="form-hint">For non-Unraid systems: creates a symlink at the original file
                 location pointing to the cached copy, so Plex can still find files. Not needed on Unraid
                 or mergerfs (FUSE handles this). In Docker, both paths must be mounted at the same absolute
                 paths in PlexCache-D and Plex containers.</div>
+                {% endif %}
             </div>
 
             <div class="form-group" data-setting-id="auto_transfer_upgrades">
