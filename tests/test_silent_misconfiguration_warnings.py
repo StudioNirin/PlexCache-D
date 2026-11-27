@@ -121,6 +121,14 @@ class TestSymlinkAdvisory:
 
         assert caplog.text == ""
 
+    def test_warns_on_unraid_with_symlinks_on(self, caplog):
+        """On Unraid the option only patches over a cache path in the wrong share (#246)."""
+        with caplog.at_level(logging.WARNING):
+            _symlink_app(is_unraid=True, use_symlinks=True)._advise_on_symlinks()
+
+        assert "Unraid doesn't need it" in caplog.text
+        assert "same share" in caplog.text
+
     def test_silent_when_symlinks_are_on(self, caplog):
         with caplog.at_level(logging.WARNING):
             _symlink_app(is_unraid=False, use_symlinks=True)._advise_on_symlinks()

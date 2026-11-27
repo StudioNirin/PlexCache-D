@@ -1,6 +1,7 @@
 """Setup wizard routes for first-run configuration"""
 
 import json
+import os
 import uuid
 import time
 import requests
@@ -13,8 +14,13 @@ from starlette.datastructures import ImmutableMultiDict
 from web.config import templates, PROJECT_ROOT, PLEXCACHE_PRODUCT_VERSION
 from web.dependencies import parse_form
 from web.services import get_settings_service
+from core.system_utils import check_cache_share_alignment, suggest_mapping_paths
 
 router = APIRouter()
+
+# Where Unraid user shares appear inside the container. Setup checks real
+# paths against it; tests point it at a temporary folder.
+USER_SHARES_ROOT = "/mnt/user"
 
 # PlexCache-D OAuth identifiers
 PLEXCACHE_PRODUCT_NAME = 'PlexCache-D'
@@ -281,24 +287,13 @@ def setup_step3_post(request: Request, form_data: ImmutableMultiDict = Depends(p
                 else:
                     mapping_name = lib_title
 
-                # Suggest real_path based on common Docker path patterns
-                # Common patterns: /data/ -> /mnt/user/, /media/ -> /mnt/user/
-                real_path = plex_path_normalized
-                for docker_prefix, host_prefix in [('/data/', '/mnt/user/'), ('/media/', '/mnt/user/')]:
-                    if plex_path_normalized.startswith(docker_prefix):
-                        real_path = plex_path_normalized.replace(docker_prefix, host_prefix, 1)
-                        break
-
-                # Derive cache_path using prefix swap to preserve full structure
-                # e.g., /data/GUEST/Movies/ -> /mnt/cache/GUEST/Movies/
-                cache_path = None
-                if is_cacheable:
-                    cache_path = plex_path_normalized
-                    for docker_prefix in ['/data/', '/media/']:
-                        if plex_path_normalized.startswith(docker_prefix):
-                            cache_path = plex_path_normalized.replace(docker_prefix, cache_dir_normalized + '/', 1)
-                            break
-                # host_cache_path defaults to same as cache_path (user can override in settings)
+                # Suggest paths from the folders that exist. The cache path
+                # follows the real path, so it stays in the same share.
+                real_path, cache_path = suggest_mapping_paths(
+                    plex_path_normalized, cache_dir_normalized, USER_SHARES_ROOT
+                )
+                if not is_cacheable:
+                    cache_path = None
                 host_cache_path = cache_path
 
                 path_mappings.append({
@@ -311,15 +306,75 @@ def setup_step3_post(request: Request, form_data: ImmutableMultiDict = Depends(p
                     "enabled": True
                 })
 
-    # Store in memory (not to disk yet)
-    update_setup_state({
+    step3_state = {
         "valid_sections": valid_sections,
         "library_cacheable": library_cacheable,
         "cache_dir": cache_dir,
         "path_mappings": path_mappings
-    })
+    }
+
+    # Show the paths before moving on when one looks wrong. Most people skip
+    # the mapping section, so a bad guess would otherwise only surface later
+    # as files Plex can't find.
+    problems = _path_mapping_problems(path_mappings)
+    if problems and form_data.get("confirm_paths") != "on":
+        update_setup_state(step3_state)
+        return _render_step3(request, path_problems=problems)
+
+    # Store in memory (not to disk yet)
+    update_setup_state(step3_state)
 
     return RedirectResponse(url="/setup?step=4", status_code=303)
+
+
+def _path_mapping_problems(path_mappings: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    """List the mappings whose paths would not work, with the reason.
+
+    Two checks: the real path must exist when the user shares are mounted,
+    and a cacheable mapping must cache into the same Unraid share as its
+    media (the same check Settings > Libraries shows after setup).
+    """
+    problems = []
+    shares_mounted = os.path.isdir(USER_SHARES_ROOT)
+    for mapping in path_mappings:
+        name = mapping.get("name") or mapping.get("plex_path") or "Mapping"
+        real_path = mapping.get("real_path") or ""
+        if shares_mounted and real_path and not os.path.isdir(real_path):
+            problems.append({
+                "name": name,
+                "message": (
+                    f"Real path '{real_path}' doesn't exist in PlexCache's container. "
+                    f"On Unraid it is usually {USER_SHARES_ROOT}/<share>/<folder>/."
+                ),
+            })
+            continue
+        if not mapping.get("cacheable") or not mapping.get("cache_path"):
+            continue
+        warning = check_cache_share_alignment(
+            real_path, mapping.get("cache_path") or "", mapping.get("host_cache_path")
+        )
+        if warning:
+            problems.append({"name": name, "message": warning["message"]})
+    return problems
+
+
+def _render_step3(request: Request, path_problems: Optional[List[Dict[str, str]]] = None):
+    """Render step 3 from the saved settings and the setup state."""
+    settings_service = get_settings_service()
+    settings = {**settings_service.get_all(), **_setup_state}
+    context = {
+        "page_title": "Setup",
+        "step": 3,
+        "total_steps": 7,
+        "settings": settings,
+        "libraries": _setup_state.get("_cached_libraries", []),
+        "valid_sections": settings.get("valid_sections", []),
+        "library_cacheable": settings.get("library_cacheable", {}),
+        "cache_dir": settings.get("cache_dir", "/mnt/cache"),
+        "path_mappings": settings.get("path_mappings", []),
+        "path_problems": path_problems or [],
+    }
+    return templates.TemplateResponse(request, "setup/step3.html", context)
 
 
 @router.post("/setup/step4", response_class=HTMLResponse)

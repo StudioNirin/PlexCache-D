@@ -76,9 +76,29 @@
         <div class="form-group">
             <label>Path Mappings <span style="font-weight: normal; color: var(--plex-text-muted);">(Advanced)</span></label>
             <p class="help-text" style="margin-bottom: 0.75rem;">
-                Only needed if Plex paths differ from your actual filesystem paths (e.g., Docker path remapping).
-                Most users can skip this section.
+                Leave this empty and PlexCache fills the paths in from your Plex libraries when you click Next.
+                If one looks wrong, it shows them here before moving on.
+                {% if is_unraid %}The cache path has to be the cache side of the same share as the real path,
+                for example <code>/mnt/user/Media/Movies/</code> caches to <code>/mnt/cache/Media/Movies/</code>.{% endif %}
             </p>
+
+            {% if path_problems %}
+            <div class="alert alert-warning" id="path-problems" style="margin-bottom: 1rem; align-items: flex-start;">
+                <i data-lucide="alert-triangle" style="flex-shrink: 0;"></i>
+                <div style="font-size: 0.9rem;">
+                    <strong>Check these paths before continuing</strong>
+                    <ul style="margin: 0.35rem 0 0.5rem 1.1rem; padding: 0;">
+                        {% for problem in path_problems %}
+                        <li><strong>{{ problem.name }}:</strong> {{ problem.message }}</li>
+                        {% endfor %}
+                    </ul>
+                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                        <input type="checkbox" name="confirm_paths">
+                        <span>These paths are right, continue anyway</span>
+                    </label>
+                </div>
+            </div>
+            {% endif %}
 
             {% if is_docker %}
             <!-- Docker host cache path explanation -->
@@ -100,8 +120,6 @@
                 {% if path_mappings %}
                     {% for mapping in path_mappings %}
                     <div class="path-mapping-row" style="background: var(--surface-secondary); padding: 1rem; border-radius: var(--plex-radius-sm); margin-bottom: 0.75rem;">
-                        <input type="hidden" name="mapping_name_{{ loop.index0 }}" value="{{ mapping.name }}">
-
                         <div style="display: grid; gap: 0.5rem;">
                             <div style="display: flex; gap: 0.5rem; align-items: center;">
                                 <strong style="width: 110px; font-size: 0.85rem; color: var(--text-secondary);">Name:</strong>

@@ -973,7 +973,10 @@ def _setup_advanced_settings():
         restore_hardlink_choice = input('Skip hard-linked files on restore? [y/N] ').strip().lower()
         settings_data['check_hardlinks_on_restore'] = restore_hardlink_choice == 'y'
 
-    # Symlink Support (non-Unraid systems)
+    # Symlink Support (non-Unraid systems). Unraid's shares already show the
+    # cache copy at the original path, so the question is not asked there.
+    if 'use_symlinks' not in settings_data and is_unraid():
+        settings_data['use_symlinks'] = False
     if 'use_symlinks' not in settings_data:
         print('\n--- Symlink Support ---')
         print('On non-Unraid systems (standard Linux, Docker without mergerfs/FUSE),')
