@@ -166,6 +166,93 @@ def check_cache_share_alignment(
     }
 
 
+def _find_dir_ignoring_case(root: str, relative: str) -> Optional[str]:
+    """Return the directory under root that matches relative, ignoring case.
+
+    Each segment matches exactly when it can, otherwise the single entry whose
+    name differs only by case. None when a segment has no match or more than
+    one.
+    """
+    current = root
+    for segment in [s for s in relative.split("/") if s]:
+        exact = posixpath.join(current, segment)
+        if os.path.isdir(exact):
+            current = exact
+            continue
+        try:
+            matches = [
+                name for name in os.listdir(current)
+                if name.lower() == segment.lower()
+                and os.path.isdir(posixpath.join(current, name))
+            ]
+        except OSError:
+            return None
+        if len(matches) != 1:
+            return None
+        current = posixpath.join(current, matches[0])
+    return current
+
+
+def suggest_mapping_paths(plex_path: str, cache_dir: str,
+                          user_root: str = "/mnt/user") -> Tuple[str, str]:
+    """Suggest the real path and cache path for one Plex library folder.
+
+    Plex sees the media through its own container mounts, so its path rarely
+    matches PlexCache's. On Unraid the media lives under /mnt/user/<share>/,
+    and Plex usually mounts either a share (/mnt/user/Media as /Media or
+    /media) or all of /mnt/user (as /data). This tries both readings against
+    the folders that exist, preferring an exact match to one that differs only
+    by case.
+
+    The cache path is built from the real path, so it is always the pool side
+    of the same share: /mnt/user/Media/Movies/ caches to /mnt/cache/Media/Movies/.
+
+    When nothing matches (not Unraid, or /mnt/user isn't mounted) it falls back
+    to swapping a leading /data/ or /media/, as setup always did.
+
+    Returns:
+        (real_path, cache_path), both with a trailing slash.
+    """
+    plex = "/" + plex_path.strip("/")
+    root = user_root.rstrip("/")
+    cache_root = (cache_dir or "/mnt/cache").rstrip("/")
+
+    if plex == root or plex.startswith(root + "/"):
+        candidates = [plex[len(root):]]
+    else:
+        segments = [s for s in plex.split("/") if s]
+        # /Media/Movies -> <root>/Media/Movies, then <root>/Movies
+        candidates = [plex]
+        if len(segments) > 1:
+            candidates.append("/" + "/".join(segments[1:]))
+
+    real = None
+    if os.path.isdir(root):
+        for relative in candidates:
+            if os.path.isdir(root + relative):
+                real = root + relative
+                break
+        if real is None:
+            for relative in candidates:
+                real = _find_dir_ignoring_case(root, relative)
+                if real:
+                    break
+
+    if real is not None:
+        cache = cache_root + real[len(root):]
+        return real.rstrip("/") + "/", cache.rstrip("/") + "/"
+
+    # Fallback: the old prefix swap.
+    plex_slash = plex.rstrip("/") + "/"
+    if plex_slash.startswith(root + "/"):
+        return plex_slash, cache_root + plex_slash[len(root):]
+    for prefix in ("/data/", "/media/"):
+        if plex_slash.startswith(prefix):
+            rest = plex_slash[len(prefix):]
+            return root + "/" + rest, cache_root + "/" + rest
+    return plex_slash, plex_slash
+
+
 # ZFS-backed path prefixes that should NOT be converted to /mnt/user0/.
 # For ZFS pool-only shares (shareUseCache=only), files never appear at /mnt/user0/
 # because that path only shows standard array disks. Using /mnt/user/ is safe for
