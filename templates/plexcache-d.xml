@@ -18,7 +18,8 @@
   This app reduces energy consumption by minimizing the need to spin up the array/hard drive(s) when watching recurrent media like TV series.
   It achieves this by moving the media from the OnDeck and watchlist for the main user and/or other users.
   For TV shows/anime, it also fetches the next specified number of episodes.
-  Optionally add Jellyfin 10.9+ alongside Plex, so Jellyfin users' Continue Watching and Next Up are cached too.</Overview>
+  Optionally add Jellyfin 10.9+ alongside Plex, so Jellyfin users' Continue Watching and Next Up are cached too.
+  Setup: each library's cache path must be the cache side of the same share as its media, for example /mnt/user/Media/Movies caches to /mnt/cache/Media/Movies. The setup wizard fills these in from your Plex libraries. See the README before changing them.</Overview>
 
   <!-- Shown as the Change Log in Community Apps. Full list: CHANGELOG.txt -->
   <Changes>
